@@ -126,6 +126,7 @@ let
       "${src}/compositor/patches/wlroots/0021-drm-lease-lifetime.patch"
       "${src}/compositor/patches/wlroots/0022-pointer-enter-serial-validation.patch"
       "${src}/compositor/patches/wlroots/0023-commit-timing-v1.patch"
+      "${src}/compositor/patches/wlroots/0024-protocol-versions.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending

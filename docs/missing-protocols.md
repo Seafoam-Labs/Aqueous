@@ -169,14 +169,35 @@ For reference, the protocol set confirmed in the codebase:
 `wl_data_device_manager`, `wl_output`, `wl_seat`.
 
 **Desktop, rendering, and input protocols (mixed stability):** xdg-shell (v7), presentation-time (v2),
-viewporter, idle-inhibit-v1, xdg-decoration-v1, relative-pointer-v1,
-pointer-constraints-v1, tablet-v2, input-method-v2, text-input-v3,
-xdg-activation-v1, xdg-output-v1, linux-dmabuf-v1 (v5), pointer-gestures-v1,
+viewporter, idle-inhibit-v1, xdg-decoration-v1 (v2), relative-pointer-v1,
+pointer-constraints-v1, tablet-v2 (v2), input-method-v2, text-input-v3 (v2),
+xdg-activation-v1, xdg-output-v1, linux-dmabuf-v1 (v6), pointer-gestures-v1,
 single-pixel-buffer-v1, fractional-scale-v1, cursor-shape-v1 (v2),
 tearing-control-v1, alpha-modifier-v1, linux-drm-syncobj-v1,
 color-management-v1 (v2/v3), color-representation-v1, security-context-v1, wayland-fixes,
 content-type-v1, fifo-v1, commit-timing-v1, xdg-dialog-v1, xdg-system-bell-v1, drm-lease-v1
 (per usable DRM backend).
+
+The pinned wlroots patch `0024-protocol-versions.patch` provides these version
+upgrades while preserving older client bindings. DMA-BUF v6 advertises sampling
+tranches and accepts explicit sampling-device selection for the main renderer;
+unsupported devices fail import normally. Decoration v2 supports negotiation on
+mapped surfaces and retains the previous mode across destruction/recreation
+without an intervening surface commit. Tablet v2 sends the bus type when libinput
+provides it; Aqueous still does not expose tablet pads or dials. Text-input v2
+validates and double-buffers available actions, accepts panel hints, and provides
+version-gated action, language, and preedit-hint events. The existing input-method-v2
+bridge cannot supply action/language events or control panel visibility, so those
+capabilities remain limited by the input method. New text-input hint bits are
+kept local rather than forwarded to that older bridge.
+
+Run `python3 scripts/test-protocol-versions.py` from `compositor/` against a build
+using the patched dependency to check all four advertised versions on Vulkan,
+including old clients, mapped decoration recreation, new requests, and protocol
+errors. `--renderer pixman` covers the same paths except DMA-BUF, which requires
+a renderer with DMA-BUF support. The dependency build also runs focused handler
+tests for action buffering and validation, event version gates, sampling-device
+validation, and feedback flags.
 
 xdg-shell v7 includes v6 suspension and v7 constrained-edge hints, filtered by
 each client's bound version. Suspension follows workspace/output visibility,

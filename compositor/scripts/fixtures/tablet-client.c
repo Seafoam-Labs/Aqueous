@@ -72,7 +72,12 @@ static void global(void *d,struct wl_registry *r,uint32_t n,const char *i,uint32
  if(!strcmp(i,"wl_compositor"))compositor=wl_registry_bind(r,n,&wl_compositor_interface,4);
  if(!strcmp(i,"wl_shm"))shm=wl_registry_bind(r,n,&wl_shm_interface,1);
  if(!strcmp(i,"wl_seat"))seat=wl_registry_bind(r,n,&wl_seat_interface,1);
- if(!strcmp(i,"zwp_tablet_manager_v2"))manager=wl_registry_bind(r,n,&zwp_tablet_manager_v2_interface,1);
+ if(!strcmp(i,"zwp_tablet_manager_v2")) {
+  const char *requested=getenv("AQUEOUS_TEST_TABLET_VERSION");
+  uint32_t version=requested ? (uint32_t)atoi(requested) : 2;
+  assert(v>=2 && (version==1 || version==2));
+  manager=wl_registry_bind(r,n,&zwp_tablet_manager_v2_interface,version);
+ }
  if(!strcmp(i,"xdg_wm_base")){wm=wl_registry_bind(r,n,&xdg_wm_base_interface,1);xdg_wm_base_add_listener(wm,&wm_listener,NULL);}
  if(!strcmp(i,"wl_output")&&v>=4){struct wl_output *o=wl_registry_bind(r,n,&wl_output_interface,4);wl_output_add_listener(o,&output_listener,NULL);}
 }

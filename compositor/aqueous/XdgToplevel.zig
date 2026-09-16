@@ -35,6 +35,8 @@ tag_metadata: @import("ToplevelTag.zig") = .{},
 /// decoration object so object recreation cannot inherit the configure state
 /// of its predecessor.
 decoration_configure_pending: bool = false,
+/// Version-2 decoration destruction takes effect with the next surface commit.
+decoration_removed_seq: ?u32 = null,
 
 geometry: wlr.Box = .{ .x = 0, .y = 0, .width = 0, .height = 0 },
 
@@ -384,6 +386,14 @@ fn handleAckConfigure(
 fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
     const toplevel: *XdgToplevel = @fieldParentPtr("commit", listener);
     const window = toplevel.window;
+
+    if (toplevel.decoration_removed_seq) |seq| {
+        const current = toplevel.wlr_toplevel.base.surface.current.seq;
+        if (@as(i32, @bitCast(current -% seq)) >= 0) {
+            toplevel.decoration_removed_seq = null;
+            if (toplevel.decoration == null) window.setDecorationHint(.only_supports_csd);
+        }
+    }
 
     if (toplevel.icon.commit()) {
         server.ipc_server.invalidateIcons(window.ref);

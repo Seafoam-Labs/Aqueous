@@ -22,6 +22,7 @@ pub fn init(wlr_decoration: *wlr.XdgToplevelDecorationV1) void {
     const toplevel: *XdgToplevel = @ptrCast(@alignCast(wlr_decoration.toplevel.base.data));
 
     toplevel.decoration = .{ .wlr_decoration = wlr_decoration };
+    toplevel.decoration_removed_seq = null;
     const decoration = &toplevel.decoration.?;
 
     wlr_decoration.events.destroy.add(&decoration.destroy);
@@ -32,6 +33,7 @@ pub fn init(wlr_decoration: *wlr.XdgToplevelDecorationV1) void {
 
 pub fn deinit(decoration: *XdgDecoration) void {
     const toplevel: *XdgToplevel = @ptrCast(@alignCast(decoration.wlr_decoration.toplevel.base.data));
+    const version = decoration.wlr_decoration.resource.getVersion();
 
     decoration.destroy.link.remove();
     decoration.request_mode.link.remove();
@@ -39,7 +41,11 @@ pub fn deinit(decoration: *XdgDecoration) void {
     assert(toplevel.decoration != null);
     toplevel.decoration = null;
     toplevel.decoration_configure_pending = false;
-    toplevel.window.setDecorationHint(.only_supports_csd);
+    if (version >= 2) {
+        toplevel.decoration_removed_seq = toplevel.wlr_toplevel.base.surface.pending.seq;
+    } else {
+        toplevel.window.setDecorationHint(.only_supports_csd);
+    }
 }
 
 fn syncRequestedMode(decoration: *XdgDecoration) void {

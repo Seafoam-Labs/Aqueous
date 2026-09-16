@@ -168,9 +168,9 @@ pub fn build(b: *Build) !void {
     scanner.generate("xdg_wm_base", 7);
     scanner.generate("zwp_pointer_gestures_v1", 3);
     scanner.generate("zwp_pointer_constraints_v1", 1);
-    scanner.generate("zwp_tablet_manager_v2", 1);
+    scanner.generate("zwp_tablet_manager_v2", 2);
     scanner.generate("zwp_xwayland_keyboard_grab_manager_v1", 1);
-    scanner.generate("zxdg_decoration_manager_v1", 1);
+    scanner.generate("zxdg_decoration_manager_v1", 2);
     scanner.generate("zxdg_importer_v2", 1);
     scanner.generate("zxdg_exporter_v2", 1);
     scanner.generate("ext_session_lock_manager_v1", 1);

@@ -23,12 +23,14 @@ def main():
     parser.add_argument('--compositor', type=Path, default=ROOT / 'zig-out/bin/aqueous')
     parser.add_argument('--ctl', type=Path, default=ROOT / 'zig-out/bin/aqueousctl')
     parser.add_argument('--renderer', choices=('pixman', 'vulkan'), default='pixman')
+    parser.add_argument('--protocol-version', choices=('1', '2'), default='2')
     parser.add_argument('--external', action='store_true', help='Check production external-policy ownership and absence of test injection')
     args = parser.parse_args()
     work = Path(tempfile.mkdtemp(prefix='aqueous-tablet-'))
     print(f'Artifacts: {work}', flush=True)
     runtime = work / 'runtime'; runtime.mkdir(mode=0o700)
     env = {k: v for k, v in os.environ.items() if not k.startswith(('AQUEOUS_', 'WLR_')) and k not in ('DISPLAY', 'WAYLAND_DISPLAY', 'WAYLAND_SOCKET', 'LD_PRELOAD', 'DBUS_SESSION_BUS_ADDRESS')}
+    env['AQUEOUS_TEST_TABLET_VERSION'] = args.protocol_version
     env.update(XDG_RUNTIME_DIR=str(runtime), XDG_CONFIG_HOME=str(work / 'config'),
                XDG_CACHE_HOME=str(work / 'cache'), XDG_STATE_HOME=str(work / 'state'),
                WLR_BACKENDS='headless', WLR_HEADLESS_OUTPUTS='2', WLR_RENDERER=args.renderer)

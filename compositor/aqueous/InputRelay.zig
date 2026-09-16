@@ -185,8 +185,12 @@ pub fn sendInputMethodState(relay: *InputRelay) void {
     input_method.sendTextChangeCause(wlr_text_input.current.text_change_cause);
 
     if (wlr_text_input.active_features.content_type) {
+        // input-method-v2 only defines the original text-input hint bits.
+        // Keep version-2 text-input hints local instead of sending unknown
+        // flags to existing input methods.
+        const hint: u32 = @bitCast(wlr_text_input.current.content_type.hint);
         input_method.sendContentType(
-            wlr_text_input.current.content_type.hint,
+            @bitCast(hint & 0x3ff),
             wlr_text_input.current.content_type.purpose,
         );
     }

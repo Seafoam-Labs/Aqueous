@@ -1,0 +1,547 @@
+--- a/include/wlr/types/wlr_text_input_v3.h
++++ b/include/wlr/types/wlr_text_input_v3.h
+@@ -100,4 +100,17 @@
+ 	uint32_t after_length);
+ void wlr_text_input_v3_send_done(struct wlr_text_input_v3 *text_input);
+ 
++/* Interface version 2. Actions are represented by (1u << protocol_action).
++ * Sending helpers suppress events which the client's bound version lacks.
++ * An action requires an enabled, focused input and a committed available action.
++ * Preedit hints must follow preedit_string and precede done. */
++uint32_t wlr_text_input_v3_get_available_actions(struct wlr_text_input_v3 *text_input);
++bool wlr_text_input_v3_get_panel_requested(struct wlr_text_input_v3 *text_input);
++void wlr_text_input_v3_send_action(struct wlr_text_input_v3 *text_input,
++	uint32_t action, uint32_t serial);
++void wlr_text_input_v3_send_language(struct wlr_text_input_v3 *text_input,
++	const char *language);
++void wlr_text_input_v3_send_preedit_hint(struct wlr_text_input_v3 *text_input,
++	uint32_t start, uint32_t end, uint32_t hint);
++
+ #endif
+--- a/types/tablet_v2/wlr_tablet_v2.c
++++ b/types/tablet_v2/wlr_tablet_v2.c
+@@ -10,7 +10,7 @@
+ #include <wlr/util/log.h>
+ #include "tablet-v2-protocol.h"
+ 
+-#define TABLET_MANAGER_VERSION 1
++#define TABLET_MANAGER_VERSION 2
+ 
+ struct wlr_tablet_manager_client_v2 {
+ 	struct wl_list link;
+@@ -150,7 +150,7 @@
+ 		return;
+ 	}
+ 	struct wl_resource *tablet_seat_resource = wl_resource_create(wl_client,
+-		&zwp_tablet_seat_v2_interface, TABLET_MANAGER_VERSION, id);
++		&zwp_tablet_seat_v2_interface, wl_resource_get_version(resource), id);
+ 	if (tablet_seat_resource == NULL) {
+ 		wl_client_post_no_memory(wl_client);
+ 		return;
+--- a/types/tablet_v2/wlr_tablet_v2_tablet.c
++++ b/types/tablet_v2/wlr_tablet_v2_tablet.c
+@@ -1,4 +1,9 @@
+ #include <assert.h>
++#include <wlr/config.h>
++#include "config.h"
++#if WLR_HAS_LIBINPUT_BACKEND && HAVE_LIBINPUT_BUSTYPE
++#include <wlr/backend/libinput.h>
++#endif
+ #include <stdlib.h>
+ #include <types/wlr_tablet_v2.h>
+ #include <wayland-util.h>
+@@ -116,6 +121,16 @@
+ 		zwp_tablet_v2_send_path(client->resource, *path_ptr);
+ 	}
+ 
++#if WLR_HAS_LIBINPUT_BACKEND && HAVE_LIBINPUT_BUSTYPE
++	if (version >= ZWP_TABLET_V2_BUSTYPE_SINCE_VERSION &&
++			wlr_input_device_is_libinput(tablet->wlr_device)) {
++		struct libinput_device *device = wlr_libinput_get_device_handle(tablet->wlr_device);
++		unsigned int bustype = libinput_device_get_id_bustype(device);
++		if (bustype != 0) {
++			zwp_tablet_v2_send_bustype(client->resource, bustype);
++		}
++	}
++#endif
+ 	zwp_tablet_v2_send_done(client->resource);
+ 
+ 	client->client = seat->wl_client;
+--- a/types/wlr_linux_dmabuf_v1.c
++++ b/types/wlr_linux_dmabuf_v1.c
+@@ -21,13 +21,15 @@
+ #include <wlr/backend/drm.h>
+ #endif
+ 
+-#define LINUX_DMABUF_VERSION 5
++#define LINUX_DMABUF_VERSION 6
+ 
+ struct wlr_linux_buffer_params_v1 {
+ 	struct wl_resource *resource;
+ 	struct wlr_linux_dmabuf_v1 *linux_dmabuf;
+ 	struct wlr_dmabuf_attributes attributes;
+ 	bool has_modifier;
++	bool has_sampling_device;
++	dev_t sampling_device;
+ };
+ 
+ struct wlr_linux_dmabuf_feedback_v1_compiled_tranche {
+@@ -144,6 +146,43 @@
+ static void params_destroy(struct wl_client *client,
+ 		struct wl_resource *resource) {
+ 	wl_resource_destroy(resource);
++}
++
++static void params_set_sampling_device(struct wl_client *client,
++		struct wl_resource *resource, struct wl_array *device) {
++	struct wlr_linux_buffer_params_v1 *params = params_from_resource(resource);
++	if (!params) {
++		wl_resource_post_error(resource, ZWP_LINUX_BUFFER_PARAMS_V1_ERROR_ALREADY_USED,
++			"params was already used to create a wl_buffer");
++		return;
++	}
++	if (device->size != sizeof(dev_t)) {
++		wl_resource_post_error(resource, ZWP_LINUX_BUFFER_PARAMS_V1_ERROR_INVALID_DEV_T_SIZE,
++			"sampling device must contain exactly one dev_t");
++		return;
++	}
++	memcpy(&params->sampling_device, device->data, sizeof(dev_t));
++	params->has_sampling_device = true;
++}
++
++/* This implementation samples on the main renderer only. A device removed
++ * from feedback must fail import normally, not disconnect the client. Compare
++ * DRM devices as well as dev_t so primary/render aliases identify the same GPU. */
++static bool sampling_device_supported(struct wlr_linux_buffer_params_v1 *params) {
++	if (!params->has_sampling_device) {
++		return true;
++	}
++	dev_t main_device = params->linux_dmabuf->default_feedback->main_device;
++	if (params->sampling_device == main_device) {
++		return true;
++	}
++	drmDevice *main = NULL, *requested = NULL;
++	bool same = drmGetDeviceFromDevId(main_device, 0, &main) == 0 &&
++		drmGetDeviceFromDevId(params->sampling_device, 0, &requested) == 0 &&
++		drmDevicesEqual(main, requested);
++	drmFreeDevice(&main);
++	drmFreeDevice(&requested);
++	return same;
+ }
+ 
+ static void params_add(struct wl_client *client,
+@@ -241,6 +280,7 @@
+ 
+ 	struct wlr_dmabuf_attributes attribs = params->attributes;
+ 	struct wlr_linux_dmabuf_v1 *linux_dmabuf = params->linux_dmabuf;
++	bool sampling_supported = sampling_device_supported(params);
+ 
+ 	// Make the params resource inert
+ 	wl_resource_set_user_data(params_resource, NULL);
+@@ -343,7 +383,7 @@
+ 	}
+ 
+ 	/* Check if dmabuf is usable */
+-	if (!linux_dmabuf->check_dmabuf_callback(&attribs,
++	if (!sampling_supported || !linux_dmabuf->check_dmabuf_callback(&attribs,
+ 				linux_dmabuf->check_dmabuf_callback_data)) {
+ 		goto err_failed;
+ 	}
+@@ -417,6 +457,7 @@
+ 	.add = params_add,
+ 	.create = params_create,
+ 	.create_immed = params_create_immed,
++	.set_sampling_device = params_set_sampling_device,
+ };
+ 
+ static void params_handle_resource_destroy(struct wl_resource *resource) {
+@@ -584,7 +625,8 @@
+ 			&compiled->tranches[i];
+ 
+ 		compiled_tranche->target_device = tranche->target_device;
+-		compiled_tranche->flags = tranche->flags;
++		compiled_tranche->flags = tranche->flags != 0 ? tranche->flags :
++			ZWP_LINUX_DMABUF_FEEDBACK_V1_TRANCHE_FLAGS_SAMPLING;
+ 
+ 		wl_array_init(&compiled_tranche->indices);
+ 		if (!wl_array_add(&compiled_tranche->indices, table_len * sizeof(uint16_t))) {
+@@ -645,7 +687,11 @@
+ 		.data = (void *)&tranche->target_device,
+ 	};
+ 	zwp_linux_dmabuf_feedback_v1_send_tranche_target_device(resource, &dev_array);
+-	zwp_linux_dmabuf_feedback_v1_send_tranche_flags(resource, tranche->flags);
++	uint32_t flags = tranche->flags;
++	if (wl_resource_get_version(resource) < 6) {
++		flags &= ~ZWP_LINUX_DMABUF_FEEDBACK_V1_TRANCHE_FLAGS_SAMPLING;
++	}
++	zwp_linux_dmabuf_feedback_v1_send_tranche_flags(resource, flags);
+ 	zwp_linux_dmabuf_feedback_v1_send_tranche_formats(resource,
+ 		(struct wl_array *)&tranche->indices);
+ 	zwp_linux_dmabuf_feedback_v1_send_tranche_done(resource);
+@@ -1163,6 +1209,7 @@
+ 	}
+ 
+ 	tranche->target_device = renderer_dev;
++	tranche->flags = ZWP_LINUX_DMABUF_FEEDBACK_V1_TRANCHE_FLAGS_SAMPLING;
+ 	if (!wlr_drm_format_set_copy(&tranche->formats, renderer_formats)) {
+ 		goto error;
+ 	}
+--- a/types/wlr_text_input_v3.c
++++ b/types/wlr_text_input_v3.c
+@@ -1,15 +1,67 @@
+ #include <assert.h>
+ #include <stdlib.h>
+ #include <stddef.h>
++#include <string.h>
+ #include <wlr/types/wlr_compositor.h>
+ #include <wlr/types/wlr_text_input_v3.h>
+ #include <wlr/util/log.h>
+ #include "text-input-unstable-v3-protocol.h"
+ 
++/* Private extension preserves the public layout consumed by zig-wlroots. */
++struct text_input {
++	struct wlr_text_input_v3 base;
++	uint32_t pending_actions, current_actions;
++	bool panel_visible;
++	bool has_preedit;
++	size_t preedit_len;
++};
++
++static struct text_input *private_text_input(struct wlr_text_input_v3 *base) {
++	struct text_input *input = wl_container_of(base, input, base);
++	return input;
++}
++
++uint32_t wlr_text_input_v3_get_available_actions(struct wlr_text_input_v3 *base) {
++	return private_text_input(base)->current_actions;
++}
++
++bool wlr_text_input_v3_get_panel_requested(struct wlr_text_input_v3 *base) {
++	return private_text_input(base)->panel_visible;
++}
++
++void wlr_text_input_v3_send_action(struct wlr_text_input_v3 *base,
++		uint32_t action, uint32_t serial) {
++	if (wl_resource_get_version(base->resource) >= 2 && base->current_enabled &&
++			base->focused_surface && action == ZWP_TEXT_INPUT_V3_ACTION_SUBMIT &&
++			(private_text_input(base)->current_actions & (1u << action))) {
++		zwp_text_input_v3_send_action(base->resource, action, serial);
++	}
++}
++
++void wlr_text_input_v3_send_language(struct wlr_text_input_v3 *base, const char *language) {
++	if (wl_resource_get_version(base->resource) >= 2) {
++		zwp_text_input_v3_send_language(base->resource, language);
++	}
++}
++
++void wlr_text_input_v3_send_preedit_hint(struct wlr_text_input_v3 *base,
++		uint32_t start, uint32_t end, uint32_t hint) {
++	struct text_input *input = private_text_input(base);
++	if (wl_resource_get_version(base->resource) >= 2 && input->has_preedit &&
++			start <= end && end <= input->preedit_len &&
++			hint >= ZWP_TEXT_INPUT_V3_PREEDIT_HINT_WHOLE &&
++			hint <= ZWP_TEXT_INPUT_V3_PREEDIT_HINT_COMPOSE_ERROR) {
++		zwp_text_input_v3_send_preedit_hint(base->resource, start, end, hint);
++	}
++}
++
+ static void text_input_clear_focused_surface(struct wlr_text_input_v3 *text_input) {
+ 	wl_list_remove(&text_input->surface_destroy.link);
+ 	wl_list_init(&text_input->surface_destroy.link);
+ 	text_input->focused_surface = NULL;
++	struct text_input *input = private_text_input(text_input);
++	input->pending_actions = input->current_actions = 0;
++	input->panel_visible = input->has_preedit = false;
+ }
+ 
+ static const struct zwp_text_input_v3_interface text_input_impl;
+@@ -26,6 +78,9 @@
+ 	assert(wl_resource_get_client(text_input->resource)
+ 		== wl_resource_get_client(surface->resource));
+ 	assert(text_input->focused_surface == NULL);
++	struct text_input *input = private_text_input(text_input);
++	input->pending_actions = input->current_actions = 0;
++	input->panel_visible = false;
+ 	text_input->focused_surface = surface;
+ 	wl_signal_add(&text_input->focused_surface->events.destroy,
+ 		&text_input->surface_destroy);
+@@ -44,6 +99,13 @@
+ 		const char *text, int32_t cursor_begin, int32_t cursor_end) {
+ 	zwp_text_input_v3_send_preedit_string(text_input->resource, text,
+ 		cursor_begin, cursor_end);
++	struct text_input *input = private_text_input(text_input);
++	input->has_preedit = text != NULL;
++	input->preedit_len = text ? strlen(text) : 0;
++	if (text_input->current.content_type.hint & ZWP_TEXT_INPUT_V3_CONTENT_HINT_PREEDIT_SHOWN) {
++		wlr_text_input_v3_send_preedit_hint(text_input, 0, input->preedit_len,
++			ZWP_TEXT_INPUT_V3_PREEDIT_HINT_WHOLE);
++	}
+ }
+ 
+ void wlr_text_input_v3_send_commit_string(struct wlr_text_input_v3 *text_input,
+@@ -61,6 +123,7 @@
+ void wlr_text_input_v3_send_done(struct wlr_text_input_v3 *text_input) {
+ 	zwp_text_input_v3_send_done(text_input->resource,
+ 		text_input->current_serial);
++	private_text_input(text_input)->has_preedit = false;
+ }
+ 
+ static void wlr_text_input_destroy(struct wlr_text_input_v3 *text_input) {
+@@ -100,6 +163,10 @@
+ 		return;
+ 	}
+ 	struct wlr_text_input_v3_state defaults = {0};
++	struct text_input *input = private_text_input(text_input);
++	input->pending_actions = 0;
++	input->has_preedit = false;
++	input->panel_visible = false;
+ 	free(text_input->pending.surrounding.text);
+ 	text_input->pending = defaults;
+ 	text_input->pending_enabled = true;
+@@ -112,6 +179,7 @@
+ 		return;
+ 	}
+ 	text_input->pending_enabled = false;
++	private_text_input(text_input)->pending_actions = 0;
+ }
+ 
+ static void text_input_set_surrounding_text(struct wl_client *client,
+@@ -185,6 +253,12 @@
+ 	bool old_enabled = text_input->current_enabled;
+ 	text_input->current_enabled = text_input->pending_enabled;
+ 	text_input->current_serial++;
++	struct text_input *input = private_text_input(text_input);
++	input->current_actions = text_input->current_enabled ? input->pending_actions : 0;
++	if (!text_input->current_enabled) {
++		input->panel_visible = false;
++		input->has_preedit = false;
++	}
+ 
+ 	if (text_input->focused_surface == NULL) {
+ 		wlr_log(WLR_DEBUG, "Text input commit received without focus");
+@@ -198,6 +272,47 @@
+ 		wl_signal_emit_mutable(&text_input->events.disable, NULL);
+ 	} else { // including never enabled
+ 		wl_signal_emit_mutable(&text_input->events.commit, NULL);
++	}
++}
++
++static void text_input_set_available_actions(struct wl_client *client,
++		struct wl_resource *resource, struct wl_array *actions) {
++	struct wlr_text_input_v3 *base = text_input_from_resource(resource);
++	if (!base) {
++		return;
++	}
++	uint32_t mask = 0;
++	if (actions->size % sizeof(uint32_t) != 0) {
++		goto invalid;
++	}
++	uint32_t *action;
++	wl_array_for_each(action, actions) {
++		if (*action != ZWP_TEXT_INPUT_V3_ACTION_SUBMIT || (mask & (1u << *action))) {
++			goto invalid;
++		}
++		mask |= 1u << *action;
++	}
++	private_text_input(base)->pending_actions = mask;
++	return;
++invalid:
++	wl_resource_post_error(resource, ZWP_TEXT_INPUT_V3_ERROR_INVALID_ACTION,
++		"invalid or duplicate available action");
++}
++
++/* Panel visibility is a hint, not an enable/disable request. The compositor's
++ * existing input-method-v2 backend has no panel visibility request; remember
++ * the focused hint for providers which can consume it without changing focus. */
++static void text_input_show_panel(struct wl_client *client, struct wl_resource *resource) {
++	struct wlr_text_input_v3 *base = text_input_from_resource(resource);
++	if (base && base->current_enabled && base->focused_surface) {
++		private_text_input(base)->panel_visible = true;
++	}
++}
++
++static void text_input_hide_panel(struct wl_client *client, struct wl_resource *resource) {
++	struct wlr_text_input_v3 *base = text_input_from_resource(resource);
++	if (base && base->focused_surface) {
++		private_text_input(base)->panel_visible = false;
+ 	}
+ }
+ 
+@@ -210,6 +325,9 @@
+ 	.set_content_type = text_input_set_content_type,
+ 	.set_cursor_rectangle = text_input_set_cursor_rectangle,
+ 	.commit = text_input_commit,
++	.set_available_actions = text_input_set_available_actions,
++	.show_input_panel = text_input_show_panel,
++	.hide_input_panel = text_input_hide_panel,
+ };
+ 
+ static const struct zwp_text_input_manager_v3_interface text_input_manager_impl;
+@@ -259,7 +377,7 @@
+ 		return;
+ 	}
+ 
+-	struct wlr_text_input_v3 *text_input = calloc(1, sizeof(*text_input));
++	struct wlr_text_input_v3 *text_input = calloc(1, sizeof(struct text_input));
+ 	if (text_input == NULL) {
+ 		wl_client_post_no_memory(client);
+ 		return;
+@@ -336,7 +454,7 @@
+ 	wl_signal_init(&manager->events.destroy);
+ 
+ 	manager->global = wl_global_create(display,
+-		&zwp_text_input_manager_v3_interface, 1, manager,
++		&zwp_text_input_manager_v3_interface, 2, manager,
+ 		text_input_manager_bind);
+ 	if (!manager->global) {
+ 		free(manager);
+--- a/types/wlr_xdg_decoration_v1.c
++++ b/types/wlr_xdg_decoration_v1.c
+@@ -5,7 +5,55 @@
+ #include <wlr/util/log.h>
+ #include "xdg-decoration-unstable-v1-protocol.h"
+ 
+-#define DECORATION_MANAGER_VERSION 1
++#define DECORATION_MANAGER_VERSION 2
++
++/* Keep public struct layouts compatible with zig-wlroots. The surface addon
++ * remembers a destroyed decoration only until the next client commit. */
++struct decoration {
++	struct wlr_xdg_toplevel_decoration_v1 base;
++	bool configured;
++};
++
++struct decoration_memory {
++	struct wlr_addon addon;
++	struct wl_listener toplevel_destroy;
++	uint32_t seq;
++	enum wlr_xdg_toplevel_decoration_v1_mode mode;
++	bool valid;
++};
++
++static void memory_destroy(struct wlr_addon *addon) {
++	struct decoration_memory *memory = wl_container_of(addon, memory, addon);
++	wlr_addon_finish(addon);
++	wl_list_remove(&memory->toplevel_destroy.link);
++	free(memory);
++}
++
++static void memory_toplevel_destroy(struct wl_listener *listener, void *data) {
++	struct decoration_memory *memory = wl_container_of(listener, memory, toplevel_destroy);
++	memory->valid = false;
++	wl_list_remove(&memory->toplevel_destroy.link);
++	wl_list_init(&memory->toplevel_destroy.link);
++}
++
++static const struct wlr_addon_interface memory_impl = {
++	.name = "xdg-decoration-mode", .destroy = memory_destroy,
++};
++
++static struct decoration_memory *get_memory(struct wlr_surface *surface) {
++	struct wlr_addon *addon = wlr_addon_find(&surface->addons, NULL, &memory_impl);
++	if (addon) {
++		struct decoration_memory *memory = wl_container_of(addon, memory, addon);
++		return memory;
++	}
++	struct decoration_memory *memory = calloc(1, sizeof(*memory));
++	if (memory) {
++		wlr_addon_init(&memory->addon, &surface->addons, NULL, &memory_impl);
++		wl_list_init(&memory->toplevel_destroy.link);
++		memory->toplevel_destroy.notify = memory_toplevel_destroy;
++	}
++	return memory;
++}
+ 
+ static const struct zxdg_toplevel_decoration_v1_interface
+ 	toplevel_decoration_impl;
+@@ -61,6 +109,12 @@
+ 		struct wl_resource *resource) {
+ 	struct wlr_xdg_toplevel_decoration_v1 *decoration =
+ 		toplevel_decoration_from_resource(resource);
++	struct wlr_surface *surface = decoration->toplevel->base->surface;
++	struct decoration_memory *memory = get_memory(surface);
++	assert(memory); // Allocated before the decoration resource was created.
++	memory->mode = decoration->current.mode;
++	memory->seq = surface->pending.seq;
++	memory->valid = true;
+ 	wl_signal_emit_mutable(&decoration->events.destroy, decoration);
+ 
+ 	assert(wl_list_empty(&decoration->events.destroy.listener_list));
+@@ -96,12 +150,14 @@
+ 		wl_container_of(listener, decoration, surface_configure);
+ 	struct wlr_xdg_surface_configure *surface_configure = data;
+ 
+-	if (decoration->pending.mode == decoration->scheduled_mode) {
++	struct decoration *private = wl_container_of(decoration, private, base);
++	if (private->configured && decoration->pending.mode == decoration->scheduled_mode) {
+ 		return;
+ 	}
+ 
+ 	struct wlr_xdg_toplevel_decoration_v1_configure *configure = calloc(1, sizeof(*configure));
+ 	if (configure == NULL) {
++		wl_resource_post_no_memory(decoration->resource);
+ 		return;
+ 	}
+ 	configure->surface_configure = surface_configure;
+@@ -110,6 +166,7 @@
+ 
+ 	zxdg_toplevel_decoration_v1_send_configure(decoration->resource,
+ 		configure->mode);
++	private->configured = true;
+ }
+ 
+ static void toplevel_decoration_handle_surface_ack_configure(
+@@ -172,7 +229,9 @@
+ 	struct wlr_xdg_toplevel *toplevel =
+ 		wlr_xdg_toplevel_from_resource(toplevel_resource);
+ 
+-	if (wlr_surface_has_buffer(toplevel->base->surface)) {
++	uint32_t version = wl_resource_get_version(manager_resource);
++	struct wlr_surface *surface = toplevel->base->surface;
++	if (version < 2 && (wlr_surface_has_buffer(surface) || surface->pending.buffer != NULL)) {
+ 		wl_resource_post_error(manager_resource,
+ 			ZXDG_TOPLEVEL_DECORATION_V1_ERROR_UNCONFIGURED_BUFFER,
+ 			"xdg_toplevel_decoration must not have a buffer at creation");
+@@ -189,11 +248,14 @@
+ 		}
+ 	}
+ 
+-	struct wlr_xdg_toplevel_decoration_v1 *decoration = calloc(1, sizeof(*decoration));
+-	if (decoration == NULL) {
++	struct decoration_memory *memory = get_memory(surface);
++	struct decoration *private = calloc(1, sizeof(*private));
++	if (private == NULL || memory == NULL) {
++		free(private);
+ 		wl_client_post_no_memory(client);
+ 		return;
+ 	}
++	struct wlr_xdg_toplevel_decoration_v1 *decoration = &private->base;
+ 	decoration->manager = manager;
+ 	decoration->toplevel = toplevel;
+ 
+@@ -203,8 +265,22 @@
+ 		wl_client_post_no_memory(client);
+ 		return;
+ 	}
+-
+-	uint32_t version = wl_resource_get_version(manager_resource);
++	if (version >= 2 && (wlr_surface_has_buffer(surface) || surface->pending.buffer != NULL)) {
++		decoration->pending.mode = decoration->current.mode =
++			memory->valid && memory->seq == surface->pending.seq ? memory->mode :
++			WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE;
++		struct wlr_surface_state *cached;
++		wl_list_for_each(cached, &surface->cached, cached_state_link) {
++			struct wlr_xdg_toplevel_decoration_v1_state *state =
++				wlr_surface_synced_get_state(&decoration->synced, cached);
++			state->mode = decoration->current.mode;
++		}
++	}
++	memory->valid = false;
++	if (wl_list_empty(&memory->toplevel_destroy.link)) {
++		wl_signal_add(&toplevel->events.destroy, &memory->toplevel_destroy);
++	}
++
+ 	decoration->resource = wl_resource_create(client,
+ 		&zxdg_toplevel_decoration_v1_interface, version, id);
+ 	if (decoration->resource == NULL) {

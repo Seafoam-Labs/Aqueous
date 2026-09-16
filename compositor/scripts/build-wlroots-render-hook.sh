@@ -29,6 +29,7 @@ patch_files=(
     "$here/patches/wlroots/0021-drm-lease-lifetime.patch"
     "$here/patches/wlroots/0022-pointer-enter-serial-validation.patch"
     "$here/patches/wlroots/0023-commit-timing-v1.patch"
+    "$here/patches/wlroots/0024-protocol-versions.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -236,6 +237,7 @@ LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     die "patched wlroots did not preserve scene render ordering"
 
 python3 "$here/scripts/test-pointer-enter.py" "$source_dir" "$prefix"
+python3 "$here/scripts/test-protocol-version-handlers.py" "$source_dir" "$prefix"
 
 python3 "$here/scripts/test-overlay-backend.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-vulkan-sync.py" "$source_dir" "$prefix"

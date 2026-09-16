@@ -531,7 +531,7 @@ pub fn init(
     errdefer server.child_processes.deinit();
 
     if (renderer.getTextureFormats(@intFromEnum(wlr.BufferCap.dmabuf)) != null) {
-        server.linux_dmabuf = try wlr.LinuxDmabufV1.createWithRenderer(wl_server, 5, renderer);
+        server.linux_dmabuf = try wlr.LinuxDmabufV1.createWithRenderer(wl_server, 6, renderer);
     }
     if (renderer.features.timeline and backend.features.timeline) {
         const drm_fd = renderer.getDrmFd();
@@ -950,7 +950,7 @@ fn gpuResetRecover(server: *Server) !void {
                 defer server.creating_linux_dmabuf_global = false;
                 break :blk wlr.LinuxDmabufV1.createWithRenderer(
                     server.wl_server,
-                    5,
+                    6,
                     new_renderer,
                 );
             };
