@@ -147,6 +147,11 @@ fn inspect(ctx: *Context) !void {
 }
 fn dispatch(ctx: *Context, args: []const [:0]const u8) !u8 {
     if (args.len == 0) return ctx.fail("Missing worker command", .{});
+    if (eq(u8, args[0], "shell-switch-capability")) {
+        if (args.len != 1 or instance.suffix.len == 0) return error.InvalidArguments;
+        try u.write(1, "shell-switch-v1 " ++ instance.name ++ "\n");
+        return 0;
+    }
     if (eq(u8, args[0], "switch-shell")) {
         if (args.len != 2 and !(args.len == 3 and eq(u8, args[2], "--json"))) return error.InvalidArguments;
         try activation.switchShell(ctx, args[1]);

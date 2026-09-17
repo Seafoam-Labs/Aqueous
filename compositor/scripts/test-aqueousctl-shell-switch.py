@@ -13,7 +13,9 @@ with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
     env = dict(os.environ, PATH=directory)
     worker = root / ("aqueous-welcome-" + instance.removeprefix("aqueous-"))
-    worker.write_text('#!/bin/sh\n[ "$1" = --worker ] && [ "$2" = switch-shell ] || exit 97\n'
+    worker.write_text('#!/bin/sh\n'
+                      f'if [ "$2" = shell-switch-capability ]; then printf "shell-switch-v1 {instance}\\n"; exit 0; fi\n'
+                      '[ "$1" = --worker ] && [ "$2" = switch-shell ] || exit 97\n'
                       'printf \'{"ok":true,"shell":"%s"}\\n\' "$3"\n')
     worker.chmod(0o755)
 
@@ -37,6 +39,22 @@ with tempfile.TemporaryDirectory() as directory:
             assert json.loads(result.stdout)["ok"] is False
         result = run("shell", "switch")
         assert result.returncode == 2
+        # An older worker delegates unknown commands to session-runtime.sh.
+        # Reproduce the reported error and ensure no switch is attempted.
+        marker = root / "switch-attempted"
+        worker.write_text('#!/bin/sh\n'
+                          f'[ "$2" != switch-shell ] || : > "{marker}"\n'
+                          'echo "Aqueous-Git session: Usage: session-runtime.sh selection|active-selection|prepare-session|condition SHELL|external-condition|action NAME|recover" >&2\nexit 1\n')
+        for flags in ((), ("--json",)):
+            result = run("shell", "switch", "dms", *flags)
+            assert result.returncode == 1
+            message = json.loads(result.stdout)["message"] if flags else result.stderr
+            assert worker.name in message and "Rebuild/update" in message
+            assert "session-runtime.sh" not in message
+            assert not marker.exists()
+        worker.write_text('#!/bin/sh\nprintf "shell-switch-v1 aqueous\\n"\n')
+        result = run("shell", "switch", "pearl", "--json")
+        assert result.returncode == 1 and json.loads(result.stdout)["ok"] is False
         worker.unlink()
         result = run("shell", "switch", "pearl", "--json")
         assert result.returncode == 1

@@ -261,6 +261,22 @@ const State = struct {
     }
 };
 
+// Core and desktop are separate VCS packages: never assume the installed
+// welcome worker was updated together with aqueousctl.
+fn supportsShellSwitch(process_io: Io, worker: []const u8) bool {
+    const result = std.process.run(allocator, process_io, .{
+        .argv = &.{ worker, "--worker", "shell-switch-capability" },
+        .expand_arg0 = .expand,
+        .stdout_limit = .limited(4096),
+        .stderr_limit = .limited(4096),
+        .timeout = .{ .duration = .{ .raw = .fromSeconds(5), .clock = .awake } },
+    }) catch return false;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    return result.term == .exited and result.term.exited == 0 and
+        mem.eql(u8, result.stdout, "shell-switch-v1 " ++ instance_name ++ "\n");
+}
+
 pub fn main(init: std.process.Init) !void {
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
@@ -297,6 +313,19 @@ pub fn main(init: std.process.Init) !void {
             std.process.exit(2);
         }
         const worker = if (mem.eql(u8, instance_name, "aqueous-intel-git")) "aqueous-welcome-intel-git" else "aqueous-welcome-git";
+        if (!supportsShellSwitch(init.io, worker)) {
+            const package_base = if (mem.eql(u8, instance_name, "aqueous-intel-git")) "aqueous-desktop-intel-git" else "aqueous-desktop-git";
+            const message = try std.fmt.allocPrint(arena_state.allocator(), "Cannot verify shell-switch support in {s}. Rebuild/update {s} from the current {s} package base alongside aqueous-core-{s}; updating core alone is insufficient.", .{ worker, worker, package_base, if (mem.eql(u8, instance_name, "aqueous-intel-git")) "intel-git" else "git" });
+            if (json) {
+                const output = try std.json.Stringify.valueAlloc(arena_state.allocator(), .{ .ok = false, .message = message }, .{});
+                try stdout.print("{s}\n", .{output});
+                try stdout.flush();
+            } else {
+                try stderr.print("aqueousctl: {s}\n", .{message});
+                try stderr.flush();
+            }
+            std.process.exit(1);
+        }
         const argv = [_][]const u8{ worker, "--worker", "switch-shell", args[3], "--json" };
         const err = std.process.replace(init.io, .{ .argv = argv[0..if (json) 5 else 4], .expand_arg0 = .expand });
         if (json) {

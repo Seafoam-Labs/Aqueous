@@ -391,3 +391,10 @@ the command restores the previous selection, runtime snapshot, and stopped
 shell services. Concurrent welcome setup/switch operations and mismatched
 service-manager sessions are rejected. `--json` returns an object with `ok`,
 `message`, and, on success, `shell`; errors exit nonzero.
+
+If switching prints `Usage: session-runtime.sh selection|active-selection|...`,
+the installed welcome worker is older than the CLI. Rebuild/update
+`aqueous-welcome-git` from the current `aqueous-desktop-git` package base (or the
+corresponding Intel Git packages), alongside the core package. Updating only
+`aqueous-core-git` does not update the separately built desktop worker. Newer
+CLIs check worker compatibility and report the required update before switching.
