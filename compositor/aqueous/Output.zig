@@ -45,6 +45,16 @@ const XdgPopup = @import("XdgPopup.zig");
 const log = std.log.scoped(.output);
 const Mirror = @import("OutputMirror.zig");
 
+comptime {
+    if (@sizeOf(wlr.Output.State) != @sizeOf(c.struct_wlr_output_state) or
+        @alignOf(wlr.Output.State) != @alignOf(c.struct_wlr_output_state) or
+        @offsetOf(wlr.Output.State, "buffer") != @offsetOf(c.struct_wlr_output_state, "buffer") or
+        @offsetOf(wlr.Output.State, "image_description") != @offsetOf(c.struct_wlr_output_state, "image_description"))
+    {
+        @compileError("wlroots output-state ABI does not match the pinned Zig bindings");
+    }
+}
+
 pub const State = struct {
     pub const PositionSource = enum {
         automatic,
@@ -198,6 +208,7 @@ pub const RetryFault = struct {
     remaining: i32 = 0,
     disable_retry: bool = false,
     simulate_overlay: bool = false,
+    simulate_color_pipeline: bool = false,
 };
 
 /// Session-scoped identity, never reused after disconnect.
@@ -1728,6 +1739,7 @@ fn handleBind(listener: *wl.Listener(*wlr.Output.event.Bind), _: *wlr.Output.eve
 
 fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
     const output: *Output = @fieldParentPtr("destroy", listener);
+    output.discardOverlayCandidate();
     server.om.display_revision += 1;
     @import("DisplayPreview.zig").removed(output.display_instance);
     server.system_bell.outputRemoved(output.policyId());
@@ -2065,7 +2077,8 @@ fn commitFrameState(output: *Output, state: *wlr.Output.State, stage: output_ret
     if (output.injectRetryFailure(stage)) return false;
     if (comptime build_options.output_retry_testing) {
         // Exercise fallback control flow on a backend with no DRM planes.
-        if (stage == .output_commit and output.retry_test.simulate_overlay and
+        if (stage == .output_commit and
+            (output.retry_test.simulate_overlay or output.retry_test.simulate_color_pipeline) and
             !output.retry.pending and output.retry_test.remaining != 0) return false;
     }
     output.render_commit_active = true;
@@ -2288,14 +2301,25 @@ fn renderAndCommit(output: *Output, force: bool, recovering: bool) output_retry.
         output.discardRenderMetric();
         const promoted_attempt = output.overlay_candidate.promoted or
             (if (comptime build_options.output_retry_testing) output.retry_test.simulate_overlay and !recovering else false);
+        const buffer_has_color_pipeline = if (state.buffer) |buffer|
+            c.wlr_buffer_has_color_pipeline(@ptrCast(buffer))
+        else
+            false;
+        const color_pipeline_attempt = buffer_has_color_pipeline or
+            (if (comptime build_options.output_retry_testing) output.retry_test.simulate_color_pipeline and !recovering else false);
         output.commitOverlayState(false);
-        if (!promoted_attempt) return .{ .failed = .output_commit };
+        if (!promoted_attempt and !color_pipeline_attempt) return .{ .failed = .output_commit };
 
-        // The candidate was omitted from the first primary buffer. Rebuild a
-        // fresh complete frame, explicitly disable the layer, and retry once.
+        // The failed state may omit an overlay or contain a primary buffer
+        // awaiting hardware color conversion. Rebuild the complete renderer
+        // frame, explicitly disable the layer, and retry once.
         // Never recurse: failure of this ordinary composed commit is final for
         // the frame and follows the normal output error path.
         output.scene_output.?.damage_ring.addWhole();
+        // A rejected hardware color recipe must be rendered into the fallback
+        // buffer. Disable both direct scanout and final-conversion offload.
+        wlr_output.lockAttachRender(true);
+        defer wlr_output.lockAttachRender(false);
         var fallback = wlr.Output.State.init();
         defer fallback.finish();
         output.current.applyNoModeset(&fallback);
@@ -2424,6 +2448,7 @@ fn prepareOverlayCandidate(
 ) void {
     const layer = output.overlay_layer orelse return;
 
+    output.discardOverlayCandidate();
     output.overlay_candidate = std.mem.zeroes(c.struct_wlr_scene_output_layer_candidate);
     output.overlay_candidate.layer = layer;
     output.overlay_candidate.previously_promoted = output.overlay_state.committed;
@@ -2626,6 +2651,10 @@ fn finishOverlayBuild(output: *Output) void {
         );
     }
     output.traceOverlayState("test completed");
+}
+
+pub fn discardOverlayCandidate(output: *Output) void {
+    c.wlr_scene_output_layer_candidate_finish(&output.overlay_candidate, false);
 }
 
 pub fn commitOverlayState(output: *Output, commit_succeeded: bool) void {

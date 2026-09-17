@@ -1,0 +1,1153 @@
+Aqueous: buffer-scoped DRM color pipelines with atomic and libliftoff integration
+
+Reference: https://gitlab.freedesktop.org/wlroots/wlroots/-/merge_requests/5220
+Reference author: Simon Ser <contact@emersion.fr>
+Reference head: e67d45a31e2df6492a00dc94498774e1dbaaf7e3
+Adapted implementation for wlroots 0.20.2; preserves output/state ABI.
+Experimental opt-in: AQUEOUS_DRM_COLOR_PIPELINE=auto.
+
+--- a/backend/drm/atomic.c
++++ b/backend/drm/atomic.c
+@@ -1,16 +1,17 @@
++#include "backend/drm/color_pipeline.h"
++#include "backend/drm/drm.h"
++#include "backend/drm/fb.h"
++#include "backend/drm/iface.h"
++#include "backend/drm/util.h"
++#include "render/color.h"
+ #include <drm_fourcc.h>
++#include <stdio.h>
+ #include <stdlib.h>
+-#include <stdio.h>
+ #include <unistd.h>
+ #include <wlr/render/drm_syncobj.h>
+ #include <wlr/util/box.h>
+ #include <wlr/util/log.h>
+ #include <xf86drmMode.h>
+-#include "backend/drm/drm.h"
+-#include "backend/drm/fb.h"
+-#include "backend/drm/iface.h"
+-#include "backend/drm/util.h"
+-#include "render/color.h"
+ 
+ static char *atomic_commit_flags_str(uint32_t flags) {
+ 	const char *const l[] = {
+@@ -425,9 +426,11 @@
+ 	}
+ 
+ 	conn->colorspace = state->colorspace;
++	drm_color_pipeline_state_finish(state, true);
+ }
+ 
+ void drm_atomic_connector_rollback_commit(struct wlr_drm_connector_state *state) {
++	drm_color_pipeline_state_finish(state, false);
+ 	struct wlr_drm_connector *conn = state->connector;
+ 	struct wlr_drm_crtc *crtc = conn->crtc;
+ 	struct wlr_drm_backend *drm = conn->backend;
+@@ -580,9 +583,23 @@
+ 
+ 	struct atomic atom;
+ 	atomic_begin(&atom);
+-
++	// Reset every old assignment before programming any new one: planes may
++	// move between CRTCs in the same device transaction.
+ 	for (size_t i = 0; i < state->connectors_len; i++) {
+-		atomic_connector_add(&atom, &state->connectors[i], state->modeset);
++		if (!drm_color_pipeline_reset(&state->connectors[i], atom.req)) {
++			atom.failed = true;
++		}
++	}
++
++	for (size_t i = 0; i < state->connectors_len; i++) {
++		struct wlr_drm_connector_state *s = &state->connectors[i];
++		atomic_connector_add(&atom, s, state->modeset);
++		struct wlr_drm_crtc *crtc = s->connector->crtc;
++		if (!drm_color_pipeline_add(s, atom.req, crtc->primary,
++				s->active && s->primary_fb ? s->primary_fb->wlr_buf : NULL) ||
++			(crtc->cursor && !drm_color_pipeline_add(s, atom.req, crtc->cursor, NULL))) {
++			atom.failed = true;
++		}
+ 	}
+ 
+ 	if (test_only) {
+--- /dev/null
++++ b/backend/drm/color_pipeline.c
+@@ -0,0 +1,476 @@
++/* Based on the discovery and atomic programming design in wlroots !5220,
++ * head e67d45a31e2df6492a00dc94498774e1dbaaf7e3. See patch provenance. */
++#include "backend/drm/color_pipeline.h"
++#include "backend/drm/drm.h"
++#include "config.h"
++#include "render/color_pipeline.h"
++#include <math.h>
++#include <stdlib.h>
++#include <string.h>
++#include <wlr/util/log.h>
++#include <xf86drm.h>
++
++#if HAVE_DRM_COLOR_PIPELINE
++
++#define MAX_NODES 32
++#define MAX_PIPELINES 128
++struct colorop {
++	uint32_t id, type;
++	uint32_t bypass, curve, data, multiplier;
++	uint64_t size;
++	bool interpolation_supported;
++	drmModePropertyRes *curves;
++};
++struct color_pipeline {
++	uint32_t root;
++	size_t len;
++	struct colorop nodes[MAX_NODES];
++};
++struct color_plane {
++	uint32_t id;
++	uint32_t property;
++	size_t len;
++	struct color_pipeline *pipelines;
++	uint32_t committed_crtc, committed_root, logged_root;
++	bool rejection_logged;
++};
++struct color_state {
++	struct color_plane *plane;
++	uint32_t root;
++	uint32_t blobs[MAX_NODES];
++	size_t blobs_len;
++};
++
++static bool add(drmModeAtomicReq *req, uint32_t id, uint32_t prop, uint64_t value) {
++	return prop && drmModeAtomicAddProperty(req, id, prop, value) >= 0;
++}
++
++void drm_color_pipeline_init(struct wlr_drm_backend *drm) {
++	const char *mode = getenv("AQUEOUS_DRM_COLOR_PIPELINE");
++	if (!mode || strcmp(mode, "off") == 0) {
++		wlr_log(WLR_DEBUG, "DRM color pipelines compiled in; disabled by startup policy");
++		return;
++	}
++	if (strcmp(mode, "auto") != 0) {
++		wlr_log(WLR_ERROR, "Invalid AQUEOUS_DRM_COLOR_PIPELINE (expected off or auto)");
++		return;
++	}
++	if (drm->iface == &legacy_iface || drm->parent) {
++		wlr_log(WLR_INFO, "Color pipelines unavailable on legacy/multi-GPU backend");
++		return;
++	}
++	drm->color_pipeline_enabled =
++		drmSetClientCap(drm->fd, DRM_CLIENT_CAP_PLANE_COLOR_PIPELINE, 1) == 0;
++	wlr_log(WLR_INFO, "DRM fd %d (%s): color pipeline capability %s", drm->fd,
++		drm->iface == &atomic_iface ? "atomic" : "libliftoff",
++		drm->color_pipeline_enabled ? "enabled (experimental)" : "unavailable");
++}
++
++static bool read_node(int fd, uint32_t id, struct colorop *op, uint32_t *next) {
++	drmModeObjectProperties *props = drmModeObjectGetProperties(fd, id, DRM_MODE_OBJECT_COLOROP);
++	if (!props) {
++		return false;
++	}
++	bool type_found = false, next_found = false, valid = true;
++	op->id = id;
++	op->interpolation_supported = true;
++	for (uint32_t i = 0; i < props->count_props; i++) {
++		drmModePropertyRes *p = drmModeGetProperty(fd, props->props[i]);
++		if (!p) {
++			valid = false;
++			break;
++		}
++		uint64_t value = props->prop_values[i];
++		uint32_t kind = drmModeGetPropertyType(p);
++		if (strcmp(p->name, "TYPE") == 0) {
++			type_found = kind == DRM_MODE_PROP_ENUM && value <= UINT32_MAX;
++			op->type = value;
++		} else if (strcmp(p->name, "NEXT") == 0) {
++			next_found = value <= UINT32_MAX && (p->flags & DRM_MODE_PROP_IMMUTABLE);
++			*next = value;
++		} else if (strcmp(p->name, "BYPASS") == 0 && kind == DRM_MODE_PROP_RANGE &&
++				   p->count_values == 2 && p->values[0] == 0 && p->values[1] == 1) {
++			op->bypass = p->prop_id;
++		} else if (strcmp(p->name, "CURVE_1D_TYPE") == 0 && kind == DRM_MODE_PROP_ENUM) {
++			op->curve = p->prop_id;
++			op->curves = p;
++			p = NULL;
++		} else if (strcmp(p->name, "DATA") == 0 && kind == DRM_MODE_PROP_BLOB) {
++			op->data = p->prop_id;
++		} else if (strcmp(p->name, "SIZE") == 0 && (p->flags & DRM_MODE_PROP_IMMUTABLE)) {
++			op->size = value;
++		} else if (strcmp(p->name, "MULTIPLIER") == 0 && kind == DRM_MODE_PROP_RANGE) {
++			op->multiplier = p->prop_id;
++		} else if (strstr(p->name, "INTERPOLATION") != NULL) {
++			/* Only a fixed advertised linear 1D interpolation is qualified. */
++			op->interpolation_supported = kind == DRM_MODE_PROP_ENUM && p->count_enums == 1 &&
++										  strcmp(p->enums[0].name, "Linear") == 0;
++		}
++		drmModeFreeProperty(p);
++	}
++	drmModeFreeObjectProperties(props);
++	return valid && type_found && next_found;
++}
++
++static void finish_pipeline(struct color_pipeline *p) {
++	for (size_t i = 0; i < p->len; i++) {
++		drmModeFreeProperty(p->nodes[i].curves);
++	}
++	*p = (struct color_pipeline){0};
++}
++
++bool drm_color_pipeline_discover(struct wlr_drm_backend *drm, struct wlr_drm_plane *plane) {
++	if (!drm->color_pipeline_enabled) {
++		return true;
++	}
++	drmModeObjectProperties *props =
++		drmModeObjectGetProperties(drm->fd, plane->id, DRM_MODE_OBJECT_PLANE);
++	if (!props) {
++		return false;
++	}
++	drmModePropertyRes *roots = NULL;
++	for (uint32_t i = 0; i < props->count_props; i++) {
++		drmModePropertyRes *p = drmModeGetProperty(drm->fd, props->props[i]);
++		if (!p) {
++			drmModeFreeObjectProperties(props);
++			return false;
++		}
++		if (strcmp(p->name, "COLOR_PIPELINE") == 0 &&
++			drmModeGetPropertyType(p) == DRM_MODE_PROP_ENUM) {
++			roots = p;
++			break;
++		}
++		drmModeFreeProperty(p);
++	}
++	drmModeFreeObjectProperties(props);
++	if (!roots) {
++		return true;
++	}
++	struct color_plane *cp = calloc(1, sizeof(*cp));
++	if (!cp) {
++		drmModeFreeProperty(roots);
++		return false;
++	}
++	/* Keep the reset property even if discovery/allocation fails. */
++	plane->color_pipeline = cp;
++	cp->id = plane->id;
++	cp->property = roots->prop_id;
++	if (roots->count_enums <= 0 || roots->count_enums > MAX_PIPELINES) {
++		goto out;
++	}
++	cp->pipelines = calloc(roots->count_enums, sizeof(*cp->pipelines));
++	if (!cp->pipelines) {
++		goto out;
++	}
++	for (int i = 0; i < roots->count_enums; i++) {
++		uint64_t root = roots->enums[i].value;
++		if (!root || root > UINT32_MAX) {
++			continue;
++		}
++		struct color_pipeline *p = &cp->pipelines[cp->len];
++		p->root = root;
++		uint32_t next = root;
++		bool valid = true;
++		while (next) {
++			for (size_t j = 0; j < p->len; j++) {
++				if (p->nodes[j].id == next) {
++					valid = false;
++				}
++			}
++			if (!valid || p->len == MAX_NODES ||
++				!read_node(drm->fd, next, &p->nodes[p->len++], &next)) {
++				valid = false;
++				break;
++			}
++		}
++		if (valid && p->len) {
++			cp->len++;
++		} else {
++			finish_pipeline(p);
++		}
++	}
++out:
++	wlr_log(WLR_INFO, "DRM plane %u: %zu color pipelines discovered", plane->id, cp->len);
++	drmModeFreeProperty(roots);
++	return true;
++}
++
++bool drm_color_pipeline_supported(struct wlr_drm_backend *drm) {
++	if (!drm->color_pipeline_enabled)
++		return false;
++	for (size_t i = 0; i < drm->num_planes; i++) {
++		if (drm->planes[i].color_pipeline && drm->planes[i].color_pipeline->len)
++			return true;
++	}
++	return false;
++}
++
++void drm_color_pipeline_finish(struct wlr_drm_plane *plane) {
++	struct color_plane *cp = plane->color_pipeline;
++	if (!cp) {
++		return;
++	}
++	for (size_t i = 0; i < cp->len; i++) {
++		finish_pipeline(&cp->pipelines[i]);
++	}
++	free(cp->pipelines);
++	free(cp);
++	plane->color_pipeline = NULL;
++}
++
++static bool curve_value(const struct colorop *node, const char *name, uint64_t *value) {
++	if (!node->curve || !node->curves) {
++		return false;
++	}
++	for (int i = 0; i < node->curves->count_enums; i++) {
++		if (strcmp(node->curves->enums[i].name, name) == 0) {
++			*value = node->curves->enums[i].value;
++			return true;
++		}
++	}
++	return false;
++}
++
++static double lut_sample(const uint16_t *values, size_t size, double x) {
++	double position = x * (size - 1);
++	size_t lo = (size_t)floor(position);
++	size_t hi = lo + 1 < size ? lo + 1 : lo;
++	return (values[lo] + (values[hi] - (double)values[lo]) * (position - lo)) / UINT16_MAX;
++}
++
++static uint32_t lut_resample(const uint16_t *values, size_t source_size, size_t size, size_t i) {
++	return (uint32_t)llround(lut_sample(values, source_size, (double)i / (size - 1)) * UINT32_MAX);
++}
++
++static bool lut_resample_qualified(const struct wlr_color_transform_lut_3x1d *lut, size_t size) {
++	if (lut->dim < 2 || lut->dim > 65536 || size < 2 || size > 65536)
++		return false;
++	if (lut->dim == size)
++		return true;
++	for (size_t c = 0; c < 3; c++) {
++		const uint16_t *v = lut->lut_3x1d + c * lut->dim;
++		for (size_t i = 0; i < lut->dim; i++) {
++			double x = (double)i / (lut->dim - 1);
++			double position = x * (size - 1);
++			size_t lo = (size_t)floor(position), hi = lo + 1 < size ? lo + 1 : lo;
++			double a = lut_resample(v, lut->dim, size, lo) / (double)UINT32_MAX;
++			double b = lut_resample(v, lut->dim, size, hi) / (double)UINT32_MAX;
++			double actual = a + (b - a) * (position - lo);
++			if (fabs(actual - v[i] / (double)UINT16_MAX) > 1.0 / UINT16_MAX)
++				return false;
++		}
++	}
++	return true;
++}
++
++static bool compatible(const struct colorop *n, const struct color_pipeline_op *op) {
++	uint64_t ignored;
++	switch (op->type) {
++	case CP_CURVE:
++		return n->type == DRM_COLOROP_1D_CURVE && curve_value(n, op->curve, &ignored);
++	case CP_MATRIX:
++		if (n->type != DRM_COLOROP_CTM_3X4 || !n->data) {
++			return false;
++		}
++		for (size_t i = 0; i < 12; i++) {
++			if (!color_pipeline_fixed(op->matrix[i], &ignored)) {
++				return false;
++			}
++		}
++		return true;
++	case CP_MULTIPLIER:
++		return n->type == DRM_COLOROP_MULTIPLIER && n->multiplier &&
++			   color_pipeline_fixed(op->multiplier, &ignored);
++	case CP_LUT: {
++		struct wlr_color_transform_lut_3x1d *lut =
++			color_transform_lut_3x1d_from_base(op->transform);
++		return n->type == DRM_COLOROP_1D_LUT && n->data && n->interpolation_supported &&
++			   lut_resample_qualified(lut, n->size);
++	}
++	case CP_LUT3D:
++		/* LCMS domains/interpolation are not yet qualified against KMS. */
++		return false;
++	}
++	return false;
++}
++
++static bool match(const struct color_pipeline *p, const struct color_pipeline_recipe *r, size_t ni,
++	size_t oi, int assignment[MAX_NODES], unsigned *budget) {
++	if (!*budget) {
++		return false;
++	}
++	--*budget;
++	if (ni == p->len) {
++		return oi == r->len;
++	}
++	if (oi < r->len && compatible(&p->nodes[ni], &r->ops[oi])) {
++		assignment[ni] = oi;
++		if (match(p, r, ni + 1, oi + 1, assignment, budget)) {
++			return true;
++		}
++	}
++	assignment[ni] = -1;
++	return p->nodes[ni].bypass && match(p, r, ni + 1, oi, assignment, budget);
++}
++
++static bool emit(int fd, drmModeAtomicReq *req, const struct colorop *node,
++	const struct color_pipeline_op *op, struct color_state *pending) {
++	if (node->bypass && !add(req, node->id, node->bypass, op == NULL)) {
++		return false;
++	}
++	if (!op) {
++		return true;
++	}
++	uint64_t value;
++	if (op->type == CP_CURVE) {
++		return curve_value(node, op->curve, &value) && add(req, node->id, node->curve, value);
++	}
++	if (op->type == CP_MULTIPLIER) {
++		return color_pipeline_fixed(op->multiplier, &value) &&
++			   add(req, node->id, node->multiplier, value);
++	}
++	uint32_t blob = 0;
++	if (op->type == CP_MATRIX) {
++		struct drm_color_ctm_3x4 matrix = {0};
++		for (size_t i = 0; i < 12; i++) {
++			uint64_t entry;
++			if (!color_pipeline_fixed(op->matrix[i], &entry)) {
++				return false;
++			}
++			matrix.matrix[i] = entry;
++		}
++		if (drmModeCreatePropertyBlob(fd, &matrix, sizeof(matrix), &blob) != 0) {
++			return false;
++		}
++	} else if (op->type == CP_LUT) {
++		struct wlr_color_transform_lut_3x1d *tr = color_transform_lut_3x1d_from_base(op->transform);
++		struct drm_color_lut32 *lut = calloc(node->size, sizeof(*lut));
++		if (!lut) {
++			return false;
++		}
++		for (size_t i = 0; i < node->size; i++) {
++			lut[i].red = lut_resample(tr->lut_3x1d, tr->dim, node->size, i);
++			lut[i].green = lut_resample(tr->lut_3x1d + tr->dim, tr->dim, node->size, i);
++			lut[i].blue = lut_resample(tr->lut_3x1d + 2 * tr->dim, tr->dim, node->size, i);
++		}
++		int ret = drmModeCreatePropertyBlob(fd, lut, node->size * sizeof(*lut), &blob);
++		free(lut);
++		if (ret != 0) {
++			return false;
++		}
++	} else {
++		return false;
++	}
++	pending->blobs[pending->blobs_len++] = blob;
++	return add(req, node->id, node->data, blob);
++}
++
++bool drm_color_pipeline_reset(struct wlr_drm_connector_state *s, drmModeAtomicReq *req) {
++	struct wlr_drm_backend *drm = s->connector->backend;
++	for (size_t i = 0; i < drm->num_planes; i++) {
++		struct wlr_drm_plane *p = &drm->planes[i];
++		struct color_plane *cp = p->color_pipeline;
++		if (cp && cp->committed_crtc == s->connector->crtc->id && cp->committed_root) {
++			if (!add(req, p->id, cp->property, 0)) {
++				return false;
++			}
++		}
++	}
++	return true;
++}
++
++bool drm_color_pipeline_add(struct wlr_drm_connector_state *s, drmModeAtomicReq *req,
++	struct wlr_drm_plane *plane, struct wlr_buffer *buffer) {
++	const struct color_pipeline_recipe *recipe = color_pipeline_get(buffer);
++	struct wlr_drm_backend *drm = s->connector->backend;
++	struct color_plane *cp = plane ? plane->color_pipeline : NULL;
++	if (!recipe) {
++		return !cp || add(req, plane->id, cp->property, 0);
++	}
++	if (!drm->color_pipeline_enabled || !cp || drm_connector_is_cursor_visible(s->connector)) {
++		return false;
++	}
++	for (size_t i = 0; i < cp->len; i++) {
++		struct color_pipeline *p = &cp->pipelines[i];
++		int assignment[MAX_NODES];
++		unsigned budget = 4096;
++		if (!match(p, recipe, 0, 0, assignment, &budget)) {
++			continue;
++		}
++		struct color_state *pending = wl_array_add(&s->color_pipeline_state, sizeof(*pending));
++		if (!pending) {
++			return false;
++		}
++		*pending = (struct color_state){.plane = cp, .root = p->root};
++		if (!add(req, plane->id, cp->property, p->root)) {
++			return false;
++		}
++		for (size_t j = 0; j < p->len; j++) {
++			const struct color_pipeline_op *op =
++				assignment[j] < 0 ? NULL : &recipe->ops[assignment[j]];
++			if (!emit(drm->fd, req, &p->nodes[j], op, pending)) {
++				return false;
++			}
++		}
++		return true;
++	}
++	if (!cp->rejection_logged) {
++		wlr_log(WLR_DEBUG, "DRM plane %u: no compatible color pipeline; composing", plane->id);
++		cp->rejection_logged = true;
++	}
++	return false;
++}
++
++void drm_color_pipeline_state_finish(struct wlr_drm_connector_state *s, bool committed) {
++	struct wlr_drm_backend *drm = s->connector->backend;
++	uint32_t crtc = s->connector->crtc->id;
++	if (committed) {
++		for (size_t i = 0; i < drm->num_planes; i++) {
++			struct color_plane *cp = drm->planes[i].color_pipeline;
++			if (cp && cp->committed_crtc == crtc) {
++				cp->committed_root = 0;
++			}
++		}
++	}
++	struct color_state *p;
++	wl_array_for_each(p, &s->color_pipeline_state) {
++		if (committed) {
++			if (p->plane->logged_root != p->root) {
++				wlr_log(WLR_DEBUG, "DRM fd %d CRTC %u plane %u: color pipeline %u active", drm->fd,
++					crtc, p->plane->id, p->root);
++			}
++			p->plane->logged_root = p->root;
++			p->plane->committed_crtc = crtc;
++			p->plane->committed_root = p->root;
++		}
++		/* KMS retains its own reference after a successful atomic commit. */
++		for (size_t i = 0; i < p->blobs_len; i++) {
++			drmModeDestroyPropertyBlob(drm->fd, p->blobs[i]);
++		}
++	}
++	wl_array_release(&s->color_pipeline_state);
++	wl_array_init(&s->color_pipeline_state);
++}
++
++#else
++void drm_color_pipeline_init(struct wlr_drm_backend *drm) {
++	if (getenv("AQUEOUS_DRM_COLOR_PIPELINE")) {
++		wlr_log(WLR_INFO, "DRM color pipelines unavailable in build headers");
++	}
++}
++bool drm_color_pipeline_discover(struct wlr_drm_backend *drm, struct wlr_drm_plane *plane) {
++	return true;
++}
++bool drm_color_pipeline_supported(struct wlr_drm_backend *drm) {
++	return false;
++}
++void drm_color_pipeline_finish(struct wlr_drm_plane *plane) {}
++bool drm_color_pipeline_reset(struct wlr_drm_connector_state *s, drmModeAtomicReq *req) {
++	return true;
++}
++bool drm_color_pipeline_add(struct wlr_drm_connector_state *s, drmModeAtomicReq *req,
++	struct wlr_drm_plane *plane, struct wlr_buffer *buffer) {
++	return color_pipeline_get(buffer) == NULL;
++}
++void drm_color_pipeline_state_finish(struct wlr_drm_connector_state *s, bool committed) {}
++#endif
+--- a/backend/drm/drm.c
++++ b/backend/drm/drm.c
+@@ -1,3 +1,12 @@
++#include "backend/drm/drm.h"
++#include "backend/drm/color_pipeline.h"
++#include "backend/drm/fb.h"
++#include "backend/drm/iface.h"
++#include "backend/drm/util.h"
++#include "config.h"
++#include "render/color.h"
++#include "types/wlr_output.h"
++#include "util/env.h"
+ #include <assert.h>
+ #include <drm_fourcc.h>
+ #include <drm_mode.h>
+@@ -20,14 +29,6 @@
+ #include <wlr/util/transform.h>
+ #include <xf86drm.h>
+ #include <xf86drmMode.h>
+-#include "backend/drm/drm.h"
+-#include "backend/drm/fb.h"
+-#include "backend/drm/iface.h"
+-#include "backend/drm/util.h"
+-#include "render/color.h"
+-#include "types/wlr_output.h"
+-#include "util/env.h"
+-#include "config.h"
+ 
+ #if HAVE_LIBLIFTOFF
+ #include <libliftoff.h>
+@@ -119,6 +120,7 @@
+ 		}
+ #endif
+ 	}
++	drm_color_pipeline_init(drm);
+ #ifdef DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT
+ 	if (drm->iface == &atomic_iface && drmSetClientCap(drm->fd, DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT, 1) == 0) {
+ 		wlr_log(WLR_INFO, "DRM_CLIENT_CAP_CURSOR_PLANE_HOTSPOT supported");
+@@ -297,13 +299,19 @@
+ 			goto error;
+ 		}
+ 
++		bool color_ok = drm_color_pipeline_discover(drm, plane);
+ 		drmModeFreePlane(drm_plane);
++		if (!color_ok)
++			goto error;
+ 	}
+ 
+ 	drmModeFreePlaneResources(plane_res);
+ 	return true;
+ 
+ error:
++	for (size_t i = 0; drm->planes && i < drm->num_planes; i++) {
++		drm_color_pipeline_finish(&drm->planes[i]);
++	}
+ 	free(drm->planes);
+ 	drmModeFreePlaneResources(plane_res);
+ 	return false;
+@@ -424,6 +432,9 @@
+ 		free(plane->cursor_sizes);
+ 	}
+ 
++	for (size_t i = 0; drm->planes && i < drm->num_planes; i++) {
++		drm_color_pipeline_finish(&drm->planes[i]);
++	}
+ 	free(drm->planes);
+ }
+ 
+@@ -432,6 +443,15 @@
+ 	assert(wlr_output_is_drm(wlr_output));
+ 	struct wlr_drm_connector *conn = wl_container_of(wlr_output, conn, output);
+ 	return conn;
++}
++
++bool wlr_drm_output_supports_color_pipeline(struct wlr_output *output) {
++	if (!wlr_output_is_drm(output)) {
++		return false;
++	}
++	struct wlr_drm_connector *conn = get_drm_connector_from_output(output);
++	return drm_color_pipeline_supported(conn->backend) && !conn->backend->parent &&
++		   conn->backend->iface != &legacy_iface && !drm_connector_is_cursor_visible(conn);
+ }
+ 
+ static void layer_handle_addon_destroy(struct wlr_addon *addon) {
+--- a/backend/drm/fb.c
++++ b/backend/drm/fb.c
+@@ -148,6 +148,10 @@
+ 		return NULL;
+ 	}
+ 
++	/* Opting into colorops disables the implicit legacy YUV conversion. */
++	if (drm->color_pipeline_enabled && pixel_format_is_ycbcr(attribs.format)) {
++		return NULL;
++	}
+ 	if (is_buffer_poisoned(drm, buf)) {
+ 		wlr_log(WLR_DEBUG, "Buffer is poisoned");
+ 		return NULL;
+--- a/backend/drm/libliftoff.c
++++ b/backend/drm/libliftoff.c
+@@ -7,6 +7,7 @@
+ #include <wlr/util/box.h>
+ #include <wlr/util/log.h>
+ 
++#include "backend/drm/color_pipeline.h"
+ #include "backend/drm/drm.h"
+ #include "backend/drm/fb.h"
+ #include "backend/drm/iface.h"
+@@ -444,6 +445,75 @@
+ 	return required_layers_accepted;
+ }
+ 
++static struct wlr_drm_plane *assigned_plane(
++	struct wlr_drm_backend *drm, struct liftoff_layer *layer) {
++	struct liftoff_plane *plane = liftoff_layer_get_plane(layer);
++	if (!plane) {
++		return NULL;
++	}
++	uint32_t id = liftoff_plane_get_id(plane);
++	for (size_t i = 0; i < drm->num_planes; i++) {
++		if (drm->planes[i].id == id) {
++			return &drm->planes[i];
++		}
++	}
++	return NULL;
++}
++
++static bool add_color_pipelines(struct wlr_drm_connector_state *s, drmModeAtomicReq *req) {
++	struct wlr_drm_backend *drm = s->connector->backend;
++	struct wlr_drm_crtc *crtc = s->connector->crtc;
++	if (!s->active) {
++		return true;
++	}
++	struct liftoff_layer *primary = crtc->primary->liftoff_layer;
++	if (liftoff_layer_needs_composition(primary)) {
++		primary = crtc->liftoff_composition_layer;
++	}
++	if (!drm_color_pipeline_add(
++			s, req, assigned_plane(drm, primary), s->primary_fb ? s->primary_fb->wlr_buf : NULL)) {
++		return false;
++	}
++	if (crtc->cursor &&
++		!drm_color_pipeline_add(s, req, assigned_plane(drm, crtc->cursor->liftoff_layer), NULL)) {
++		return false;
++	}
++	struct wlr_drm_layer *layer;
++	wl_list_for_each(layer, &crtc->layers, link) {
++		struct wlr_drm_plane *plane = assigned_plane(drm, layer->liftoff);
++		struct wlr_drm_fb *fb = layer->pending_fb;
++		if (!(s->base->committed & WLR_OUTPUT_STATE_LAYERS)) {
++			fb = layer->queued_fb ? layer->queued_fb : layer->current_fb;
++		}
++		if (plane && !drm_color_pipeline_add(s, req, plane, fb ? fb->wlr_buf : NULL)) {
++			return false;
++		}
++	}
++	return true;
++}
++
++static bool reset_device_color_pipelines(
++	const struct wlr_drm_device_state *state, drmModeAtomicReq *req) {
++	// A later connector may have previously owned a plane assigned to an
++	// earlier connector. Clear all previous assignments before setting any.
++	for (size_t i = 0; i < state->connectors_len; i++) {
++		if (!drm_color_pipeline_reset(&state->connectors[i], req)) {
++			return false;
++		}
++	}
++	return true;
++}
++
++static bool add_device_color_pipelines(
++	const struct wlr_drm_device_state *state, drmModeAtomicReq *req) {
++	for (size_t i = 0; i < state->connectors_len; i++) {
++		if (!add_color_pipelines(&state->connectors[i], req)) {
++			return false;
++		}
++	}
++	return true;
++}
++
+ static bool commit(struct wlr_drm_backend *drm,
+ 		const struct wlr_drm_device_state *state,
+ 		struct wlr_drm_page_flip *page_flip, uint32_t flags, bool test_only) {
+@@ -484,6 +554,11 @@
+ 		}
+ 	}
+ 
++	// Allocation probes must not inherit a color pipeline belonging to the
++	// old framebuffer/assignment. The final test below uses the new recipes.
++	if (!reset_device_color_pipelines(state, req)) {
++		goto out;
++	}
+ 	for (size_t i = 0; i < state->connectors_len; i++) {
+ 		struct wlr_drm_connector *conn = state->connectors[i].connector;
+ 		struct wlr_drm_crtc *crtc = conn->crtc;
+@@ -510,6 +585,16 @@
+ 		}
+ 	}
+ 
++	if (!add_device_color_pipelines(state, req)) {
++		goto out;
++	}
++	if (drm->color_pipeline_enabled && !test_only &&
++		drmModeAtomicCommit(drm->fd, req,
++			(flags & ~(DRM_MODE_PAGE_FLIP_EVENT | DRM_MODE_ATOMIC_NONBLOCK)) |
++				DRM_MODE_ATOMIC_TEST_ONLY,
++			NULL) != 0) {
++		goto out;
++	}
+ 	ok = drmModeAtomicCommit(drm->fd, req, flags, page_flip) == 0;
+ 	if (!ok) {
+ 		wlr_log_errno(test_only ? WLR_DEBUG : WLR_ERROR,
+--- a/backend/drm/meson.build
++++ b/backend/drm/meson.build
+@@ -1,3 +1,15 @@
++internal_config.set10('HAVE_DRM_COLOR_PIPELINE', cc.compiles('''
++#include <xf86drm.h>
++#include <xf86drmMode.h>
++int main(void) {
++    struct drm_color_ctm_3x4 matrix = {0};
++    struct drm_color_lut32 lut = {0};
++    return DRM_CLIENT_CAP_PLANE_COLOR_PIPELINE + DRM_MODE_OBJECT_COLOROP +
++        DRM_COLOROP_1D_CURVE + DRM_COLOROP_1D_LUT + DRM_COLOROP_CTM_3X4 +
++        DRM_COLOROP_MULTIPLIER + matrix.matrix[0] + lut.red;
++}
++''', dependencies: drm, name: 'DRM color pipeline UAPI'))
++
+ hwdata = dependency(
+ 	'hwdata',
+ 	required: 'drm' in backends,
+@@ -37,6 +49,7 @@
+ 
+ wlr_files += files(
+ 	'atomic.c',
++	'color_pipeline.c',
+ 	'backend.c',
+ 	'drm.c',
+ 	'fb.c',
+--- /dev/null
++++ b/include/backend/drm/color_pipeline.h
+@@ -0,0 +1,19 @@
++#ifndef BACKEND_DRM_COLOR_PIPELINE_H
++#define BACKEND_DRM_COLOR_PIPELINE_H
++
++#include <xf86drmMode.h>
++struct wlr_drm_backend;
++struct wlr_drm_plane;
++struct wlr_drm_connector_state;
++struct wlr_buffer;
++
++void drm_color_pipeline_init(struct wlr_drm_backend *drm);
++bool drm_color_pipeline_discover(struct wlr_drm_backend *drm, struct wlr_drm_plane *plane);
++bool drm_color_pipeline_supported(struct wlr_drm_backend *drm);
++void drm_color_pipeline_finish(struct wlr_drm_plane *plane);
++bool drm_color_pipeline_reset(struct wlr_drm_connector_state *state, drmModeAtomicReq *req);
++bool drm_color_pipeline_add(struct wlr_drm_connector_state *state, drmModeAtomicReq *req,
++	struct wlr_drm_plane *plane, struct wlr_buffer *buffer);
++void drm_color_pipeline_state_finish(struct wlr_drm_connector_state *state, bool committed);
++
++#endif
+--- a/include/backend/drm/drm.h
++++ b/include/backend/drm/drm.h
+@@ -20,7 +20,10 @@
+ 	struct wlr_box dst_box;
+ };
+ 
++struct color_plane;
++
+ struct wlr_drm_plane {
++	struct color_plane *color_pipeline;
+ 	uint32_t type;
+ 	uint32_t id;
+ 
+@@ -99,6 +102,7 @@
+ 	struct wlr_drm_backend *parent;
+ 	const struct wlr_drm_interface *iface;
+ 	bool addfb2_modifiers;
++	bool color_pipeline_enabled;
+ 	bool liftoff_fallback_allowed; // Only until the first real KMS commit
+ 
+ 	int fd;
+@@ -163,6 +167,8 @@
+ 
+ 	struct wlr_drm_syncobj_timeline *wait_timeline;
+ 	uint64_t wait_point;
++
++	struct wl_array color_pipeline_state;
+ 
+ 	// used by atomic
+ 	uint32_t mode_id;
+--- /dev/null
++++ b/include/render/color_pipeline.h
+@@ -0,0 +1,34 @@
++#ifndef RENDER_COLOR_PIPELINE_H
++#define RENDER_COLOR_PIPELINE_H
++
++#include "render/color.h"
++#include <wlr/types/wlr_buffer.h>
++
++/* Immutable, buffer-scoped recipe. Keeps the public output/state ABI intact. */
++#define COLOR_PIPELINE_MAX_OPS 32
++enum color_pipeline_op_type { CP_CURVE, CP_MATRIX, CP_MULTIPLIER, CP_LUT, CP_LUT3D };
++struct color_pipeline_op {
++	enum color_pipeline_op_type type;
++	const char *curve;
++	double matrix[12];
++	double multiplier;
++	struct wlr_color_transform *transform;
++};
++struct color_pipeline_recipe {
++	size_t len;
++	struct color_pipeline_op ops[COLOR_PIPELINE_MAX_OPS];
++};
++
++bool color_pipeline_add_decode(
++	struct color_pipeline_recipe *recipe, enum wlr_color_transfer_function tf);
++bool color_pipeline_add_matrix(struct color_pipeline_recipe *recipe, const float matrix[9]);
++bool color_pipeline_add_transform(
++	struct color_pipeline_recipe *recipe, struct wlr_color_transform *transform);
++uint64_t color_pipeline_fingerprint(const struct color_pipeline_recipe *recipe);
++bool color_pipeline_fixed(double value, uint64_t *result);
++/* The wrapper owns references to source and recipe transforms. Drop after use. */
++struct wlr_buffer *color_pipeline_wrap(
++	struct wlr_buffer *source, const struct color_pipeline_recipe *recipe);
++const struct color_pipeline_recipe *color_pipeline_get(struct wlr_buffer *buffer);
++
++#endif
+--- a/include/wlr/backend/drm.h
++++ b/include/wlr/backend/drm.h
+@@ -41,6 +41,8 @@
+ 
+ bool wlr_backend_is_drm(struct wlr_backend *backend);
+ bool wlr_output_is_drm(struct wlr_output *output);
++/** Runtime opt-in capability; false for nested, legacy and multi-GPU outputs. */
++bool wlr_drm_output_supports_color_pipeline(struct wlr_output *output);
+ 
+ /**
+  * Get the parent DRM backend, if any.
+--- a/include/wlr/render/color.h
++++ b/include/wlr/render/color.h
+@@ -184,4 +184,9 @@
+ 	const struct wlr_color_primaries *source,
+ 	const struct wlr_color_primaries *destination, float matrix[static 9]);
+ 
++#define WLR_AQUEOUS_COLOR_PIPELINE_VERSION 1
++struct wlr_buffer;
++/** Whether a buffer carries an immutable pre-blend hardware color recipe. */
++bool wlr_buffer_has_color_pipeline(struct wlr_buffer *buffer);
++
+ #endif
+--- /dev/null
++++ b/render/color_pipeline.c
+@@ -0,0 +1,239 @@
++#include "render/color_pipeline.h"
++#include <math.h>
++#include <stdlib.h>
++#include <string.h>
++#include <wlr/interfaces/wlr_buffer.h>
++#include <wlr/render/color.h>
++#include <wlr/render/dmabuf.h>
++
++static struct color_pipeline_op *append(
++	struct color_pipeline_recipe *r, enum color_pipeline_op_type type) {
++	if (r->len == COLOR_PIPELINE_MAX_OPS) {
++		return NULL;
++	}
++	struct color_pipeline_op *op = &r->ops[r->len++];
++	*op = (struct color_pipeline_op){.type = type};
++	return op;
++}
++
++bool color_pipeline_fixed(double value, uint64_t *result) {
++	/* S31.32 sign-magnitude, NOT two's complement. Avoid undefined casts. */
++	if (!isfinite(value) || fabs(value) >= 2147483648.0) {
++		return false;
++	}
++	long double scaled = roundl(fabsl((long double)value) * 4294967296.0L);
++	if (scaled > (long double)INT64_MAX) {
++		return false;
++	}
++	*result = (uint64_t)scaled;
++	if (value < 0 && *result != 0) {
++		*result |= UINT64_C(1) << 63;
++	}
++	return true;
++}
++
++static bool add_multiplier(struct color_pipeline_recipe *r, double value) {
++	struct color_pipeline_op *op = append(r, CP_MULTIPLIER);
++	if (!op) {
++		return false;
++	}
++	op->multiplier = value;
++	return true;
++}
++
++static bool add_curve(
++	struct color_pipeline_recipe *r, enum wlr_color_transfer_function tf, bool inverse) {
++	const char *name;
++	switch (tf) {
++	case WLR_COLOR_TRANSFER_FUNCTION_EXT_LINEAR:
++		return true;
++	case WLR_COLOR_TRANSFER_FUNCTION_SRGB:
++		name = inverse ? "sRGB Inverse EOTF" : "sRGB EOTF";
++		break;
++	case WLR_COLOR_TRANSFER_FUNCTION_GAMMA22:
++		name = inverse ? "Gamma 2.2 Inverse" : "Gamma 2.2";
++		break;
++	case WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ:
++		name = inverse ? "PQ 125 Inverse EOTF" : "PQ 125 EOTF";
++		break;
++	default:
++		return false;
++	}
++	if (tf == WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ && inverse && !add_multiplier(r, 125.0)) {
++		return false;
++	}
++	struct color_pipeline_op *op = append(r, CP_CURVE);
++	if (!op) {
++		return false;
++	}
++	op->curve = name;
++	return tf != WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ || inverse || add_multiplier(r, 1.0 / 125.0);
++}
++
++bool color_pipeline_add_decode(
++	struct color_pipeline_recipe *r, enum wlr_color_transfer_function tf) {
++	return add_curve(r, tf, false);
++}
++
++bool color_pipeline_add_matrix(struct color_pipeline_recipe *r, const float m[9]) {
++	struct color_pipeline_op *op = append(r, CP_MATRIX);
++	if (!op) {
++		return false;
++	}
++	for (size_t row = 0; row < 3; row++) {
++		for (size_t col = 0; col < 3; col++) {
++			if (!isfinite(m[row * 3 + col])) {
++				return false;
++			}
++			op->matrix[row * 4 + col] = m[row * 3 + col];
++		}
++	}
++	return true;
++}
++
++bool color_pipeline_add_transform(struct color_pipeline_recipe *r, struct wlr_color_transform *tr) {
++	if (!tr) {
++		return true;
++	}
++	switch (tr->type) {
++	case COLOR_TRANSFORM_INVERSE_EOTF:
++		return add_curve(r, wlr_color_transform_inverse_eotf_from_base(tr)->tf, true);
++	case COLOR_TRANSFORM_MATRIX: {
++		struct wlr_color_transform_matrix *m = wl_container_of(tr, m, base);
++		return color_pipeline_add_matrix(r, m->matrix);
++	}
++	case COLOR_TRANSFORM_LUT_3X1D:
++	case COLOR_TRANSFORM_LCMS2: {
++		struct color_pipeline_op *op =
++			append(r, tr->type == COLOR_TRANSFORM_LUT_3X1D ? CP_LUT : CP_LUT3D);
++		if (!op) {
++			return false;
++		}
++		op->transform = tr;
++		return true;
++	}
++	case COLOR_TRANSFORM_PIPELINE: {
++		struct wlr_color_transform_pipeline *p = wl_container_of(tr, p, base);
++		for (size_t i = 0; i < p->len; i++) {
++			if (!color_pipeline_add_transform(r, p->transforms[i])) {
++				return false;
++			}
++		}
++		return true;
++	}
++	}
++	return false;
++}
++
++/* Combine adjacent linear operations; order is left multiplication. This also
++ * folds PQ-125 normalization into a matrix on devices lacking a multiplier. */
++static void normalize(struct color_pipeline_recipe *r) {
++	for (size_t i = 0; i + 1 < r->len;) {
++		struct color_pipeline_op *a = &r->ops[i], *b = &r->ops[i + 1];
++		if ((a->type != CP_MATRIX && a->type != CP_MULTIPLIER) ||
++			(b->type != CP_MATRIX && b->type != CP_MULTIPLIER)) {
++			i++;
++			continue;
++		}
++		double am[12] = {0}, bm[12] = {0};
++		if (a->type == CP_MATRIX) {
++			memcpy(am, a->matrix, sizeof(am));
++		} else {
++			am[0] = am[5] = am[10] = a->multiplier;
++		}
++		if (b->type == CP_MATRIX) {
++			memcpy(bm, b->matrix, sizeof(bm));
++		} else {
++			bm[0] = bm[5] = bm[10] = b->multiplier;
++		}
++		*a = (struct color_pipeline_op){.type = CP_MATRIX};
++		for (size_t row = 0; row < 3; row++) {
++			for (size_t col = 0; col < 4; col++) {
++				for (size_t k = 0; k < 3; k++) {
++					a->matrix[row * 4 + col] += bm[row * 4 + k] * am[k * 4 + col];
++				}
++			}
++			a->matrix[row * 4 + 3] += bm[row * 4 + 3];
++		}
++		memmove(b, b + 1, (r->len - i - 2) * sizeof(*b));
++		r->len--;
++	}
++}
++
++/* Cache only rejection attempts, never skip the final atomic test. All recipe
++ * storage is initialized and immutable; pointer identity covers opaque LUTs. */
++uint64_t color_pipeline_fingerprint(const struct color_pipeline_recipe *recipe) {
++	uint64_t hash = UINT64_C(14695981039346656037);
++	for (size_t i = 0; i < recipe->len; i++) {
++		const struct color_pipeline_op *op = &recipe->ops[i];
++		hash = (hash ^ op->type) * UINT64_C(1099511628211);
++		const unsigned char *data = (const unsigned char *)op->matrix;
++		for (size_t j = 0; j < sizeof(op->matrix); j++)
++			hash = (hash ^ data[j]) * UINT64_C(1099511628211);
++		data = (const unsigned char *)&op->multiplier;
++		for (size_t j = 0; j < sizeof(op->multiplier); j++)
++			hash = (hash ^ data[j]) * UINT64_C(1099511628211);
++		for (const char *c = op->curve; c && *c; c++)
++			hash = (hash ^ (unsigned char)*c) * UINT64_C(1099511628211);
++		hash = (hash ^ (uintptr_t)op->transform) * UINT64_C(1099511628211);
++	}
++	return hash;
++}
++
++struct pipeline_buffer {
++	struct wlr_buffer base;
++	struct wlr_buffer *source;
++	struct color_pipeline_recipe recipe;
++};
++
++static void destroy(struct wlr_buffer *buffer) {
++	struct pipeline_buffer *b = wl_container_of(buffer, b, base);
++	for (size_t i = 0; i < b->recipe.len; i++) {
++		wlr_color_transform_unref(b->recipe.ops[i].transform);
++	}
++	wlr_buffer_unlock(b->source);
++	free(b);
++}
++
++static bool get_dmabuf(struct wlr_buffer *buffer, struct wlr_dmabuf_attributes *attrs) {
++	struct pipeline_buffer *b = wl_container_of(buffer, b, base);
++	return wlr_buffer_get_dmabuf(b->source, attrs);
++}
++
++static const struct wlr_buffer_impl impl = {
++	.destroy = destroy,
++	.get_dmabuf = get_dmabuf,
++};
++
++struct wlr_buffer *color_pipeline_wrap(
++	struct wlr_buffer *source, const struct color_pipeline_recipe *recipe) {
++	if (!source || !recipe->len || recipe->len > COLOR_PIPELINE_MAX_OPS) {
++		return NULL;
++	}
++	struct pipeline_buffer *b = calloc(1, sizeof(*b));
++	if (!b) {
++		return NULL;
++	}
++	b->source = wlr_buffer_lock(source);
++	b->recipe = *recipe;
++	normalize(&b->recipe);
++	for (size_t i = 0; i < b->recipe.len; i++) {
++		if (b->recipe.ops[i].transform) {
++			wlr_color_transform_ref(b->recipe.ops[i].transform);
++		}
++	}
++	wlr_buffer_init(&b->base, &impl, source->width, source->height);
++	return &b->base;
++}
++
++const struct color_pipeline_recipe *color_pipeline_get(struct wlr_buffer *buffer) {
++	if (!buffer || buffer->impl != &impl) {
++		return NULL;
++	}
++	struct pipeline_buffer *b = wl_container_of(buffer, b, base);
++	return &b->recipe;
++}
++
++bool wlr_buffer_has_color_pipeline(struct wlr_buffer *buffer) {
++	return color_pipeline_get(buffer) != NULL;
++}
+--- a/render/meson.build
++++ b/render/meson.build
+@@ -7,6 +7,7 @@
+ 
+ wlr_files += files(
+ 	'color.c',
++	'color_pipeline.c',
+ 	'dmabuf.c',
+ 	'drm_format_set.c',
+ 	'drm_syncobj_merger.c',

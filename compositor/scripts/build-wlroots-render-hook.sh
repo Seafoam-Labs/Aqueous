@@ -30,6 +30,8 @@ patch_files=(
     "$here/patches/wlroots/0022-pointer-enter-serial-validation.patch"
     "$here/patches/wlroots/0023-commit-timing-v1.patch"
     "$here/patches/wlroots/0024-protocol-versions.patch"
+    "$here/patches/wlroots/0025-drm-color-pipeline.patch"
+    "$here/patches/wlroots/0026-scene-color-pipeline.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -164,6 +166,8 @@ LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 library="$prefix/lib/libwlroots-0.20.so"
 [ -f "$library" ] || die "patched wlroots library was not installed"
 for symbol in \
+    wlr_buffer_has_color_pipeline \
+    wlr_drm_output_supports_color_pipeline \
     wlr_seat_client_validate_pointer_enter_serial \
     wlr_xdg_toplevel_set_suspended \
     wlr_xdg_toplevel_set_constrained \
@@ -240,6 +244,7 @@ python3 "$here/scripts/test-pointer-enter.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-protocol-version-handlers.py" "$source_dir" "$prefix"
 
 python3 "$here/scripts/test-overlay-backend.py" "$source_dir" "$prefix"
+python3 "$here/scripts/test-color-pipeline.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-vulkan-sync.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-drm-lease-protocol.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-drm-lease-backend.py" "$source_dir" "$prefix"

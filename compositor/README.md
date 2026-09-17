@@ -340,6 +340,11 @@ required overlay assignments are then rejected and their windows remain composed
 Enabling overlays clears the old `WLR_DRM_FORCE_LIBLIFTOFF` setting inherited
 from earlier sessions; `-no-drm-overlay-planes` clears both backend settings.
 
+DRM plane color conversion is available as an experimental startup opt-in with
+`AQUEOUS_DRM_COLOR_PIPELINE=auto`. It defaults to off pending physical color
+acceptance. See [DRM color pipelines](../docs/color-pipeline.md) for supported
+operations, renderer fallback, capture behavior and validation status.
+
 For desktop slowdowns when a Proton game loses focus, use the
 [focus-stall capture instructions](../docs/proton-wayland-focus-stall.md) to
 record output state, compositor response times and NVIDIA load in the affected

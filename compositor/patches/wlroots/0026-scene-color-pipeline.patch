@@ -1,0 +1,551 @@
+Aqueous: scene hardware color conversion and renderer fallback
+
+Reference: https://gitlab.freedesktop.org/wlroots/wlroots/-/merge_requests/5220
+Reference author: Simon Ser <contact@emersion.fr>
+Reference head: e67d45a31e2df6492a00dc94498774e1dbaaf7e3
+Adapted implementation for wlroots 0.20.2; preserves output/state ABI.
+Experimental opt-in: AQUEOUS_DRM_COLOR_PIPELINE=auto.
+
+--- a/include/wlr/types/wlr_scene.h
++++ b/include/wlr/types/wlr_scene.h
+@@ -314,6 +314,13 @@
+ 		void *render_hook_data;
+ 		wlr_scene_damage_hook_func_t damage_hook;
+ 		void *damage_hook_data;
++		/* C-owned tail: preserve the existing Zig binding prefix. */
++		struct wlr_swapchain *color_pipeline_swapchain;
++		struct wlr_color_transform *color_pipeline_identity;
++		bool color_pipeline_composed;
++		unsigned color_pipeline_retry_frames;
++		uint64_t color_pipeline_scanout_key;
++		unsigned color_pipeline_scanout_retry_frames;
+ 	} WLR_PRIVATE;
+ };
+ 
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -1,9 +1,20 @@
++#include "types/wlr_scene.h"
++#include "render/color.h"
++#include "render/color_pipeline.h"
++#include "render/drm_format_set.h"
++#include "types/wlr_output.h"
++#include "util/array.h"
++#include "util/env.h"
++#include "util/time.h"
+ #include <assert.h>
++#include <drm_fourcc.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <wlr/backend.h>
++#include <wlr/backend/drm.h>
++#include <wlr/render/allocator.h>
++#include <wlr/render/drm_syncobj.h>
+ #include <wlr/render/swapchain.h>
+-#include <wlr/render/drm_syncobj.h>
+ #include <wlr/render/wlr_renderer.h>
+ #include <wlr/types/wlr_color_management_v1.h>
+ #include <wlr/types/wlr_compositor.h>
+@@ -15,12 +26,6 @@
+ #include <wlr/util/log.h>
+ #include <wlr/util/region.h>
+ #include <wlr/util/transform.h>
+-#include "render/color.h"
+-#include "types/wlr_output.h"
+-#include "types/wlr_scene.h"
+-#include "util/array.h"
+-#include "util/env.h"
+-#include "util/time.h"
+ 
+ #include <wlr/config.h>
+ 
+@@ -1618,6 +1623,39 @@
+ 	return (dst_lum->reference / src_lum->reference) * (src_lum->max / dst_lum->max);
+ }
+ 
++static float scene_buffer_luminance(struct wlr_scene_buffer *scene_buffer,
++	const struct wlr_output_image_description *out_description) {
++	struct wlr_color_luminances src_lum, srgb_lum;
++	wlr_color_transfer_function_get_default_luminance(scene_buffer->transfer_function, &src_lum);
++	wlr_color_transfer_function_get_default_luminance(WLR_COLOR_TRANSFER_FUNCTION_SRGB, &srgb_lum);
++	float luminance_multiplier = get_luminance_multiplier(&src_lum, &srgb_lum);
++
++	// Aqueous: on an HDR (PQ) output, scale relative-luminance (SDR)
++	// content so diffuse white lands on the configured SDR white level.
++	// Predefined Windows-scRGB is client-managed HDR: its fixed stimulus
++	// scale maps 1.0 to 80 cd/m² and must not inherit the SDR-white slider.
++	// Absolute-luminance PQ buffers are left untouched.
++	const struct wlr_output_image_description *out_img_desc = out_description;
++	if (out_img_desc != NULL &&
++		out_img_desc->transfer_function == WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ &&
++		scene_buffer->transfer_function != WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ) {
++		struct wlr_color_luminances pq_lum;
++		wlr_color_transfer_function_get_default_luminance(
++			WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ, &pq_lum);
++		struct wlr_scene_surface *scene_surface = wlr_scene_surface_try_from_buffer(scene_buffer);
++		bool windows_scrgb =
++			scene_surface != NULL &&
++			wlr_surface_has_windows_scrgb_image_description(scene_surface->surface);
++		if (windows_scrgb) {
++			luminance_multiplier *= 80.0f / pq_lum.reference;
++		} else if (out_img_desc->sdr_white_level > 0) {
++			luminance_multiplier *= (float)(out_img_desc->sdr_white_level / pq_lum.reference);
++		}
++	}
++
++	return luminance_multiplier;
++}
++
+ static void scene_entry_render(struct render_list_entry *entry, const struct render_data *data) {
+ 	struct wlr_scene_node *node = entry->node;
+ 
+@@ -1710,37 +1748,8 @@
+ 			wlr_color_primaries_from_named(&primaries, scene_buffer->primaries);
+ 		}
+ 
+-		struct wlr_color_luminances src_lum, srgb_lum;
+-		wlr_color_transfer_function_get_default_luminance(
+-			scene_buffer->transfer_function, &src_lum);
+-		wlr_color_transfer_function_get_default_luminance(
+-			WLR_COLOR_TRANSFER_FUNCTION_SRGB, &srgb_lum);
+-		float luminance_multiplier = get_luminance_multiplier(&src_lum, &srgb_lum);
+-
+-		// Aqueous: on an HDR (PQ) output, scale relative-luminance (SDR)
+-		// content so diffuse white lands on the configured SDR white level.
+-		// Predefined Windows-scRGB is client-managed HDR: its fixed stimulus
+-		// scale maps 1.0 to 80 cd/m² and must not inherit the SDR-white slider.
+-		// Absolute-luminance PQ buffers are left untouched.
+-		const struct wlr_output_image_description *out_img_desc =
+-			data->output_image_description;
+-		if (out_img_desc != NULL &&
+-				out_img_desc->transfer_function == WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ &&
+-				scene_buffer->transfer_function != WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ) {
+-			struct wlr_color_luminances pq_lum;
+-			wlr_color_transfer_function_get_default_luminance(
+-				WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ, &pq_lum);
+-			struct wlr_scene_surface *scene_surface =
+-				wlr_scene_surface_try_from_buffer(scene_buffer);
+-			bool windows_scrgb = scene_surface != NULL &&
+-				wlr_surface_has_windows_scrgb_image_description(scene_surface->surface);
+-			if (windows_scrgb) {
+-				luminance_multiplier *= 80.0f / pq_lum.reference;
+-			} else if (out_img_desc->sdr_white_level > 0) {
+-				luminance_multiplier *=
+-					(float)(out_img_desc->sdr_white_level / pq_lum.reference);
+-			}
+-		}
++		float luminance_multiplier =
++			scene_buffer_luminance(scene_buffer, data->output_image_description);
+ 
+ 		struct wlr_render_texture_options texture_options = {
+ 			.texture = texture,
+@@ -1925,6 +1934,13 @@
+ 		scene_output, output_commit);
+ 	struct wlr_output_event_commit *event = data;
+ 	const struct wlr_output_state *state = event->state;
++	if ((state->committed & WLR_OUTPUT_STATE_ENABLED) && !state->enabled) {
++		wlr_swapchain_destroy(scene_output->color_pipeline_swapchain);
++		scene_output->color_pipeline_swapchain = NULL;
++		scene_output->color_pipeline_composed = false;
++		scene_output->color_pipeline_retry_frames = 0;
++		scene_output->color_pipeline_scanout_retry_frames = 0;
++	}
+ 
+ 	// if the output has been committed with a certain damage, we know that region
+ 	// will be acknowledged by the backend so we don't need to keep track of it
+@@ -2097,6 +2113,8 @@
+ 	wlr_color_transform_unref(scene_output->prev_supplied_color_transform);
+ 	wlr_color_transform_unref(scene_output->combined_color_transform);
+ 	wl_array_release(&scene_output->render_list);
++	wlr_color_transform_unref(scene_output->color_pipeline_identity);
++	wlr_swapchain_destroy(scene_output->color_pipeline_swapchain);
+ 	free(scene_output);
+ }
+ 
+@@ -2429,6 +2447,62 @@
+ 	return wlr_buffer;
+ }
+ 
++static bool scene_color_pipeline_available(struct wlr_output *output) {
++#if WLR_HAS_DRM_BACKEND
++	return wlr_drm_output_supports_color_pipeline(output);
++#else
++	return false;
++#endif
++}
++
++static struct wlr_buffer *scene_buffer_color_pipeline(struct wlr_scene_buffer *buffer,
++	struct wlr_output *output, const struct wlr_output_image_description *desc) {
++	if (!scene_color_pipeline_available(output) || buffer->opacity != 1.0f || buffer->force_blend) {
++		return NULL;
++	}
++	enum wlr_color_transfer_function src_tf =
++		buffer->transfer_function ? buffer->transfer_function : WLR_COLOR_TRANSFER_FUNCTION_GAMMA22;
++	enum wlr_color_transfer_function dst_tf =
++		desc ? desc->transfer_function : WLR_COLOR_TRANSFER_FUNCTION_GAMMA22;
++	struct color_pipeline_recipe recipe = {0};
++	if (!color_pipeline_add_decode(&recipe, src_tf)) {
++		return NULL;
++	}
++	struct wlr_color_primaries src, working, dst;
++	wlr_color_primaries_from_named(
++		&src, buffer->primaries ? buffer->primaries : WLR_COLOR_NAMED_PRIMARIES_SRGB);
++	wlr_color_primaries_from_named(&working, WLR_COLOR_NAMED_PRIMARIES_SRGB);
++	wlr_color_primaries_from_named(&dst, desc ? desc->primaries : WLR_COLOR_NAMED_PRIMARIES_SRGB);
++	float matrix[9];
++	wlr_color_primaries_transform_absolute_colorimetric(&src, &working, matrix);
++	float gain = scene_buffer_luminance(buffer, desc);
++	for (size_t i = 0; i < 9; i++) {
++		matrix[i] *= gain;
++	}
++	if (!color_pipeline_add_matrix(&recipe, matrix)) {
++		return NULL;
++	}
++	wlr_color_primaries_transform_absolute_colorimetric(&working, &dst, matrix);
++	struct wlr_color_luminances working_lum, dst_lum;
++	wlr_color_transfer_function_get_default_luminance(
++		WLR_COLOR_TRANSFER_FUNCTION_SRGB, &working_lum);
++	wlr_color_transfer_function_get_default_luminance(dst_tf, &dst_lum);
++	gain = get_luminance_multiplier(&working_lum, &dst_lum);
++	for (size_t i = 0; i < 9; i++) {
++		matrix[i] *= gain;
++	}
++	if (!color_pipeline_add_matrix(&recipe, matrix)) {
++		return NULL;
++	}
++	struct wlr_color_transform *encode = wlr_color_transform_init_linear_to_inverse_eotf(dst_tf);
++	if (!encode) {
++		return NULL;
++	}
++	bool ok = color_pipeline_add_transform(&recipe, encode);
++	wlr_color_transform_unref(encode);
++	return ok ? color_pipeline_wrap(scene_buffer_get_scanout_source(buffer), &recipe) : NULL;
++}
++
+ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
+ 		struct render_list_entry *entry, struct wlr_output_state *state,
+ 		const struct render_data *data) {
+@@ -2473,7 +2547,8 @@
+ 	}
+ 
+ 	const struct wlr_output_image_description *img_desc = output_pending_image_description(scene_output->output, state);
+-	if (!color_management_is_scanout_allowed(img_desc, buffer)) {
++	bool needs_color_pipeline = !color_management_is_scanout_allowed(img_desc, buffer);
++	if (needs_color_pipeline && !scene_color_pipeline_available(scene_output->output)) {
+ 		return SCANOUT_INELIGIBLE;
+ 	}
+ 
+@@ -2519,7 +2594,34 @@
+ 
+ 	struct wlr_buffer *wlr_buffer = scene_buffer_get_scanout_source(buffer);
+ 
++	struct wlr_buffer *color_buffer = NULL;
++	if (needs_color_pipeline) {
++		color_buffer = scene_buffer_color_pipeline(buffer, scene_output->output, img_desc);
++		if (!color_buffer) {
++			wlr_output_state_finish(&pending);
++			return SCANOUT_INELIGIBLE;
++		}
++		uint64_t key = color_pipeline_fingerprint(color_pipeline_get(color_buffer));
++		struct wlr_dmabuf_attributes attrs;
++		if (wlr_buffer_get_dmabuf(color_buffer, &attrs)) {
++			key ^= ((uint64_t)attrs.format << 32) ^ attrs.modifier;
++		}
++		key ^= ((uint64_t)color_buffer->width << 32) ^ (uint32_t)color_buffer->height;
++		if (scene_output->color_pipeline_scanout_key == key &&
++			scene_output->color_pipeline_scanout_retry_frames > 0) {
++			scene_output->color_pipeline_scanout_retry_frames--;
++			wlr_buffer_drop(color_buffer);
++			wlr_output_state_finish(&pending);
++			return SCANOUT_CANDIDATE;
++		}
++		scene_output->color_pipeline_scanout_key = key;
++		scene_output->color_pipeline_scanout_retry_frames = 0;
++		wlr_buffer = color_buffer;
++	}
+ 	wlr_output_state_set_buffer(&pending, wlr_buffer);
++	if (color_buffer) {
++		wlr_buffer_drop(color_buffer);
++	}
+ 	if (buffer->wait_timeline != NULL) {
+ 		wlr_output_state_set_wait_timeline(&pending, buffer->wait_timeline, buffer->wait_point);
+ 	}
+@@ -2530,6 +2632,8 @@
+ 	}
+ 
+ 	if (!wlr_output_test_state(scene_output->output, &pending)) {
++		if (needs_color_pipeline)
++			scene_output->color_pipeline_scanout_retry_frames = 120;
+ 		wlr_output_state_finish(&pending);
+ 		return SCANOUT_CANDIDATE;
+ 	}
+@@ -2608,7 +2712,8 @@
+ 
+ 	const struct wlr_output_image_description *img_desc =
+ 		output_pending_image_description(scene_output->output, state);
+-	if (!color_management_is_scanout_allowed(img_desc, buffer)) {
++	bool needs_color_pipeline = !color_management_is_scanout_allowed(img_desc, buffer);
++	if (needs_color_pipeline && !scene_color_pipeline_available(scene_output->output)) {
+ 		candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_COLOR;
+ 		return false;
+ 	}
+@@ -2677,7 +2782,15 @@
+ 	}
+ 
+ 	struct wlr_output_layer_state *layer_state = &candidate->state;
+-	layer_state->buffer = scene_buffer_get_scanout_source(buffer);
++	struct wlr_buffer *color_buffer = NULL;
++	if (needs_color_pipeline) {
++		color_buffer = scene_buffer_color_pipeline(buffer, scene_output->output, img_desc);
++		if (!color_buffer) {
++			candidate->rejection_reason = WLR_SCENE_OUTPUT_LAYER_REJECTION_COLOR;
++			return false;
++		}
++	}
++	layer_state->buffer = color_buffer ? color_buffer : scene_buffer_get_scanout_source(buffer);
+ 	transform_output_fbox(&layer_state->dst_box,
+ 		candidate_entry->x - scene_output->x,
+ 		candidate_entry->y - scene_output->y, width, height, data);
+@@ -2697,6 +2810,9 @@
+ 	bool test_ok = wlr_output_test_state(scene_output->output, state);
+ 	wl_list_remove(&feedback.listener.link);
+ 	if (!test_ok || !layer_state->accepted) {
++		if (color_buffer) {
++			wlr_buffer_drop(color_buffer);
++		}
+ 		layer_state->buffer = NULL;
+ 		layer_state->must_scan_out = false;
+ 		layer_state->wait_timeline = NULL;
+@@ -2843,6 +2959,79 @@
+ 	wlr_color_transform_unref(inv_eotf);
+ 	wlr_color_transform_unref(user_gamma);
+ 	return result;
++}
++
++/* Keep scene effects in their existing linear working space. The scanout
++ * wrapper describes only the final output transform, never capture metadata. */
++static struct wlr_buffer *scene_output_try_color_pipeline(
++	struct wlr_scene_output *so, struct wlr_output_state *state, int width, int height) {
++#if WLR_HAS_VULKAN_RENDERER
++	struct wlr_output *output = so->output;
++	if (!scene_color_pipeline_available(output) || !wlr_renderer_is_vk(output->renderer) ||
++		!wlr_output_is_direct_scanout_allowed(output) || output->software_cursor_locks > 0) {
++		return NULL;
++	}
++	if (so->color_pipeline_retry_frames &&
++		!(state->committed & (WLR_OUTPUT_STATE_MODE | WLR_OUTPUT_STATE_IMAGE_DESCRIPTION))) {
++		so->color_pipeline_retry_frames--;
++		return NULL;
++	}
++	so->color_pipeline_retry_frames = 120;
++	struct color_pipeline_recipe recipe = {0};
++	if (!color_pipeline_add_transform(&recipe, so->combined_color_transform) || !recipe.len) {
++		return NULL;
++	}
++	if (!so->color_pipeline_identity) {
++		so->color_pipeline_identity =
++			wlr_color_transform_init_linear_to_inverse_eotf(WLR_COLOR_TRANSFER_FUNCTION_EXT_LINEAR);
++		if (!so->color_pipeline_identity) {
++			return NULL;
++		}
++	}
++	struct wlr_swapchain *swapchain = so->color_pipeline_swapchain;
++	if (!swapchain || swapchain->width != width || swapchain->height != height) {
++		const struct wlr_drm_format_set *formats =
++			wlr_output_get_primary_formats(output, output->allocator->buffer_caps);
++		struct wlr_drm_format format = {0};
++		if (!output_pick_format(output, formats, &format, DRM_FORMAT_XBGR16161616F)) {
++			return NULL;
++		}
++		swapchain = wlr_swapchain_create(output->allocator, width, height, &format);
++		wlr_drm_format_finish(&format);
++		if (!swapchain) {
++			return NULL;
++		}
++		wlr_swapchain_destroy(so->color_pipeline_swapchain);
++		so->color_pipeline_swapchain = swapchain;
++	}
++	struct wlr_buffer *buffer = wlr_swapchain_acquire(swapchain);
++	if (!buffer) {
++		return NULL;
++	}
++	struct wlr_buffer *wrapped = color_pipeline_wrap(buffer, &recipe);
++	struct wlr_output_state pending;
++	wlr_output_state_init(&pending);
++	bool ok = wrapped && wlr_output_state_copy(&pending, state);
++	if (ok) {
++		wlr_output_state_set_buffer(&pending, wrapped);
++		ok = wlr_output_test_state(output, &pending);
++	}
++	if (ok) {
++		wlr_output_state_set_buffer(state, wrapped);
++		so->color_pipeline_retry_frames = 0;
++	}
++	wlr_output_state_finish(&pending);
++	if (wrapped) {
++		wlr_buffer_drop(wrapped);
++	}
++	if (!ok) {
++		wlr_buffer_unlock(buffer);
++		return NULL;
++	}
++	return buffer;
++#else
++	return NULL;
++#endif
+ }
+ 
+ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
+@@ -2864,6 +3053,12 @@
+ 		if (layer_candidate->layer != NULL) {
+ 			wlr_output_state_set_layers(state, &layer_candidate->state, 1);
+ 		}
++	}
++	if ((state->committed & (WLR_OUTPUT_STATE_MODE | WLR_OUTPUT_STATE_IMAGE_DESCRIPTION |
++								WLR_OUTPUT_STATE_ENABLED)) ||
++		!wlr_output_is_direct_scanout_allowed(scene_output->output)) {
++		scene_output->color_pipeline_scanout_retry_frames = 0;
++		scene_output->color_pipeline_retry_frames = 0;
+ 	}
+ 	struct wlr_scene_timer *timer = options->timer;
+ 	struct timespec start_time;
+@@ -3047,22 +3242,57 @@
+ 		return true;
+ 	}
+ 
+-	struct wlr_swapchain *swapchain = options->swapchain;
+-	if (!swapchain) {
+-		if (!wlr_output_configure_primary_swapchain(output, state, &output->swapchain)) {
++	if (scene_output->combined_color_transform == NULL ||
++		(render_gamma_lut && scene_output->gamma_lut_color_transform !=
++								 scene_output->prev_gamma_lut_color_transform) ||
++		scene_output->prev_supplied_color_transform != options->color_transform ||
++		(state->committed & WLR_OUTPUT_STATE_IMAGE_DESCRIPTION)) {
++		const struct wlr_output_image_description *output_description =
++			output_pending_image_description(output, state);
++		if (!scene_output_combine_color_transforms(
++				scene_output, options->color_transform, output_description, render_gamma_lut)) {
++			if (layer_candidate) {
++				wlr_scene_output_layer_candidate_finish(layer_candidate, false);
++			}
+ 			return false;
+ 		}
+-
+-		swapchain = output->swapchain;
+-	}
+-
+-	struct wlr_buffer *buffer = wlr_swapchain_acquire(swapchain);
+-	if (buffer == NULL) {
+-		return false;
+-	}
+-
+-	assert(buffer->width == resolution_width && buffer->height == resolution_height);
+-	wlr_output_state_set_buffer(state, buffer);
++	}
++
++	struct wlr_buffer *buffer = NULL;
++	if (!options->swapchain && !render_gamma_lut &&
++		(!layer_candidate || !layer_candidate->buffer) && !options->color_transform) {
++		buffer = scene_output_try_color_pipeline(
++			scene_output, state, resolution_width, resolution_height);
++	}
++	bool color_offload = buffer != NULL;
++	if (scene_output->color_pipeline_composed != color_offload) {
++		scene_output_damage_whole(scene_output);
++		scene_output->color_pipeline_composed = color_offload;
++	}
++	if (!color_offload) {
++		struct wlr_swapchain *swapchain = options->swapchain;
++		if (!swapchain) {
++			if (!wlr_output_configure_primary_swapchain(output, state, &output->swapchain)) {
++				if (layer_candidate) {
++					wlr_scene_output_layer_candidate_finish(layer_candidate, false);
++				}
++				return false;
++			}
++
++			swapchain = output->swapchain;
++		}
++
++		buffer = wlr_swapchain_acquire(swapchain);
++		if (buffer == NULL) {
++			if (layer_candidate) {
++				wlr_scene_output_layer_candidate_finish(layer_candidate, false);
++			}
++			return false;
++		}
++
++		assert(buffer->width == resolution_width && buffer->height == resolution_height);
++		wlr_output_state_set_buffer(state, buffer);
++	}
+ 
+ 	if (layer_candidate != NULL && layer_candidate->layer != NULL &&
+ 			layer_candidate->buffer != NULL && options->color_transform == NULL &&
+@@ -3105,29 +3335,21 @@
+ 		timer->pre_render_duration = timespec_to_nsec(&duration);
+ 	}
+ 
+-	if ((render_gamma_lut
+-			&& scene_output->gamma_lut_color_transform != scene_output->prev_gamma_lut_color_transform)
+-			|| scene_output->prev_supplied_color_transform != options->color_transform
+-			|| (state->committed & WLR_OUTPUT_STATE_IMAGE_DESCRIPTION)) {
+-		const struct wlr_output_image_description *output_description =
+-			output_pending_image_description(output, state);
+-		if (!scene_output_combine_color_transforms(scene_output, options->color_transform,
+-				output_description, render_gamma_lut)) {
+-			wlr_buffer_unlock(buffer);
+-			return false;
+-		}
+-	}
+ 
+ 	scene_output->in_point++;
+ 	struct wlr_render_pass *render_pass = wlr_renderer_begin_buffer_pass(output->renderer, buffer,
+-			&(struct wlr_buffer_pass_options){
+-		.timer = timer ? timer->render_timer : NULL,
+-		.color_transform = scene_output->combined_color_transform,
+-		.signal_timeline = scene_output->in_timeline,
+-		.signal_point = scene_output->in_point,
+-	});
++		&(struct wlr_buffer_pass_options){
++			.timer = timer ? timer->render_timer : NULL,
++			.color_transform = color_offload ? scene_output->color_pipeline_identity
++											 : scene_output->combined_color_transform,
++			.signal_timeline = scene_output->in_timeline,
++			.signal_point = scene_output->in_point,
++		});
+ 	if (render_pass == NULL) {
+ 		wlr_buffer_unlock(buffer);
++		if (layer_candidate) {
++			wlr_scene_output_layer_candidate_finish(layer_candidate, false);
++		}
+ 		return false;
+ 	}
+ 
+@@ -3255,10 +3477,15 @@
+ 		// if we failed to render the buffer, it will have undefined contents
+ 		// Trash the damage ring
+ 		wlr_damage_ring_add_whole(&scene_output->damage_ring);
++		if (layer_candidate) {
++			wlr_scene_output_layer_candidate_finish(layer_candidate, false);
++		}
+ 		return false;
+ 	}
+ 
+-	wlr_output_state_set_buffer(state, buffer);
++	if (!color_offload) {
++		wlr_output_state_set_buffer(state, buffer);
++	}
+ 	wlr_buffer_unlock(buffer);
+ 
+ 	if (scene_output->in_timeline != NULL) {
+@@ -3278,6 +3505,10 @@
+ 
+ void wlr_scene_output_layer_candidate_finish(
+ 		struct wlr_scene_output_layer_candidate *candidate, bool committed) {
++	if (color_pipeline_get(candidate->state.buffer)) {
++		wlr_buffer_drop(candidate->state.buffer);
++		candidate->state.buffer = NULL;
++	}
+ 	if (!committed || !candidate->promoted || candidate->buffer == NULL ||
+ 			candidate->scene_output == NULL) {
+ 		return;

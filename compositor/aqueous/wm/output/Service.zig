@@ -471,6 +471,7 @@ fn handleRetryTest(service: *Service, client: *Client, request: std.json.ObjectM
                 .remaining = count,
                 .disable_retry = jsonBool(request.get("disable_retry")) orelse false,
                 .simulate_overlay = jsonBool(request.get("simulate_overlay")) orelse false,
+                .simulate_color_pipeline = jsonBool(request.get("simulate_color_pipeline")) orelse false,
             };
         } else if (std.mem.eql(u8, action, "preview_test_failure")) {
             @import("../../DisplayPreview.zig").test_fail_next = true;

@@ -85,8 +85,9 @@ def main():
         samples.flush()
         return value
 
-    def arm(stage, count, disabled=False, overlay=False):
-        return status(action='arm', stage=stage, count=count, disable_retry=disabled, simulate_overlay=overlay)
+    def arm(stage, count, disabled=False, overlay=False, color_pipeline=False):
+        return status(action='arm', stage=stage, count=count, disable_retry=disabled,
+                      simulate_overlay=overlay, simulate_color_pipeline=color_pipeline)
 
     def draw():
         previous = latest('target', 'submitted')['frame']
@@ -228,6 +229,23 @@ focus_follows_mouse = false
             recovered(before, 1, frame)
         results.append(dict(case='overlay-fallback-control-flow', passed=True))
         print('PASS overlay fallback control flow: immediate success and both failure stages', flush=True)
+
+        # Exercise the primary color-offload failure branch on a private headless
+        # output. Pixel verification covers the rebuilt renderer frame, not KMS.
+        before = arm('output_commit', 1, color_pipeline=True)['retry']['total_failures']
+        frame = draw()
+        wait(lambda: any(v['event'] == 'presented' and v['frame'] == frame for v in events('target')),
+             'color fallback did not present')
+        s = status()
+        assert s['retry']['total_failures'] == before and s['render_locks'] == 0, s
+        snapshot('color-pipeline-fallback')
+        verify_pixels(frame, 'color-pipeline-fallback')
+        for stage in ('fallback_build', 'fallback_commit'):
+            before = arm(stage, 1, color_pipeline=True)['retry']['total_failures']
+            frame = draw()
+            recovered(before, 1, frame)
+        results.append(dict(case='color-pipeline-fallback-control-flow', passed=True))
+        print('PASS color pipeline fallback control flow: complete pixels and bounded recovery', flush=True)
 
         before = arm('output_commit', -1)['retry']['total_failures']
         frame = draw()

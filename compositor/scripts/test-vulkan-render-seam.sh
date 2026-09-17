@@ -558,18 +558,22 @@ self_damage_metric_line=$(($(wc -l <"$COMPOSITOR_LOG") + 1))
 self_damage_frames=8
 send_blur_command stress "$self_damage_frames" 360 240 160 120
 sleep 0.2
-self_damage_metrics=$(
-    tail -n +"$self_damage_metric_line" "$COMPOSITOR_LOG" |
-        sed -n \
-            's/.*render-metric kind=vulkan-effects .*cache_hits=\([0-9][0-9]*\) cache_partial_rebuilds=\([0-9][0-9]*\) cache_full_rebuilds=\([0-9][0-9]*\) pixels_processed=\([0-9][0-9]*\).*/\1 \2 \3 \4/p'
-)
-self_damage_metric_count=$(wc -l <<<"$self_damage_metrics")
-[ "$self_damage_metric_count" -ge "$self_damage_frames" ] ||
-    die "self-damage did not produce the expected blur-cache samples"
-awk \
-    'NF != 4 || $1 < 1 || $2 != 0 || $3 != 0 || $4 != 0 { exit 1 }' \
-    <<<"$self_damage_metrics" ||
-    die "a blur window's own damage rebuilt its backdrop cache"
+# The uncached reference deliberately creates no cache and emits no cache-hit
+# samples. Keep its identical damage sequence for the final pixel comparison.
+if [ "$UNCACHED_ORACLE" = 0 ]; then
+    self_damage_metrics=$(
+        tail -n +"$self_damage_metric_line" "$COMPOSITOR_LOG" |
+            sed -n \
+                's/.*render-metric kind=vulkan-effects .*cache_hits=\([0-9][0-9]*\) cache_partial_rebuilds=\([0-9][0-9]*\) cache_full_rebuilds=\([0-9][0-9]*\) pixels_processed=\([0-9][0-9]*\).*/\1 \2 \3 \4/p'
+    )
+    self_damage_metric_count=$(wc -l <<<"$self_damage_metrics")
+    [ "$self_damage_metric_count" -ge "$self_damage_frames" ] ||
+        die "self-damage did not produce the expected blur-cache samples"
+    awk \
+        'NF != 4 || $1 < 1 || $2 != 0 || $3 != 0 || $4 != 0 { exit 1 }' \
+        <<<"$self_damage_metrics" ||
+        die "a blur window's own damage rebuilt its backdrop cache"
+fi
 content_order_values=$(
     magick "$ARTIFACT_DIR/blur-static.png" \
         -format '%[fx:(p{741,600}.r+p{741,600}.g+p{741,600}.b)/3] %[fx:(p{754,600}.r+p{754,600}.g+p{754,600}.b)/3] %[fx:(p{270,600}.r+p{270,600}.g+p{270,600}.b)/3] %[fx:abs(p{572,438}.r-p{588,438}.r)+abs(p{572,438}.g-p{588,438}.g)+abs(p{572,438}.b-p{588,438}.b)]' \

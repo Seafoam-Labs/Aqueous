@@ -730,6 +730,12 @@ pub fn commitOutputState(om: *OutputManager) void {
         var states: std.ArrayList(wlr.Backend.OutputState) = .empty;
         defer states.deinit(util.gpa);
         defer for (states.items) |*s| s.base.finish();
+        // Pending overlay buffers may own a hardware color recipe even when
+        // another output fails before the group is committed.
+        defer for (states.items) |*s| {
+            const output: *Output = @ptrCast(@alignCast(s.output.data));
+            output.discardOverlayCandidate();
+        };
 
         {
             var it = wm.sent.outputs.iterator(.forward);

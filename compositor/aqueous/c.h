@@ -3,6 +3,7 @@
 
 #include <linux/input-event-codes.h>
 #include <wlr/render/pass.h>
+#include <wlr/render/color.h>
 #include <wlr/render/drm_syncobj.h>
 #include <wlr/render/wlr_texture.h>
 #include <xf86drm.h>
@@ -21,6 +22,10 @@
 #include <wlr/types/wlr_xdg_toplevel_tag_v1.h>
 #include <wlr/backend/drm.h>
 #include <wlr/types/wlr_drm_lease_v1.h>
+
+#if !defined(WLR_AQUEOUS_COLOR_PIPELINE_VERSION) || WLR_AQUEOUS_COLOR_PIPELINE_VERSION != 1
+#error "Aqueous requires the pinned wlroots color pipeline API"
+#endif
 
 #if !defined(WLR_AQUEOUS_DRM_LEASE_VERSION) || WLR_AQUEOUS_DRM_LEASE_VERSION != 1
 #error "Aqueous requires the pinned wlroots DRM lease lifetime fixes"
