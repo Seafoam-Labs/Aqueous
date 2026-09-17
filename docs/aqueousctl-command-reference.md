@@ -398,3 +398,22 @@ the installed welcome worker is older than the CLI. Rebuild/update
 corresponding Intel Git packages), alongside the core package. Updating only
 `aqueous-core-git` does not update the separately built desktop worker. Newer
 CLIs check worker compatibility and report the required update before switching.
+
+If the journal reports `Two services allocated for the same bus name
+org.freedesktop.Notifications`, older Aqueous DMS units conflict with upstream
+`dms.service` during systemd unit loading. Update `aqueous-integration-dms-git`
+(or its Intel Git variant). The corrected Aqueous units use `Type=exec` without
+`BusName=`; DMS itself continues to provide notifications. `Type=exec` confirms
+process execution rather than waiting for notification-bus readiness; see the
+[systemd service documentation](https://github.com/systemd/systemd/blob/main/man/systemd.service.xml).
+
+For an already-installed unit, run
+`systemctl --user edit --full aqueous-git-dms.service`. In the full service file,
+change `Type=dbus` to `Type=exec` and remove the
+`BusName=org.freedesktop.Notifications` line entirely. An empty `BusName=` in a
+drop-in is rejected by systemd and does not clear the old declaration.
+
+Save, then run `systemctl --user daemon-reload` and retry
+`aqueousctl-git shell switch dms`. This changes the service definition only;
+shell configurations are preserved. The full user override takes precedence
+over future packaged unit updates until that override is removed.

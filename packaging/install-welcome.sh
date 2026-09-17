@@ -14,9 +14,11 @@ units="$destination$prefix/lib/systemd/user"
 install -d "$units/graphical-session.target.wants" "$destination$prefix/bin"
 for shell in pearl dms noctalia; do
     unit="aqueous-$shell.service"
+    # Upstream dms.service already declares the notification BusName. A second
+    # declaration fails unit loading, even when ExecCondition skips one shell.
     case "$shell" in
         pearl) type=simple; command="$prefix/bin/pearl" ;;
-        dms) type=dbus; command="$prefix/bin/dms run --session" ;;
+        dms) type=exec; command="$prefix/bin/dms run --session" ;;
         noctalia) type=forking; command="$prefix/bin/noctalia --daemon" ;;
     esac
     cat > "$units/$unit" <<EOF
@@ -37,9 +39,6 @@ RestartSec=2
 TimeoutStopSec=10
 Slice=app-graphical.slice
 EOF
-    if [ "$shell" = dms ]; then
-        printf '%s\n' 'BusName=org.freedesktop.Notifications' >> "$units/$unit"
-    fi
     if [ "$shell" = pearl ]; then
         printf '%s\n' '# The locker must survive a shell restart.' 'KillMode=process' >> "$units/$unit"
     fi

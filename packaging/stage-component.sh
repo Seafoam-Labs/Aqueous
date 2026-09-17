@@ -103,8 +103,10 @@ EOF
     ;;
 integration-*)
     shell=${component#integration-}
+    # Upstream dms.service already declares the notification BusName. A second
+    # declaration fails unit loading, even when ExecCondition skips one shell.
     case $shell in
-        dms) kind=dbus; command="$prefix/bin/dms run --session" ;;
+        dms) kind=exec; command="$prefix/bin/dms run --session" ;;
         noctalia) kind=forking; command="$prefix/bin/noctalia --daemon" ;;
         pearl) kind=simple; command="$prefix/bin/pearl" ;;
     esac
@@ -128,7 +130,6 @@ TimeoutStopSec=10
 Slice=app-graphical.slice
 EOF
     case $shell in
-        dms) printf 'BusName=org.freedesktop.Notifications\n' >> "$destination$units/$unit" ;;
         pearl) printf '# The locker must survive a shell restart.\nKillMode=process\n' >> "$destination$units/$unit" ;;
     esac
     printf '\n[Install]\nWantedBy=graphical-session.target\n' >> "$destination$units/$unit"

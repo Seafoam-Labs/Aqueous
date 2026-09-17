@@ -137,7 +137,7 @@ for old in pearl dms noctalia; do
 done
 for command in bash rm touch jq; do ln -s "$(command -v "$command")" "$base/bin/$command"; done
 fixture_path=$PATH
-for failure in failed skipped target display instance missing nested foreign snapshot lock executable invalid; do
+for failure in failed skipped target display instance missing masked bad-setting error nested foreign snapshot lock executable invalid; do
  reset dms dms
  cp "$XDG_CONFIG_HOME/$instance/session.toml" "$base/selection-before"
  cp "$XDG_RUNTIME_DIR/$instance/welcome-session.json" "$base/runtime-before"
@@ -147,6 +147,7 @@ for failure in failed skipped target display instance missing nested foreign sna
   skipped) export SKIP_START=$instance-pearl.service;;
   target) export FAIL_TARGET=1;; display) export MANAGER_DISPLAY=other-display;;
   instance) export MANAGER_INSTANCE=aqueous;; missing) export LOAD_STATE=not-found;;
+  masked|bad-setting|error) export LOAD_STATE=$failure;;
   nested) export AQUEOUS_NESTED=1;; foreign) export XDG_CURRENT_DESKTOP=Aqueous;;
   snapshot) rm "$XDG_RUNTIME_DIR/$instance/welcome-session.json";;
   lock) exec 9> "$XDG_STATE_HOME/$instance/welcome.lock"; flock -n 9;;
@@ -155,6 +156,11 @@ for failure in failed skipped target display instance missing nested foreign sna
  if switch_shell "$target"; then echo "Unexpected switch success: $failure" >&2; exit 1; fi
  export PATH=$fixture_path
  jq -e '.ok == false' "$base/events" >/dev/null
+ case $failure in
+  missing|masked|bad-setting|error)
+   jq -e --arg unit "$instance-pearl.service" --arg state "$LOAD_STATE" \
+    '.message | contains($unit) and contains("LoadState=" + $state) and (contains("install aqueous-shell") | not)' "$base/events" >/dev/null;;
+ esac
  [[ -f $base/active/$instance-dms.service && ! -f $base/active/$instance-pearl.service ]]
  cmp "$base/selection-before" "$XDG_CONFIG_HOME/$instance/session.toml"
  if [[ $failure != snapshot ]]; then cmp "$base/runtime-before" "$XDG_RUNTIME_DIR/$instance/welcome-session.json"; fi

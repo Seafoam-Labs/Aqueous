@@ -64,7 +64,11 @@ fn activate(ctx: *Context, shell: []const u8, switching: bool) !void {
     if (!u.eq(u8, shell, "none")) {
         if (!try ctx.which(session.shellCommand(shell))) return ctx.fail("The selected desktop executable is missing; install {s} and aqueous-shell-{s}" ++ instance.suffix, .{ session.package(shell).?, shell });
         const load = try ctx.run(&.{ "systemctl", "--user", "show", "--property=LoadState", "--value", selected_unit }, null);
-        if (!u.eq(u8, std.mem.trim(u8, load, " \r\n"), "loaded")) return ctx.fail("The selected Aqueous desktop service is missing; install aqueous-shell-{s}" ++ instance.suffix, .{shell});
+        const load_state = std.mem.trim(u8, load, " \t\r\n");
+        if (!u.eq(u8, load_state, "loaded")) {
+            if (u.eq(u8, load_state, "not-found")) return ctx.fail("systemd cannot find {s} (LoadState=not-found), even after daemon-reload. The unit is provided by aqueous-integration-{s}" ++ instance.suffix ++ "; check that package's installed files and the user unit search path.", .{ selected_unit, shell });
+            return ctx.fail("Cannot start {s}: LoadState={s}. Inspect it with: systemctl --user status {s}. An installed preset does not guarantee that its service can be loaded.", .{ selected_unit, if (load_state.len == 0) "<empty response>" else load_state, selected_unit });
+        }
         if (!switching) _ = try ctx.run(&.{ "systemctl", "--user", "enable", selected_unit }, null);
     }
     const snapshot = try ctx.runtime();

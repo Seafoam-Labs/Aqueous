@@ -42,6 +42,9 @@ for channel in git intel-git; do
     grep -q "desktop.${instance//-/_}" "$base/$channel-portal/usr/share/xdg-desktop-portal/portals/$instance.portal"
     grep -q 'AQUEOUS_SOCKET AQUEOUS_INSTANCE PATH LD_LIBRARY_PATH' "$session/usr/bin/aqueous-init-$channel"
     [[ ! -e $base/$channel-integration-dms/etc/xdg/quickshell ]] || fail 'Git installed global DMS plugins'
+    dms_unit=$base/$channel-integration-dms/usr/lib/systemd/user/$instance-dms.service
+    grep -qx 'Type=exec' "$dms_unit"
+    ! grep -q '^BusName=' "$dms_unit" || fail 'DMS wrapper duplicates the upstream notification BusName'
     pearl_units=$base/$channel-integration-pearl/usr/lib/systemd/user
     grep -qx 'ExecStart=/usr/bin/pearl-git' "$pearl_units/$instance-pearl.service"
     grep -qx '\[Install\]' "$pearl_units/$instance-pearl.service"

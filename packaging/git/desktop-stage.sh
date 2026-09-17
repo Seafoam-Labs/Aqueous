@@ -107,8 +107,10 @@ EOF
     ;;
 integration-dms|integration-noctalia|integration-pearl)
     shell=${component#integration-}
+    # Upstream dms.service already declares the notification BusName. A second
+    # declaration fails unit loading, even when ExecCondition skips one shell.
     case $shell in
-        dms) kind=dbus; command="$prefix/bin/dms run --session";;
+        dms) kind=exec; command="$prefix/bin/dms run --session";;
         noctalia) kind=forking; command="$prefix/bin/noctalia --daemon";;
         pearl) kind=simple; command="$prefix/bin/pearl-git";;
     esac
@@ -131,7 +133,6 @@ RestartSec=2
 TimeoutStopSec=10
 Slice=app-graphical.slice
 EOF
-    if [[ $shell == dms ]]; then printf 'BusName=org.freedesktop.Notifications\n' >> "$destination$units/$unit"; fi
     if [[ $shell == pearl ]]; then printf 'KillMode=process\n' >> "$destination$units/$unit"; fi
     printf '\n[Install]\nWantedBy=graphical-session.target\n' >> "$destination$units/$unit"
     install -d "$destination$units/graphical-session.target.wants"
