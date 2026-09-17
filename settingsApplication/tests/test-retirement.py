@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Check binary/Noctalia/Gentoo package staging and startup retirement without installation."""
-import os,pathlib,subprocess,tempfile,tomllib
+"""Check component/Gentoo package staging and settings GUI retirement without installation."""
+import pathlib,subprocess,tomllib
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 helper_root = ROOT / 'settingsApplication'
 for retired_source in ['src/main.zig', 'src/app.zig', 'src/ui_tests.zig', 'src/services/shortcut_capture.c', 'packaging/org.aqueous.Settings.desktop', 'quark/prepare.py']:
@@ -13,33 +13,8 @@ assert 'aqueous/settings' not in config.get('plugins',{}).get('enabled',[])
 for path in ['packaging/noctalia.service','nix/module.nix']:
     assert 'enable-noctalia-plugin' not in (ROOT/path).read_text()
 assert not (ROOT/'plugin').exists() and not (ROOT/'dms-plugin').exists()
-with tempfile.TemporaryDirectory(prefix='aqueous-retirement-') as tmp:
-    base=pathlib.Path(tmp);source=base/'src';source.mkdir();(source/'aqueous').symlink_to(ROOT)
-    for relative in ['aqueous-dist/bin/aqueous','aqueous-dist/bin/aqueousctl','aqueous-dist/lib/aqueous/libwlroots-0.20.so','aqueous-config-dist/bin/aqueous-config','aqueous-welcome-dist/bin/aqueous-welcome','aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous','aqueous-portal-dist/usr/share/licenses/aqueous/xdg-desktop-portal-wlr/LICENSE','xdg-desktop-portal-wlr-0.8.4/LICENSE']:
-        path=source/relative;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('fixture\n');path.chmod(0o755)
-    archive=base/'archive'
-    for binary in ['aqueous','aqueousctl','aqueous-settings','aqueous-config','aqueous-init','aqueous-wm','aqueous-welcome','aqueous-shell-action']:
-        path=archive/'bin'/binary;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('fixture\n');path.chmod(0o755)
-    binary_stage=base/'binary'
-    for relative in ['share/applications/org.aqueous.Settings.desktop', 'share/icons/hicolor/scalable/apps/org.aqueous.Settings.svg', 'share/aqueous/settings-application/themes/old.json', 'share/licenses/aqueous-settings/quark-LICENSE']:
-        artifact=archive/relative;artifact.parent.mkdir(parents=True,exist_ok=True);artifact.write_text('retired GUI fixture\n')
-    subprocess.run(['bash','-euc','source "$1"\npackage','test',str(ROOT/'PKGBUILD-bin')],env=dict(os.environ,srcdir=str(archive),pkgdir=str(binary_stage)),check=True)
-    helper=binary_stage/'usr/bin/aqueous-config'
-    assert helper.read_text()=='fixture\n' and os.access(helper,os.X_OK)
-    assert not (binary_stage/'usr/bin/aqueous-settings').exists()
-    for relative in ['usr/share/applications/org.aqueous.Settings.desktop', 'usr/share/icons/hicolor/scalable/apps/org.aqueous.Settings.svg', 'usr/share/aqueous/settings-application', 'usr/share/licenses/aqueous-settings']:
-        assert not (binary_stage/relative).exists(), relative
-    print('binary: canonical CLI staged and executable, retired GUI absent')
-    for name in ['noctalia','gentoo']:
-        stage=base/name
-        env=dict(os.environ,srcdir=str(source),pkgdir=str(stage),pkgname='aqueous-git',AQUEOUS_DIST=str(source),AQUEOUS_PREFIX=str(stage))
-        command=['bash','-euc','source "$1"\npackage','test',str(ROOT/'gitNoctalia/PKGBUILD')] if name=='noctalia' else ['bash',str(ROOT/'scripts/gentoo-install.sh'),'install']
-        subprocess.run(command,env=env,check=True,stdout=subprocess.DEVNULL)
-        assert not (stage/'usr/bin/aqueous-settings').exists()
-        assert (stage/'usr/bin/aqueous-config').exists()
-        assert not (stage/'usr/share/applications/org.aqueous.Settings.desktop').exists()
-        assert (stage/'usr/share/aqueous/dms-plugins/aqueousSettingsAppearance/Daemon.qml').exists()
-        assert not (stage/'usr/share/aqueous/settings-application').exists()
-        for retired in ['usr/bin/aqueous-backend-test','usr/share/aqueous/noctalia-plugins','usr/share/aqueous/dms-plugins/aqueousSettings','usr/lib/aqueous/enable-noctalia-plugin']:
-            assert not (stage/retired).exists(), (name,retired)
-        print(name+': canonical helper staged, retired GUI absent, retired plugin assets absent')
+# Exercise the maintained component recipes and Gentoo staging rather than
+# removed combined PKGBUILDs or the obsolete binary package() entry point.
+subprocess.run(['python3', str(ROOT/'packaging/tests/test-dms-git-packaging.py')], check=True)
+subprocess.run(['bash', str(ROOT/'packaging/tests/test-components.sh')], check=True)
+print('retired settings GUI and plugins absent; component staging passed')

@@ -14,9 +14,9 @@ repository files.
 
 The installer uses sudo for DNF transactions. It installs Fedora build and
 runtime dependencies, verifies the dependency archive checksums recorded on
-master, and runs that checkout's legacy `PKGBUILD-git` prepare, build, check, and package
-functions. This reuses the maintained DMS source-package recipe without running
-pacman or Arch install hooks. The resulting local `aqueous-git` RPM includes the
+master, and runs that checkout's component `PKGBUILD` prepare, build and check
+phases, then composes the desktop components into one RPM payload. This reuses
+the maintained source-package recipe without running pacman or Arch install hooks. The resulting local `aqueous-git` RPM includes the
 compositor, private patched wlroots, canonical configuration helper, DMS integration,
 screen-sharing backend, session entry, and configuration defaults.
 

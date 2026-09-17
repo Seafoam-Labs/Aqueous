@@ -117,19 +117,25 @@ fedora_build_source() (
     cd "$srcdir/aqueous"
     git rev-parse HEAD > "$fedora_work/commit"
     fedora_say "Building master at $(cat "$fedora_work/commit")"
-    # PKGBUILD is the project's maintained DMS build/check/install recipe.
-    # Only its source phases run; pacman dependencies and install hooks do not.
+    # Reuse the maintained component build/check recipe for the master checkout.
     msg2() { fedora_say "$*"; }
     msg() { fedora_say "$*"; }
     error() { printf 'Aqueous build: %s\n' "$*" >&2; }
     # shellcheck disable=SC1091
-    if [[ $fedora_component == desktop && -f PKGBUILD-git ]]; then
-        source ./PKGBUILD-git
-    else
-        source ./PKGBUILD
-    fi
+    source ./PKGBUILD
     if [[ $fedora_component == core ]]; then
         package() { package_aqueous-core; }
+    else
+        package() {
+            local destination=$pkgdir component
+            for component in core session welcome portal integration-dms integration-noctalia integration-pearl; do
+                (
+                    pkgdir="$fedora_work/components/$component"
+                    _stage_component "$component"
+                    cp -a "$pkgdir/." "$destination/"
+                )
+            done
+        }
     fi
     local phase entry archive url checksum index
     for phase in prepare build check package; do

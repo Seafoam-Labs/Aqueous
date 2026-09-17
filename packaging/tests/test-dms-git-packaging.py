@@ -11,14 +11,7 @@ import xml.etree.ElementTree as ET
 
 
 repo = Path(__file__).resolve().parents[2]
-variants = (
-    "PKGBUILD-git",
-    "GitPKGBUILD/PKGBUILD",
-    "PKGBUILD-intel",
-    "IntelPKGBUILD/PKGBUILD",
-    "PKGBUILD-DMS",
-    "gitNoctalia/PKGBUILD",
-)
+variants = ("PKGBUILD",)
 
 with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
     work = Path(temporary)
@@ -30,6 +23,10 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         "aqueous-dist/bin/aqueous",
         "aqueous-dist/bin/aqueousctl",
         "aqueous-dist/lib/aqueous/libwlroots-0.20.so",
+        "aqueous-dist/share/man/man1/aqueous.1",
+        "aqueous-dist/share/man/man1/aqueousctl.1",
+        "aqueous-dist/share/aqueous-protocols/stable/aqueous-shell-v1.xml",
+        "aqueous-dist/share/pkgconfig/aqueous-protocols.pc",
         "aqueous-config-dist/bin/aqueous-config",
         "aqueous-welcome-dist/bin/aqueous-welcome",
         "aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous",
@@ -41,19 +38,26 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         artifact.write_text("packaging test fixture\n")
         artifact.chmod(0o755)
 
+    policy = source / "aqueous-dist/share/aqueous/build-policy.json"
+    policy.parent.mkdir(parents=True)
+    policy.write_text(json.dumps({"schema": 1, "output_retry_testing": False, "display_preview_acceptance": False}))
+
     for variant in variants:
         stage = work / variant.replace("/", "-")
         subprocess.run(
             [
                 "bash", "-euc",
                 'source "$1"\n'
-                '[[ " ${depends[*]} " != *" dms-shell "* ]]\n'
-                '[[ " ${depends[*]} " != *" noctalia "* ]]\n'
-                '[[ " ${depends[*]} " != *" pearl "* ]]\n'
-                '[[ " ${depends[*]} " != *" pearl-git "* ]]\n'
-                'for dependency in gtk4 shelly sudo ghostty; do [[ " ${depends[*]} " == *" $dependency "* ]]; done\n'
-                '[[ " ${depends[*]} " != *" dms-aqueous "* ]]\n'
-                'package',
+                'destination=$pkgdir\n'
+                'for component in core session welcome portal integration-dms integration-noctalia integration-pearl; do\n'
+                '  pkgdir="$destination-$component"\n'
+                '  if [[ "$component" == portal ]]; then package_xdg-desktop-portal-aqueous; else "package_aqueous-$component"; fi\n'
+                '  [[ " ${depends[*]} " != *" dms-shell "* ]]\n'
+                '  [[ " ${depends[*]} " != *" noctalia "* ]]\n'
+                '  [[ " ${depends[*]} " != *" pearl "* ]]\n'
+                '  mkdir -p "$destination"\n'
+                '  cp -a "$pkgdir/." "$destination/"\n'
+                'done',
                 "test-dms-git-packaging", str(repo / variant),
             ],
             env={**os.environ, "srcdir": str(source), "pkgdir": str(stage)},
@@ -63,7 +67,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         for shell in ("pearl", "dms", "noctalia"):
             unit = f"aqueous-{shell}.service"
             assert (units / "graphical-session.target.wants" / unit).readlink() == Path("..") / unit
-            assert f"aqueous-welcome --worker condition {shell}" in (units / unit).read_text()
+            assert f"/usr/lib/aqueous/session-runtime.sh condition {shell}" in (units / unit).read_text()
             assert not (units / "graphical-session.target.wants" / f"{shell}.service").is_symlink()
             assert "external-condition" in (units / f"{shell}.service.d/50-aqueous-selection.conf").read_text()
         assert (stage / "usr/share/aqueous/noctalia/config.toml").is_file()
@@ -83,7 +87,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         for element in ("DefaultAppDirs", "DefaultDirectoryDirs", "Include/All"):
             assert menu.find(element) is not None
 
-        for plugin_id in (() if variant == "gitNoctalia/PKGBUILD" else ("aqueousSettingsAppearance", "aqueousPortal")):
+        for plugin_id in ("aqueousSettingsAppearance", "aqueousPortal"):
             runtime = Path("usr/share/aqueous/dms-plugins") / plugin_id
             manifest = json.loads((stage / runtime / "plugin.json").read_text())
             assert manifest["id"] == plugin_id

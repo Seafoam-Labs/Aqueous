@@ -319,9 +319,14 @@ operation. The default helper build has no GUI dependency or desktop launcher.
 
 ## Packaging
 
+For a minimal stable compositor, including Pearl greeter's `aqueous` dependency,
+use [`packaging/arch/aqueous/PKGBUILD`](packaging/arch/aqueous/PKGBUILD).
+It builds release `v0.7.0` and installs `aqueous` with its private wlroots library,
+manual and licenses. Build it with `cd packaging/arch/aqueous && makepkg -si`.
+
 `aqueous-core` is the shell-independent compositor/helper package for Pearl.
-`aqueous` installs the optional desktop composition. `aqueous-git` and
-`aqueous-git-intel` remain legacy DMS-integrated packages. See the
+`aqueous` installs the optional desktop composition. The old combined Git/Intel,
+DMS, Noctalia and application-bundle PKGBUILDs have been retired. See the
 [component packaging guide](docs/packaging-components.md) for ownership,
 explicit shell presets, migrations and release validation.
 

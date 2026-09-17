@@ -1,0 +1,50 @@
+# Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
+# Minimal stable compositor for consumers such as pearl-greeter.
+pkgname=aqueous
+pkgver=0.8.0
+pkgrel=1
+pkgdesc='Aqueous Wayland compositor (stable, compositor only)'
+arch=('x86_64' 'aarch64')
+url='https://github.com/Seafoam-Labs/Aqueous'
+license=('GPL-3.0-only' 'MIT' '0BSD' 'CC-BY-SA-4.0')
+depends=('wayland' 'libxkbcommon' 'libinput' 'pixman' 'libdrm' 'libevdev'
+         'libdecor' 'xorg-xwayland' 'pipewire' 'mesa' 'systemd-libs' 'seatd'
+         'libdisplay-info' 'libliftoff' 'lcms2' 'vulkan-icd-loader'
+         'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil')
+makedepends=('git' 'curl' 'patch' 'scdoc' 'python' 'shaderc' 'clang' 'lld' 'llvm'
+             'wayland-protocols>=1.49' 'pkgconf' 'meson' 'ninja' 'glslang'
+             'vulkan-headers' 'hwdata' 'zig>=0.16')
+provides=("aqueous=$pkgver")
+# These packages own the same unsuffixed binary/private library.
+# The suffixed aqueous-core-{git,intel-git} packages can coexist.
+conflicts=('aqueous-bin' 'aqueous-core' 'aqueous-core-bin'
+           'aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms')
+options=('!strip' '!debug')
+source=("aqueous::git+${url}.git#tag=v${pkgver}"
+        'wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz')
+sha256sums=('SKIP' '972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343')
+
+build() {
+    cd "$srcdir/aqueous/compositor"
+    AQUEOUS_WLROOTS_CACHE_DIR="$srcdir" bash scripts/build-wlroots-render-hook.sh
+    PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig" \
+        zig build -Dcpu=baseline -Doptimize=ReleaseSafe -Dxwayland -Dllvm \
+        -Dman-pages=true -Dversion-string="$pkgver" --prefix "$srcdir/aqueous-dist"
+}
+
+check() {
+    "$srcdir/aqueous-dist/bin/aqueous" -version
+    cmp "$srcdir/aqueous-dist/lib/aqueous/libwlroots-0.20.so" \
+        "$srcdir/aqueous/compositor/.deps/wlroots-render-hook/lib/libwlroots-0.20.so"
+    readelf -d "$srcdir/aqueous-dist/bin/aqueous" |
+        grep -F '$ORIGIN/../lib/aqueous'
+}
+
+package() {
+    install -Dm755 "$srcdir/aqueous-dist/bin/aqueous" "$pkgdir/usr/bin/aqueous"
+    install -Dm755 "$srcdir/aqueous-dist/lib/aqueous/libwlroots-0.20.so" \
+        "$pkgdir/usr/lib/aqueous/libwlroots-0.20.so"
+    install -Dm644 "$srcdir/aqueous-dist/share/man/man1/aqueous.1" \
+        "$pkgdir/usr/share/man/man1/aqueous.1"
+    install -Dm644 "$srcdir/aqueous/compositor/LICENSES/"* -t "$pkgdir/usr/share/licenses/$pkgname/"
+}

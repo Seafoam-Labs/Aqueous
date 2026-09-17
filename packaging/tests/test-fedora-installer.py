@@ -46,8 +46,10 @@ check() {{
     if [[ ${{FAIL_CHECK:-0}} == 1 ]]; then return 24; fi
     cd /
 }}
-package() {{
+_stage_component() {{
     test "$PWD" = "$srcdir"
+    echo "$1" >> "$TEST_ROOT/components"
+    if [[ $1 != core ]]; then mkdir -p "$pkgdir"; return; fi
     echo package >> "$TEST_ROOT/phases"
     mkdir -p "$pkgdir/etc/xdg/aqueous" "$pkgdir/usr/share/aqueous" \\
         "$pkgdir/usr/bin" "$pkgdir/usr/lib/aqueous" \\
@@ -114,6 +116,8 @@ fedora_output="$TEST_ROOT/output with spaces"
                          ["prepare", "build", "check", "package"])
         self.assertEqual((self.base / "events").read_text().splitlines(),
                          ["dependencies", "rpmbuild", "install"])
+        self.assertEqual((self.base / "components").read_text().splitlines(),
+                         ["core", "session", "welcome", "portal", "integration-dms", "integration-noctalia", "integration-pearl"])
         work = self.work()
         self.assertIn("^git1789030000.", (work / "version").read_text())
         self.assertEqual((work / "payload/etc/xdg/aqueous/wm.toml").read_text(),

@@ -11,14 +11,16 @@ does not install its shell. `aqueous-shell-dms`, `aqueous-shell-noctalia` and
 `aqueous-shell-pearl` are explicit dependency presets for the integration plus
 DMS, Noctalia or Pearl. Welcome requests these presets on the component path.
 
-`aqueous-git` and `aqueous-git-intel`, including their mirrored recipes, remain
-legacy combined packages with their existing DMS integration and session
-behavior. The historical `gitNoctalia` recipe retains its existing behavior.
-`PKGBUILD-DMS` also remains a combined compatibility recipe. None is converted
-into a metapackage or automatically replaced. Legacy packages conflict with
-component packages that own their files; changing paths requires an explicit
-package-manager transaction. Personal configuration is not deleted or migrated
-by packaging hooks.
+The maintained Arch recipes are `PKGBUILD` (stable source components),
+`PKGBUILD-bin` (release component archives), and the four core/desktop Git recipes
+under `packaging/arch/`. A separate `packaging/arch/aqueous/PKGBUILD` builds only
+the stable compositor for consumers such as Pearl greeter. It produces and
+provides `aqueous`, without the component recipe's desktop dependencies.
+The old combined Git, Intel, DMS and Noctalia recipes,
+their mirrors, and the application-bundle `PKGBUILD-meta` have been removed.
+Previously installed legacy packages are not automatically replaced. Conflict
+metadata remains so an explicit package-manager transaction can switch packages
+that own the same files. Personal configuration is not deleted or migrated.
 
 ## Ownership and dependencies
 
@@ -108,10 +110,10 @@ settings fail. Configurations that previously relied on implicit Noctalia must
 choose before activation. Existing per-user selection takes precedence and is
 never overwritten by the module's system default.
 
-Fedora's default invocation retains its legacy DMS desktop RPM and builds from
-`PKGBUILD-git`. `--core-only` uses the new core staging path and produces an
-`aqueous-core` RPM without session dependencies or service hooks. This selector
-cannot be combined with `--dms-git`.
+Fedora's default invocation builds the maintained `PKGBUILD` and composes its
+components into the existing desktop RPM. `--core-only` uses the new core staging
+path and produces an `aqueous-core` RPM without session dependencies or service
+hooks. This selector cannot be combined with `--dms-git`.
 
 Gentoo accepts `--core-only` before its existing command, for example
 `bash scripts/gentoo-install.sh --core-only build`. Both paths use shared staging.
@@ -123,8 +125,8 @@ on distributions that do not package it; core does not require it.
 
 Local staging, fixture tests and artifact smoke checks do not replace clean-chroot
 source builds, real dependency-solving upgrades/removals, full Nix builds/closure
-checks, NixOS session boots, or Fedora/Gentoo host testing. Test both legacy package
-names independently and test explicit switches in both directions. Publish only
-after these platform checks, publishing the generated binary recipe and Pearl's dependency
-handoff in its own repository. The workstream plan retains the full migration
+checks, NixOS session boots, or Fedora/Gentoo host testing. Test upgrades from
+previously published legacy packages and explicit switches between supported
+package variants. Publish only after these platform checks, publishing the
+generated binary recipe and Pearl's dependency handoff in its own repository. The workstream plan retains the full migration
 matrix and release gates.

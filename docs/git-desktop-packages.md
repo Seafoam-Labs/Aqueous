@@ -3,7 +3,8 @@
 `aqueous-desktop-git` and `aqueous-desktop-intel-git` install a complete optional
 desktop around their matching [Git core](git-packages.md). They coexist with
 stable Aqueous, the legacy combined packages, and each other. The package names
-`aqueous-git` and `aqueous-git-intel` still belong to the legacy DMS desktop.
+`aqueous-git` and `aqueous-git-intel` belong to previously published legacy
+desktop packages whose recipes have been retired.
 
 | Meta package | Core dependency | Login entry | Welcome command |
 | --- | --- | --- | --- |

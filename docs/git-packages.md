@@ -21,10 +21,11 @@ under `$XDG_STATE_HOME/<instance>/config-writer`, defaulting to
 subdirectory under XDG_RUNTIME_DIR. The standard build supports x86_64 and
 aarch64; Intel retains a portable x86_64 baseline. Both variants can coexist.
 
-The original `aqueous-git` and `aqueous-git-intel` **package names** still refer to
-the combined legacy desktop packages. The new `aqueous-git` **command** belongs
-to `aqueous-core-git`; the legacy packages continue to launch the unsuffixed
-`aqueous` command. No legacy package is renamed by this change.
+The original `aqueous-git` and `aqueous-git-intel` **package names** refer to
+previously published combined desktop packages; their recipes have been retired.
+The `aqueous-git` **command** belongs to `aqueous-core-git`. Existing legacy
+installations use the unsuffixed `aqueous` command and are not automatically
+renamed or replaced.
 
 ## Building
 
