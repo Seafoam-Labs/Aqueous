@@ -302,6 +302,9 @@ pub fn build(b: *Build) !void {
         ).step);
     }
 
+    const shell_switch_test = b.addSystemCommand(&.{"python3"});
+    shell_switch_test.addFileArg(b.path("scripts/test-aqueousctl-shell-switch.py"));
+    b.step("test-shell-switch", "Test Git-only desktop shell command dispatch").dependOn(&shell_switch_test.step);
     {
         const aqueousctl = b.addExecutable(.{
             .name = "aqueousctl",
@@ -322,6 +325,8 @@ pub fn build(b: *Build) !void {
         aqueousctl.pie = pie;
         aqueousctl.root_module.omit_frame_pointer = omit_frame_pointer;
         b.installArtifact(aqueousctl);
+        shell_switch_test.addArtifactArg(aqueousctl);
+        shell_switch_test.addArg(instance_name);
     }
 
     {
@@ -861,6 +866,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_input_drag_test.step);
         test_step.dependOn(&run_workspaces_test.step);
         test_step.dependOn(&run_aqueousctl_test.step);
+        test_step.dependOn(&shell_switch_test.step);
         test_step.dependOn(&run_ipc_test.step);
     }
 }

@@ -20,13 +20,25 @@ fn active(ctx: *Context, name: []const u8) bool {
     return true;
 }
 pub fn start(ctx: *Context, shell: []const u8) !void {
+    try activate(ctx, shell, false);
+}
+
+pub fn switchShell(ctx: *Context, shell: []const u8) !void {
+    if (instance.suffix.len == 0) return ctx.fail("Shell switching is only available in Aqueous Git sessions", .{});
+    if (!session.valid(shell) or u.eq(u8, shell, "none")) return ctx.fail("Choose pearl, dms, or noctalia", .{});
+    if (!u.eq(u8, u.env("AQUEOUS_INSTANCE") orelse "", instance.name)) return ctx.fail("Run this command in the matching Aqueous Git session", .{});
+    try activate(ctx, shell, true);
+}
+
+fn activate(ctx: *Context, shell: []const u8, switching: bool) !void {
     if (!session.valid(shell)) return ctx.fail("Unknown desktop", .{});
     if (!available()) return ctx.fail("Start your selected desktop from its Aqueous session, or log out and back in.", .{});
-    const lock = u.c.open(try ctx.path(&.{ try ctx.state(), "welcome.lock" }), u.c.O_RDWR | u.c.O_NOFOLLOW | u.c.O_CLOEXEC);
+    if (switching) try ctx.mkdir(try ctx.state());
+    const lock = u.c.open(try ctx.path(&.{ try ctx.state(), "welcome.lock" }), u.c.O_RDWR | u.c.O_NOFOLLOW | u.c.O_CLOEXEC | (if (switching) @as(c_int, u.c.O_CREAT) else 0), @as(u.c.mode_t, 0o600));
     if (lock < 0) return ctx.fail("Complete setup before starting the desktop", .{});
     defer u.close(lock);
     if (u.c.flock(lock, u.c.LOCK_EX | u.c.LOCK_NB) != 0) return ctx.fail("Another setup operation is running", .{});
-    if (!u.eq(u8, try session.selection(ctx), shell)) return ctx.fail("Desktop selection changed; review setup again", .{});
+    if (!switching and !u.eq(u8, try session.selection(ctx), shell)) return ctx.fail("Desktop selection changed; review setup again", .{});
     _ = try ctx.run(&.{ "systemctl", "--user", "is-active", "--quiet", "graphical-session.target" }, null);
     // A user manager is shared across logins. Do not start a shell on another
     // session's display or overwrite its imported environment.
@@ -38,16 +50,34 @@ pub fn start(ctx: *Context, shell: []const u8) !void {
         matching_display = true;
     };
     if (!matching_display) return ctx.fail("The service manager belongs to a different display. Log out and back in to use your selection.", .{});
+    if (switching) {
+        const marker = try std.fmt.allocPrint(ctx.a, "AQUEOUS_INSTANCE={s}", .{instance.name});
+        lines = std.mem.splitScalar(u8, environment, '\n');
+        var matching_instance = false;
+        while (lines.next()) |line| if (u.eq(u8, line, marker)) {
+            matching_instance = true;
+        };
+        if (!matching_instance) return ctx.fail("The service manager belongs to a different Aqueous instance", .{});
+    }
     _ = try ctx.run(&.{ "systemctl", "--user", "daemon-reload" }, null);
     const selected_unit = try unit(ctx, shell);
     if (!u.eq(u8, shell, "none")) {
-        if (!try ctx.which(session.shellCommand(shell))) return ctx.fail("The selected desktop executable is missing", .{});
+        if (!try ctx.which(session.shellCommand(shell))) return ctx.fail("The selected desktop executable is missing; install {s} and aqueous-shell-{s}" ++ instance.suffix, .{ session.package(shell).?, shell });
         const load = try ctx.run(&.{ "systemctl", "--user", "show", "--property=LoadState", "--value", selected_unit }, null);
-        if (!u.eq(u8, std.mem.trim(u8, load, " \r\n"), "loaded")) return ctx.fail("The selected Aqueous desktop service is missing; reinstall its shell preset", .{});
-        _ = try ctx.run(&.{ "systemctl", "--user", "enable", selected_unit }, null);
+        if (!u.eq(u8, std.mem.trim(u8, load, " \r\n"), "loaded")) return ctx.fail("The selected Aqueous desktop service is missing; install aqueous-shell-{s}" ++ instance.suffix, .{shell});
+        if (!switching) _ = try ctx.run(&.{ "systemctl", "--user", "enable", selected_unit }, null);
     }
     const snapshot = try ctx.runtime();
     const before = try ctx.read(snapshot);
+    const selection_path = try ctx.path(&.{ try ctx.config(), instance.name ++ "/session.toml" });
+    const selection_before = if (switching) try ctx.read(selection_path) else null;
+    const previous = if (switching) try session.selection(ctx) else shell;
+    if (switching) {
+        const state = try ctx.parse(before orelse return ctx.fail("No active Git session snapshot; log out and back in", .{}));
+        if (!session.valid(u.string(state, "shell")) or !u.eq(u8, u.string(state, "display"), u.env("WAYLAND_DISPLAY").?))
+            return ctx.fail("The active desktop snapshot belongs to a different display", .{});
+    }
+    var selection_written = false;
     var stopped: std.ArrayList([]const u8) = .empty;
     const already_active = !u.eq(u8, shell, "none") and active(ctx, selected_unit);
     var attempted_start = false;
@@ -58,6 +88,13 @@ pub fn start(ctx: *Context, shell: []const u8) !void {
             _ = ctx.run(&.{ "systemctl", "--user", "stop", selected_unit }, null) catch {
                 restored = false;
             };
+        }
+        if (selection_written) {
+            if (selection_before) |bytes| {
+                ctx.atomic(selection_path, bytes) catch {
+                    restored = false;
+                };
+            } else if (u.c.unlink(selection_path) != 0 and std.c._errno().* != u.c.ENOENT) restored = false;
         }
         if (before) |bytes| {
             ctx.atomic(snapshot, bytes) catch {
@@ -78,13 +115,22 @@ pub fn start(ctx: *Context, shell: []const u8) !void {
             _ = try ctx.run(&.{ "systemctl", "--user", "stop", name }, null);
         }
     }
-    if (!u.eq(u8, try session.selection(ctx), shell)) return ctx.fail("Desktop selection changed; review setup again", .{});
-    try session.prepare(ctx);
+    if (!switching and !u.eq(u8, try session.selection(ctx), shell)) return ctx.fail("Desktop selection changed; review setup again", .{});
+    if (switching) {
+        if (!u.bytesSame(try ctx.read(selection_path), selection_before) or !u.eq(u8, try session.selection(ctx), previous))
+            return ctx.fail("Desktop selection changed during switching; retry", .{});
+        const state = try ctx.parse(before.?);
+        if (already_active and stopped.items.len == 0 and u.eq(u8, previous, shell) and u.eq(u8, u.string(state, "shell"), shell)) return;
+        selection_written = true;
+        try ctx.atomic(selection_path, try std.fmt.allocPrint(ctx.a, "version = 1\nshell = \"{s}\"\n", .{shell}));
+        // Switching never seeds or edits any shell's own configuration.
+        try ctx.jsonWrite(snapshot, try ctx.value(.{ .shell = shell, .display = u.env("WAYLAND_DISPLAY").? }));
+    } else try session.prepare(ctx);
     if (!u.eq(u8, shell, "none")) {
         attempted_start = true;
         _ = try ctx.run(&.{ "systemctl", "--user", "start", selected_unit }, null);
         _ = ctx.run(&.{ "systemctl", "--user", "is-active", "--quiet", selected_unit }, null) catch return ctx.fail("The selected desktop service did not become active. Review its user service journal and retry.", .{});
     }
     // Losing the UI after success must not undo the requested activation.
-    ctx.emit(.{ .kind = "activated", .message = "Your selected desktop is ready." }) catch {};
+    if (!switching) ctx.emit(.{ .kind = "activated", .message = "Your selected desktop is ready." }) catch {};
 }

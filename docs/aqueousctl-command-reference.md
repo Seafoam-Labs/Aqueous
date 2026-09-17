@@ -362,3 +362,32 @@ confirm the result; `pending: true` means the pen must leave proximity first.
 
 See [Tablet configuration](tablet-configuration.md) for HUION/Wacom setup,
 matching and sidecar precedence, desktop/disabled rules, and troubleshooting.
+
+## Switch desktop shells (Git sessions only)
+
+```sh
+aqueousctl-git shell switch pearl
+aqueousctl-git shell switch dms
+aqueousctl-git shell switch noctalia --json
+```
+
+Use `aqueousctl-intel-git` in an Aqueous Intel Git session. The private
+`aqueousctl` in either Git session supports the same command; stable builds do
+not expose it. Run it inside the matching, non-nested Git desktop session.
+
+The command immediately switches the managed shell and saves the choice in
+`$XDG_CONFIG_HOME/<instance>/session.toml` for future logins. Open applications
+remain running. All Pearl, DMS, and Noctalia configurations and customizations
+are preserved, including settings for inactive shells. The command does not
+seed defaults, reset settings, install packages, or uninstall shells.
+
+Install the matching `aqueous-welcome-git` / `aqueous-welcome-intel-git` worker
+and the target's `aqueous-shell-<shell>-git` / `aqueous-shell-<shell>-intel-git`
+preset first. Pearl uses `pearl-git`; DMS uses `dms-shell`; Noctalia uses
+`noctalia`. Missing dependencies are reported before stopping the current shell.
+
+Selecting the already active and saved shell is a no-op. If activation fails,
+the command restores the previous selection, runtime snapshot, and stopped
+shell services. Concurrent welcome setup/switch operations and mismatched
+service-manager sessions are rejected. `--json` returns an object with `ok`,
+`message`, and, on success, `shell`; errors exit nonzero.

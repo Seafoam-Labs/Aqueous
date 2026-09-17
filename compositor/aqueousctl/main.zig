@@ -14,6 +14,10 @@ const zwlr = wayland.client.zwlr;
 const io = Io.Threaded.global_single_threaded.io();
 const allocator = std.heap.c_allocator;
 
+const instance_name = @import("build_options").instance_name;
+const git_shell_switch = mem.eql(u8, instance_name, "aqueous-git") or mem.eql(u8, instance_name, "aqueous-intel-git");
+const switch_usage = if (git_shell_switch) "       aqueousctl shell switch pearl|dms|noctalia [--json]\n" else "";
+
 const usage =
     \\usage: aqueousctl windows [--json]
     \\       aqueousctl input devices --json
@@ -257,10 +261,10 @@ const State = struct {
     }
 };
 
-pub fn main(init: std.process.Init.Minimal) !void {
+pub fn main(init: std.process.Init) !void {
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
-    const args = try init.args.toSlice(arena_state.allocator());
+    const args = try init.minimal.args.toSlice(arena_state.allocator());
 
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_writer = Io.File.stdout().writer(io, &stdout_buffer);
@@ -278,6 +282,33 @@ pub fn main(init: std.process.Init.Minimal) !void {
         return;
     }
 
+    if (git_shell_switch and args.len >= 3 and mem.eql(u8, args[1], "shell") and mem.eql(u8, args[2], "switch")) {
+        const json = args.len >= 4 and mem.eql(u8, args[args.len - 1], "--json");
+        const valid = (args.len == 4 or (args.len == 5 and json)) and
+            (mem.eql(u8, args[3], "pearl") or mem.eql(u8, args[3], "dms") or mem.eql(u8, args[3], "noctalia"));
+        if (!valid) {
+            if (json) {
+                try stdout.writeAll("{\"ok\":false,\"message\":\"Usage: shell switch pearl|dms|noctalia [--json]\"}\n");
+                try stdout.flush();
+            } else {
+                try stderr.writeAll(switch_usage);
+                try stderr.flush();
+            }
+            std.process.exit(2);
+        }
+        const worker = if (mem.eql(u8, instance_name, "aqueous-intel-git")) "aqueous-welcome-intel-git" else "aqueous-welcome-git";
+        const argv = [_][]const u8{ worker, "--worker", "switch-shell", args[3], "--json" };
+        const err = std.process.replace(init.io, .{ .argv = argv[0..if (json) 5 else 4], .expand_arg0 = .expand });
+        if (json) {
+            try stdout.writeAll("{\"ok\":false,\"message\":\"Cannot launch the matching aqueous-welcome Git worker; install its desktop package\"}\n");
+            try stdout.flush();
+        } else {
+            try stderr.print("aqueousctl: cannot launch {s}: {s}; install its desktop package\n", .{ worker, @errorName(err) });
+            try stderr.flush();
+        }
+        std.process.exit(1);
+    }
+
     if (@import("Shell.zig").handles(args)) {
         @import("Shell.zig").run(args, stdout) catch |err| {
             try stderr.print("aqueousctl: shell: {s}\n", .{@errorName(err)});
@@ -288,7 +319,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 
     const mode = parseMode(args) orelse {
-        try stderr.writeAll(usage);
+        try stderr.writeAll(usage ++ switch_usage);
         try stderr.flush();
         std.process.exit(2);
     };

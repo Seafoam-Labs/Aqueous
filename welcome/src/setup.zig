@@ -147,6 +147,14 @@ fn inspect(ctx: *Context) !void {
 }
 fn dispatch(ctx: *Context, args: []const [:0]const u8) !u8 {
     if (args.len == 0) return ctx.fail("Missing worker command", .{});
+    if (eq(u8, args[0], "switch-shell")) {
+        if (args.len != 2 and !(args.len == 3 and eq(u8, args[2], "--json"))) return error.InvalidArguments;
+        try activation.switchShell(ctx, args[1]);
+        if (args.len == 3) {
+            ctx.emit(.{ .ok = true, .shell = args[1], .message = "Desktop shell switched; all shell configurations preserved." }) catch {};
+        } else u.write(1, "Desktop shell switched; all shell configurations preserved.\n") catch {};
+        return 0;
+    }
     if (eq(u8, args[0], "activate")) {
         if (args.len != 2) return error.InvalidArguments;
         try activation.start(ctx, args[1]);
@@ -172,7 +180,9 @@ pub fn run(init: std.process.Init, executable: []const u8, args: []const [:0]con
     var ctx: Context = .{ .a = arena.allocator(), .io = init.io, .executable = executable };
     return dispatch(&ctx, args) catch |err| {
         const message = ctx.message orelse @errorName(err);
-        if (args.len > 0 and (eq(u8, args[0], "setup") or eq(u8, args[0], "inspect") or eq(u8, args[0], "activate")))
+        if (args.len == 3 and eq(u8, args[0], "switch-shell") and eq(u8, args[2], "--json")) {
+            ctx.emit(.{ .ok = false, .message = message }) catch {};
+        } else if (args.len > 0 and (eq(u8, args[0], "setup") or eq(u8, args[0], "inspect") or eq(u8, args[0], "activate")))
             ctx.emit(.{ .kind = "error", .message = message }) catch {}
         else {
             u.write(2, message) catch {};

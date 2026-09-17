@@ -98,3 +98,13 @@ bash packaging/tests/test-git-packages.sh /path/to/compositor-dist /path/to/help
 These checks do not constitute physical display acceptance or a migration of the
 legacy desktop packages. The stable session/welcome/portal packages remain the
 installed desktop integration until explicitly changed by the user.
+
+## Switching the desktop shell
+
+Inside a complete Git desktop session, run
+`aqueousctl-git shell switch pearl|dms|noctalia` (choose one shell), or use
+`aqueousctl-intel-git` for Intel Git. This requires the matching welcome worker
+and the selected shell preset. The switch takes effect immediately and persists
+across logins. Every shell's existing configuration is preserved. See the
+[command reference](aqueousctl-command-reference.md#switch-desktop-shells-git-sessions-only)
+for prerequisites, JSON output, and failure recovery.
