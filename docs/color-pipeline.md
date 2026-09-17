@@ -1,17 +1,18 @@
 # DRM color pipelines
 
 Aqueous has experimental support for DRM plane `COLOR_PIPELINE` and
-`drm_colorop`, carried in its private wlroots 0.20.2 dependency. It is **off by
-default**. The implementation has passed builds, mock DRM tests and headless
+`drm_colorop`, carried in its private wlroots 0.20.2 dependency. It defaults to
+**auto**, attempting compatible hardware pipelines with renderer fallback.
+The implementation has passed builds, mock DRM tests and headless
 regressions; no GPU/display combination has completed physical color acceptance.
 
-To opt in for a new DRM session, set:
+Leaving `AQUEOUS_DRM_COLOR_PIPELINE` unset is equivalent to:
 
 ```sh
 AQUEOUS_DRM_COLOR_PIPELINE=auto aqueous
 ```
 
-Use `AQUEOUS_DRM_COLOR_PIPELINE=off` or leave the variable unset to keep the
+Use `AQUEOUS_DRM_COLOR_PIPELINE=off` to keep the
 existing rendering path. This is a startup setting: capability negotiation
 applies to the DRM connection. It does not change driver module settings or HDR
 policy. Nested/headless, legacy DRM and multi-GPU secondary backends do not use
@@ -153,7 +154,7 @@ descriptors and no display commits. Discovery is not a physical support matrix.
 
 Physical atomic/libliftoff scanout, HDR color comparisons, VT/resume,
 hotplug/device loss and performance measurements remain unperformed. No physical
-support matrix or default-enablement claim follows from these results.
+color-accuracy guarantee follows from these results.
 Acceptance must measure a path that includes plane color processing; pre-KMS
 screencopy cannot establish it. The remaining gates are recorded in
 [the implementation plan](color-pipeline-implementation-plan.md).

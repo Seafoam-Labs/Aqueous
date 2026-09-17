@@ -4,7 +4,7 @@ Reference: https://gitlab.freedesktop.org/wlroots/wlroots/-/merge_requests/5220
 Reference author: Simon Ser <contact@emersion.fr>
 Reference head: e67d45a31e2df6492a00dc94498774e1dbaaf7e3
 Adapted implementation for wlroots 0.20.2; preserves output/state ABI.
-Experimental opt-in: AQUEOUS_DRM_COLOR_PIPELINE=auto.
+Default: auto. Disable with AQUEOUS_DRM_COLOR_PIPELINE=off.
 
 --- a/backend/drm/atomic.c
 +++ b/backend/drm/atomic.c
@@ -122,11 +122,11 @@ Experimental opt-in: AQUEOUS_DRM_COLOR_PIPELINE=auto.
 +
 +void drm_color_pipeline_init(struct wlr_drm_backend *drm) {
 +	const char *mode = getenv("AQUEOUS_DRM_COLOR_PIPELINE");
-+	if (!mode || strcmp(mode, "off") == 0) {
++	if (mode && strcmp(mode, "off") == 0) {
 +		wlr_log(WLR_DEBUG, "DRM color pipelines compiled in; disabled by startup policy");
 +		return;
 +	}
-+	if (strcmp(mode, "auto") != 0) {
++	if (mode && strcmp(mode, "auto") != 0) {
 +		wlr_log(WLR_ERROR, "Invalid AQUEOUS_DRM_COLOR_PIPELINE (expected off or auto)");
 +		return;
 +	}
@@ -882,7 +882,7 @@ Experimental opt-in: AQUEOUS_DRM_COLOR_PIPELINE=auto.
  
  bool wlr_backend_is_drm(struct wlr_backend *backend);
  bool wlr_output_is_drm(struct wlr_output *output);
-+/** Runtime opt-in capability; false for nested, legacy and multi-GPU outputs. */
++/** Negotiated capability; false for nested, legacy and multi-GPU outputs. */
 +bool wlr_drm_output_supports_color_pipeline(struct wlr_output *output);
  
  /**

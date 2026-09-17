@@ -204,11 +204,18 @@ int main(void) {
 	struct wlr_drm_connector conn = { .backend = &drm, .crtc = &crtc };
 	struct wlr_drm_connector_state state = { .connector = &conn };
 	unsetenv("AQUEOUS_DRM_COLOR_PIPELINE");
+	cap_failure = true;
 	drm_color_pipeline_init(&drm);
-	assert(!cap_calls && !drm.color_pipeline_enabled);
+	assert(cap_calls == 1 && !drm.color_pipeline_enabled);
+	cap_failure = false;
+	drm_color_pipeline_init(&drm);
+	assert(cap_calls == 2 && drm.color_pipeline_enabled);
+	// Model a fresh backend: startup policy never toggles a live DRM fd.
+	drm.color_pipeline_enabled = false;
+	cap_calls = 0;
 	setenv("AQUEOUS_DRM_COLOR_PIPELINE", "off", 1);
 	drm_color_pipeline_init(&drm);
-	assert(!cap_calls);
+	assert(!cap_calls && !drm.color_pipeline_enabled);
 	setenv("AQUEOUS_DRM_COLOR_PIPELINE", "auto", 1);
 	cap_failure = true;
 	drm_color_pipeline_init(&drm);
