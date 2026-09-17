@@ -45,6 +45,11 @@ for channel in git intel-git; do
     dms_unit=$base/$channel-integration-dms/usr/lib/systemd/user/$instance-dms.service
     grep -qx 'Type=exec' "$dms_unit"
     ! grep -q '^BusName=' "$dms_unit" || fail 'DMS wrapper duplicates the upstream notification BusName'
+    for shell in dms noctalia; do
+        shell_unit=$base/$channel-integration-$shell/usr/lib/systemd/user/$instance-$shell.service
+        grep -qx 'KillMode=control-group' "$shell_unit"
+        grep -qx 'SendSIGKILL=yes' "$shell_unit"
+    done
     pearl_units=$base/$channel-integration-pearl/usr/lib/systemd/user
     grep -qx 'ExecStart=/usr/bin/pearl-git' "$pearl_units/$instance-pearl.service"
     grep -qx '\[Install\]' "$pearl_units/$instance-pearl.service"

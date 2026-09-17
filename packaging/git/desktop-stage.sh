@@ -133,6 +133,9 @@ RestartSec=2
 TimeoutStopSec=10
 Slice=app-graphical.slice
 EOF
+    if [[ $shell == dms || $shell == noctalia ]]; then
+        printf 'KillMode=control-group\nSendSIGKILL=yes\n' >> "$destination$units/$unit"
+    fi
     if [[ $shell == pearl ]]; then printf 'KillMode=process\n' >> "$destination$units/$unit"; fi
     printf '\n[Install]\nWantedBy=graphical-session.target\n' >> "$destination$units/$unit"
     install -d "$destination$units/graphical-session.target.wants"

@@ -19,6 +19,10 @@ fn active(ctx: *Context, name: []const u8) bool {
     };
     return true;
 }
+fn activeState(ctx: *Context, name: []const u8) ![]const u8 {
+    return std.mem.trim(u8, try ctx.run(&.{ "systemctl", "--user", "show", "--property=ActiveState", "--value", name }, null), " \t\r\n");
+}
+
 pub fn start(ctx: *Context, shell: []const u8) !void {
     try activate(ctx, shell, false);
 }
@@ -113,11 +117,20 @@ fn activate(ctx: *Context, shell: []const u8, switching: bool) !void {
         ctx.message = if (restored) reason else std.fmt.allocPrint(ctx.a, "{s}\nThe previous desktop could not be fully restored. Log out and back in to recover.", .{reason orelse "Desktop activation failed"}) catch reason;
     }
     for (session.shells[0..3]) |other| {
+        if (u.eq(u8, other, shell)) continue;
         const name = try unit(ctx, other);
-        if (!u.eq(u8, other, shell) and active(ctx, name)) {
+        const state = try activeState(ctx, name);
+        if (u.eq(u8, state, "inactive")) continue;
+        // is-active excludes starting/restarting units, which may already have
+        // a Quickshell child. Stop every non-inactive managed unit and wait.
+        // Restore only units that were meant to be running before this switch.
+        if (!u.eq(u8, state, "failed") and !u.eq(u8, state, "deactivating"))
             try stopped.append(ctx.a, name);
-            _ = try ctx.run(&.{ "systemctl", "--user", "stop", name }, null);
-        }
+        _ = try ctx.run(&.{ "systemctl", "--user", "stop", name }, null);
+        const after = try activeState(ctx, name);
+        // A failed unit can retain its failure state after a stop job.
+        if (!u.eq(u8, after, "inactive") and !u.eq(u8, after, "failed"))
+            return ctx.fail("Desktop service {s} did not stop (ActiveState={s}); the new shell was not started", .{ name, after });
     }
     if (!switching and !u.eq(u8, try session.selection(ctx), shell)) return ctx.fail("Desktop selection changed; review setup again", .{});
     if (switching) {

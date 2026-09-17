@@ -22,6 +22,9 @@ Type=forking
 ExecStart=/usr/bin/noctalia --daemon
 Restart=on-failure
 RestartSec=2
+TimeoutStopSec=10
+KillMode=control-group
+SendSIGKILL=yes
 Slice=app-graphical.slice
 
 [Install]

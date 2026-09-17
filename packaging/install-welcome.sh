@@ -39,6 +39,9 @@ RestartSec=2
 TimeoutStopSec=10
 Slice=app-graphical.slice
 EOF
+    if [ "$shell" = dms ] || [ "$shell" = noctalia ]; then
+        printf 'KillMode=control-group\nSendSIGKILL=yes\n' >> "$units/$unit"
+    fi
     if [ "$shell" = pearl ]; then
         printf '%s\n' '# The locker must survive a shell restart.' 'KillMode=process' >> "$units/$unit"
     fi

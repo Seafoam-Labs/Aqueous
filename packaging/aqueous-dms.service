@@ -14,6 +14,8 @@ ExecReload=/usr/bin/pkill -USR1 -x dms
 Restart=on-failure
 RestartSec=2
 TimeoutStopSec=10
+KillMode=control-group
+SendSIGKILL=yes
 Slice=app-graphical.slice
 
 [Install]

@@ -9,7 +9,7 @@ export HOME=$base/home XDG_CONFIG_HOME=$base/config XDG_STATE_HOME=$base/state X
 export WAYLAND_DISPLAY=welcome-fixture AQUEOUS_NESTED=0 AQUEOUS_SESSION_RUNTIME=$base/no-runtime AQUEOUS_SHARE_DIR=$base/share
 case $instance in aqueous) export XDG_CURRENT_DESKTOP=Aqueous;; aqueous-git) export XDG_CURRENT_DESKTOP=Aqueous-Git;; aqueous-intel-git) export XDG_CURRENT_DESKTOP=Aqueous-Intel-Git;; *) exit 1;; esac
 export PATH=$base/bin:$PATH FIXTURE_ROOT=$base FIXTURE_INSTANCE=$instance
-mkdir -p "$base"/{home,bin,active,enabled} "$XDG_CONFIG_HOME/$instance" "$XDG_STATE_HOME/$instance" "$XDG_RUNTIME_DIR/$instance"
+mkdir -p "$base"/{home,bin,active,enabled,states} "$XDG_CONFIG_HOME/$instance" "$XDG_STATE_HOME/$instance" "$XDG_RUNTIME_DIR/$instance"
 touch "$XDG_STATE_HOME/$instance/welcome.lock"
 for executable in pearl pearl-git dms noctalia; do
  printf '#!/bin/sh\nexit 0\n' > "$base/bin/$executable"
@@ -25,24 +25,31 @@ case $1 in
   if [[ $3 == graphical-session.target ]]; then [[ ${FAIL_TARGET:-0} == 0 ]]; else [[ -f $FIXTURE_ROOT/active/$3 ]]; fi;;
  show-environment) printf 'AQUEOUS_INSTANCE=%s\n' "${MANAGER_INSTANCE:-$FIXTURE_INSTANCE}"; printf 'WAYLAND_DISPLAY=%s\n' "${MANAGER_DISPLAY:-$WAYLAND_DISPLAY}";;
  daemon-reload) ;;
- show) printf '%s\n' "${LOAD_STATE:-loaded}";;
+ show)
+  if [[ $2 == --property=ActiveState ]]; then
+   if [[ -f $FIXTURE_ROOT/states/$4 ]]; then cat "$FIXTURE_ROOT/states/$4"
+   elif [[ -f $FIXTURE_ROOT/active/$4 ]]; then echo active; else echo inactive; fi
+  else printf '%s\n' "${LOAD_STATE:-loaded}"; fi;;
  enable)
   [[ ${FAIL_ENABLE:-0} == 0 ]] || exit 1
   touch "$FIXTURE_ROOT/enabled/$2";;
- stop) rm -f "$FIXTURE_ROOT/active/$2";;
+ stop)
+  [[ $2 != "${STUCK_STOP:-}" ]] || exit 0
+  rm -f "$FIXTURE_ROOT/active/$2" "$FIXTURE_ROOT/states/$2";;
  start)
   [[ $2 != "${FAIL_START:-}" ]] || exit 1
   [[ $2 != "${SKIP_START:-}" ]] || exit 0
   shell=${2#"$FIXTURE_INSTANCE-"}; shell=${shell%.service}
   jq -e --arg shell "$shell" '.shell==$shell' "$XDG_RUNTIME_DIR/$FIXTURE_INSTANCE/welcome-session.json" >/dev/null
+  rm -f "$FIXTURE_ROOT/states/$2"
   touch "$FIXTURE_ROOT/active/$2";;
  *) exit 97;;
 esac
 SH
 chmod +x "$base/bin/systemctl"
 reset() {
- rm -f "$base/active/"* "$base/enabled/"* "$base/calls"
- unset FAIL_TARGET FAIL_ENABLE FAIL_START SKIP_START MANAGER_DISPLAY LOAD_STATE
+ rm -f "$base/active/"* "$base/enabled/"* "$base/states/"* "$base/calls"
+ unset FAIL_TARGET FAIL_ENABLE FAIL_START SKIP_START MANAGER_DISPLAY LOAD_STATE STUCK_STOP
  printf 'version=1\nshell="%s"\n' "$2" > "$XDG_CONFIG_HOME/$instance/session.toml"
  jq -n --arg shell "$1" --arg display "$WAYLAND_DISPLAY" '{shell:$shell,display:$display}' > "$XDG_RUNTIME_DIR/$instance/welcome-session.json"
  [[ $1 == none ]] || touch "$base/active/$instance-$1.service"
@@ -174,6 +181,25 @@ for failure in failed skipped target display instance missing masked bad-setting
  chmod +x "$base/bin/pearl-git"
  if [[ $failure == lock ]]; then flock -u 9; exec 9>&-; fi
 done
+# Starting/restarting and stopping units must not leave an inactive shell alive.
+for state in activating reloading deactivating failed; do
+ reset dms dms
+ rm "$base/active/$instance-dms.service"
+ printf '%s\n' "$state" > "$base/states/$instance-dms.service"
+ if [[ $state == failed ]]; then export STUCK_STOP=$instance-dms.service; fi
+ switch_shell pearl
+ grep -qx "stop $instance-dms.service" "$base/calls"
+ [[ $state == failed || ! -e $base/states/$instance-dms.service ]]
+ [[ -f $base/active/$instance-pearl.service ]]
+ check_preserved
+done
+reset dms dms
+export STUCK_STOP=$instance-dms.service
+if switch_shell pearl; then echo 'Accepted a shell that did not stop' >&2; exit 1; fi
+jq -e '.ok == false and (.message | contains("did not stop"))' "$base/events" >/dev/null
+! grep -qx "start $instance-pearl.service" "$base/calls"
+[[ $($binary --worker selection) == dms && $($binary --worker active-selection) == dms ]]
+check_preserved
 # A successful switch must not create defaults even when a shell has no config.
 reset dms dms
 mkdir -p "$base/share/noctalia"

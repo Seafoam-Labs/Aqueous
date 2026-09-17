@@ -417,3 +417,16 @@ Save, then run `systemctl --user daemon-reload` and retry
 `aqueousctl-git shell switch dms`. This changes the service definition only;
 shell configurations are preserved. The full user override takes precedence
 over future packaged unit updates until that override is removed.
+
+Switching stops unselected managed shell services even when they are starting,
+restarting, or stopping, and checks that they are no longer running or starting
+before starting the next shell. DMS and Noctalia units explicitly use `KillMode=control-group`
+with `SendSIGKILL=yes`: shutdown covers their child processes, including DMS's
+Quickshell UI, with forced cleanup after the stop timeout. See
+[systemd's process cleanup documentation](https://github.com/systemd/systemd/blob/main/man/systemd.kill.xml).
+
+A separately launched `dms.service` or manual Quickshell process is outside the
+instance's managed shell services. If one remains after a switch, inspect
+`systemctl --user status aqueous-git-dms.service dms.service --no-pager` and the
+process's service/cgroup ownership before stopping it. Shell switching does not
+kill all processes named `qs`, since other applications can use Quickshell too.
