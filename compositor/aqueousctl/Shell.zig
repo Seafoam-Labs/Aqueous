@@ -152,7 +152,7 @@ pub fn run(args: []const [:0]const u8, output: *std.Io.Writer) !void {
     if (!state.ready) return error.MissingCapabilities;
     if (options.mode == .capabilities) return;
     if (options.mode == .command and options.action == .session_reload and manager.getVersion() < 2) return error.UnsupportedCompositor;
-    if (options.mode == .command) manager.command(1, options.action, options.target, options.seat, options.value) else manager.subscribe();
+    if (options.mode == .command) manager.command(1, options.action, options.target, options.seat, options.value) else if (manager.getVersion() >= 3) manager.subscribeUnmanaged() else manager.subscribe();
     while (!state.done and state.failure == null) {
         try pump(display, if (options.mode == .watch and state.sequence != null) null else deadline);
     }
@@ -192,7 +192,7 @@ fn onRegistry(registry: *wl.Registry, event: wl.Registry.Event, state: *State) v
     switch (event) {
         .global => |g| {
             if (!std.mem.eql(u8, std.mem.span(g.interface), std.mem.span(Protocol.interface.name))) return;
-            state.manager = registry.bind(g.name, Protocol, @min(g.version, 2)) catch {
+            state.manager = registry.bind(g.name, Protocol, @min(g.version, 3)) catch {
                 state.failure = error.OutOfMemory;
                 return;
             };

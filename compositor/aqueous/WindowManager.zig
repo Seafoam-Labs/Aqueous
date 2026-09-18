@@ -722,6 +722,7 @@ fn renderFinish(wm: *WindowManager) void {
 
     server.idle_inhibit_manager.checkActive();
 
+    if (@import("build_options").xwayland) @import("XwaylandOverrideRedirect.zig").refreshAll();
     server.shell_manager.dirty();
     server.shortcuts.refresh();
     log.debug("finished committing transaction", .{});

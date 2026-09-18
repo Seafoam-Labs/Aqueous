@@ -32,6 +32,7 @@ pub const Client = struct {
     snapshot: bool = false,
     link: wl.list.Link = undefined,
     subscribed: bool = false,
+    include_unmanaged: bool = false,
     initial: bool = true,
     inflight: bool = false,
     serial: u32 = 0,
@@ -50,7 +51,7 @@ pub fn init(manager: *ShellManager) !void {
     const hex = std.fmt.bytesToHex(random, .lower);
     @memcpy(manager.session[0..32], &hex);
     manager.session[32] = 0;
-    manager.global = try wl.Global.create(server.wl_server, protocol, 2, *ShellManager, manager, bind);
+    manager.global = try wl.Global.create(server.wl_server, protocol, 3, *ShellManager, manager, bind);
     manager.initialized = true;
     server.wl_server.addDestroyListener(&manager.server_destroy);
 }
@@ -104,6 +105,7 @@ fn bind(client: *wl.Client, manager: *ShellManager, version: u32, id: u32) void 
         .config_reload = server.aqueous.mode == .internal and version >= 2,
         .shortcut_inhibition = true,
         .icon_metadata = true,
+        .unmanaged_windows = version >= 3,
         .geometry = "committed-content-global-logical",
     }, .{}) catch {
         client.postNoMemory();
@@ -246,6 +248,14 @@ fn refresh(manager: *ShellManager) !void {
         const freeform = window.policy_state.presentation == .floating or server.aqueous.clientWindowUsesFloatingLayout(@bitCast(window.ref));
         try add(&next, &total, "window", id, .{ .kind = "window", .id = id, .backend = @tagName(info.backend), .app_id = span(info.app_id), .class = span(info.class), .title = span(info.title), .tag = span(info.tag), .description = span(info.description), .icon = if (window.impl == .toplevel) try window.impl.toplevel.icon.metadata(a) else null, .workspace = try optionalId(a, if (ws) |v| v.id else null), .output = try optionalId(a, if (ws) |v| v.output.shell_id else null), .geometry = info.geometry, .outer_geometry = outer, .focused = info.focused, .visible = info.visible, .floating = info.floating, .minimized = info.minimized, .maximized = info.maximized, .fullscreen = info.fullscreen, .skip_taskbar = info.skip_taskbar, .skip_switcher = info.skip_switcher, .always_above = info.always_above, .always_below = info.always_below, .snapped = info.snapped, .fixed_position = info.fixed_position, .layout = info.layout, .can_minimize = freeform, .can_maximize = freeform, .can_activate = window.wm_scheduled.accepts_focus and window.policy_state.focus_allowed });
     }
+    if (@import("build_options").xwayland) {
+        var cursor = @import("XwaylandOverrideRedirect.zig").first;
+        while (cursor) |popup| : (cursor = popup.next) {
+            if (popup.surface_tree == null) continue;
+            const record = try popup.snapshot(a);
+            try add(&next, &total, "unmanaged_window", record.id, record);
+        }
+    }
     var devices = server.input_manager.devices.iterator(.forward);
     while (devices.next()) |device| {
         if (device.wlr_device.type != .keyboard) continue;
@@ -305,6 +315,7 @@ fn writeBatch(manager: *ShellManager, client: *Client, buffer: *std.Io.Writer.Al
     var first = true;
     var it = manager.state.iterator();
     while (it.next()) |entry| {
+        if (!client.include_unmanaged and std.mem.startsWith(u8, entry.key_ptr.*, "unmanaged_window:")) continue;
         const old = client.previous.get(entry.key_ptr.*);
         if (!client.initial and old != null and std.mem.eql(u8, old.?, entry.value_ptr.*)) continue;
         if (!first) try w.writeByte(',');
@@ -325,7 +336,7 @@ fn writeBatch(manager: *ShellManager, client: *Client, buffer: *std.Io.Writer.Al
 }
 
 fn sendSnapshot(manager: *ShellManager, client: *Client) !void {
-    var fresh: Client = .{};
+    var fresh: Client = .{ .include_unmanaged = client.include_unmanaged };
     var buffer: std.Io.Writer.Allocating = .init(util.gpa);
     defer buffer.deinit();
     try manager.writeBatch(&fresh, &buffer);
@@ -341,6 +352,7 @@ fn sendBatch(manager: *ShellManager, client: *Client) !void {
     clear(&client.previous);
     var it = manager.state.iterator();
     while (it.next()) |entry| {
+        if (!client.include_unmanaged and std.mem.startsWith(u8, entry.key_ptr.*, "unmanaged_window:")) continue;
         const key = try util.gpa.dupe(u8, entry.key_ptr.*);
         errdefer util.gpa.free(key);
         const value = try util.gpa.dupe(u8, entry.value_ptr.*);
@@ -377,7 +389,8 @@ fn result(client: *Client, id: u32, status: Status) void {
 fn request(resource: *protocol, req: protocol.Request, client: *Client) void {
     switch (req) {
         .destroy => resource.destroy(),
-        .subscribe => {
+        .subscribe, .subscribe_unmanaged => {
+            client.include_unmanaged = req == .subscribe_unmanaged;
             if (client.subscribed) {
                 resource.getClient().postImplementationError("duplicate shell subscription");
                 return;

@@ -59,6 +59,7 @@ fn signature(a: A, file: schema.FileId, doc: *const config.Document) ![]const u8
     var binding_count: usize = 0;
     for (tables) |table| {
         const k = kind(file, table);
+        if (k == .rule) fields.validateRuleScope(entries, table.index) catch return error.UnprovenSemantics;
         if (k == .none and collectionNamespace(file, table.name)) return error.UnprovenSemantics;
         var properties: std.ArrayList(Property) = .empty;
         var matcher = false;
@@ -78,7 +79,7 @@ fn signature(a: A, file: schema.FileId, doc: *const config.Document) ![]const u8
                         if (entry.value[0] == '"') text = try std.json.parseFromSliceLeaky([]const u8, a, entry.value, .{});
                     }
                     if (std.mem.eql(u8, entry.key, "layout")) text = schema.normalizeLayout(text);
-                    inline for (.{ "app_id", "class", "title", "content_type", "tag" }) |key| {
+                    inline for (.{ "app_id", "class", "title", "content_type", "tag", "window_type" }) |key| {
                         if (std.mem.eql(u8, entry.key, key) and (text.len != 0 or std.mem.eql(u8, key, "tag"))) matcher = true;
                     }
                     break :blk .{ .string = text };

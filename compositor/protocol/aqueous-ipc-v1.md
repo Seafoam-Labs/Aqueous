@@ -71,8 +71,8 @@ connection; emit a bounded error first only when safely possible.
 | Operation | Parameters | Successful result |
 | --- | --- | --- |
 | `hello` | Empty object; first request only | Handshake above |
-| `snapshot` | Empty object | `{"batch": <complete shell snapshot>}` |
-| `subscribe` | Empty object; once per event connection | `{"subscribed":true}`, then initial snapshot event |
+| `snapshot` | Optional `include_unmanaged` boolean (default false) | `{"batch": <complete shell snapshot>}` |
+| `subscribe` | Optional `include_unmanaged` boolean; once per event connection | `{"subscribed":true}`, then initial snapshot event |
 | `ack` | `{"delivery":"N"}` | `{"acked":"N"}` |
 | `display.preview.features` | Empty object; negotiate `display_preview_feature_policy_v1` | Versioned per-output capability, selection, preservation/transition support |
 | `display.preview.evidence` | `{"token":"LEASE"}`; same capability | Versioned baseline/target, observed color/VRR state, presentation progress |
@@ -284,3 +284,13 @@ use hardware capability checks and backend preflight; acceptance builds addition
 restrict connectors and feature selections. Use per-output/per-feature results
 and candidate admission to determine whether a particular operation is supported. A successful presentation proves completion, not HDR appearance or
 variable panel refresh.
+
+
+### Optional unmanaged surface observation
+
+When `hello` advertises `unmanaged_windows: true`, `snapshot` and `subscribe`
+accept the optional boolean parameter `include_unmanaged`. It defaults to
+false for compatibility. Opting in includes the `unmanaged_window` entities
+described in [the shell contract](aqueous-shell-v1.md). Their IDs are separate
+from managed window command targets. An omitted parameter on a subsequent
+snapshot restores the managed-only selection.

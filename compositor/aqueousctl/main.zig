@@ -208,6 +208,11 @@ const State = struct {
     list: ?*ext.ForeignToplevelListV1 = null,
     info_manager: ?*aqueous.WindowInfoManagerV1 = null,
     scene_snapshot: ?*aqueous.SceneSnapshotV1 = null,
+    unmanaged_snapshot: ?*aqueous.UnmanagedSnapshotV1 = null,
+    unmanaged_done: bool = true,
+    unmanaged_failed: bool = false,
+    unmanaged_bytes: std.ArrayListUnmanaged(u8) = .empty,
+    unmanaged: ?std.json.Parsed(std.json.Value) = null,
     scene_done: bool = false,
     scene_nodes: std.ArrayListUnmanaged(SceneNode) = .empty,
     overlay_snapshot: ?*aqueous.OverlayPlaneSnapshotV1 = null,
@@ -227,6 +232,9 @@ const State = struct {
     cursor_size: u32 = 0,
 
     fn deinit(state: *State) void {
+        if (state.unmanaged_snapshot) |snapshot| snapshot.destroy();
+        if (state.unmanaged) |parsed| parsed.deinit();
+        state.unmanaged_bytes.deinit(allocator);
         for (state.windows.items) |window| window.deinit();
         state.windows.deinit(allocator);
         for (state.scene_nodes.items) |node| allocator.free(node.label);
@@ -245,7 +253,7 @@ const State = struct {
     }
 
     fn pending(state: *const State) bool {
-        if (!state.list_finished) return true;
+        if (!state.list_finished or !state.unmanaged_done) return true;
         for (state.windows.items) |window| {
             if (!window.closed and !window.info_done) return true;
         }
@@ -513,6 +521,11 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
+    if (state.info_version >= 9) {
+        state.unmanaged_snapshot = try state.info_manager.?.getUnmanagedSnapshot();
+        state.unmanaged_done = false;
+        state.unmanaged_snapshot.?.setListener(*State, unmanagedListener, &state);
+    }
     state.list = try registry.bind(state.list_name, ext.ForeignToplevelListV1, state.list_version);
     state.list.?.setListener(*State, listListener, &state);
 
@@ -528,6 +541,11 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(1);
     }
 
+    if (state.unmanaged_failed) return error.InvalidUnmanagedSnapshot;
+    if (state.unmanaged_snapshot != null) {
+        state.unmanaged = try std.json.parseFromSlice(std.json.Value, allocator, state.unmanaged_bytes.items, .{ .allocate = .alloc_always });
+        if (state.unmanaged.?.value != .array) return error.InvalidUnmanagedSnapshot;
+    }
     switch (mode) {
         .windows => try writeHuman(stdout, &state),
         .json => try writeJson(stdout, &state),
@@ -1256,6 +1274,11 @@ fn writeHuman(writer: *Io.Writer, state: *const State) !void {
         try writeStates(writer, window.states);
         try writer.writeByte('\n');
     }
+    if (state.unmanaged) |parsed| for (parsed.value.array.items) |record| {
+        try writer.print("{s}\txwayland\t{s}\t{s}\t{s}\t(unmanaged override-redirect)\n", .{
+            unmanagedString(record, "id"), unmanagedString(record, "class"), unmanagedString(record, "title"), unmanagedString(record, "output_name"),
+        });
+    };
 }
 
 fn writeStates(writer: *Io.Writer, states: aqueous.WindowInfoV1.State) !void {
@@ -1290,6 +1313,7 @@ fn writeJson(writer: *Io.Writer, state: *const State) !void {
         first = false;
         try writer.writeAll("  {");
         try jsonField(writer, "id", window.identifier, true);
+        try writer.writeAll(",\"managed\":true");
         try jsonField(writer, "backend", @tagName(window.backend), false);
         try jsonField(writer, "app_id", window.app_id, false);
         try jsonField(writer, "class", window.class, false);
@@ -1323,6 +1347,12 @@ fn writeJson(writer: *Io.Writer, state: *const State) !void {
         }
         try writer.writeAll("]}");
     }
+    if (state.unmanaged) |parsed| for (parsed.value.array.items) |record| {
+        if (!first) try writer.writeAll(",\n");
+        first = false;
+        try writer.writeAll("  ");
+        try std.json.Stringify.value(record, .{}, writer);
+    };
     try writer.writeAll("\n]\n");
 }
 
@@ -1405,6 +1435,19 @@ fn writeRules(writer: *Io.Writer, state: *const State) !void {
         try jsonString(writer, title);
         try writer.writeAll("\n\n");
     }
+    if (state.unmanaged) |parsed| for (parsed.value.array.items) |record| {
+        try writer.writeAll("[[window]]\nscope = \"override_redirect\"\nclass = ");
+        try jsonString(writer, unmanagedString(record, "class"));
+        try writer.writeAll("\ntitle = ");
+        try jsonString(writer, unmanagedString(record, "title"));
+        if (record.object.get("window_types")) |types| {
+            if (types == .array and types.array.items.len > 0) {
+                try writer.writeAll("\nwindow_type = ");
+                try std.json.Stringify.value(types.array.items[0], .{}, writer);
+            }
+        }
+        try writer.writeAll("\n# Supported effects: opacity, focus = false, x, y, output\n\n");
+    };
 }
 
 test "command modes accept only documented argument forms" {
@@ -1599,7 +1642,7 @@ test "json output escapes values, emits nulls, and filters unusable windows" {
 
     try std.testing.expectEqualStrings(
         "[\n" ++
-            "  {\"id\":\"id\\\"\\\\\\n\",\"backend\":\"xdg\",\"app_id\":\"org.test\\tapp\",\"class\":null,\"title\":\"line\\rtitle\",\"output\":null,\"workspace\":2,\"geometry\":{\"x\":1,\"y\":-2,\"width\":3,\"height\":4},\"layout\":null,\"tag\":null,\"description\":null,\"content_type\":null,\"decoration\":{\"capability\":\"unavailable\",\"requested\":\"client-side\",\"effective\":\"client-side\",\"configure_pending\":false},\"matched_rule\":7,\"states\":[\"floating\",\"minimized\",\"always_above\",\"snapped\"]}\n" ++
+            "  {\"id\":\"id\\\"\\\\\\n\",\"managed\":true,\"backend\":\"xdg\",\"app_id\":\"org.test\\tapp\",\"class\":null,\"title\":\"line\\rtitle\",\"output\":null,\"workspace\":2,\"geometry\":{\"x\":1,\"y\":-2,\"width\":3,\"height\":4},\"layout\":null,\"tag\":null,\"description\":null,\"content_type\":null,\"decoration\":{\"capability\":\"unavailable\",\"requested\":\"client-side\",\"effective\":\"client-side\",\"configure_pending\":false},\"matched_rule\":7,\"states\":[\"floating\",\"minimized\",\"always_above\",\"snapped\"]}\n" ++
             "]\n",
         writer.buffered(),
     );
@@ -1700,4 +1743,27 @@ test "tag rule generation quotes TOML and glob metacharacters" {
     const decoded = try std.json.parseFromSlice([]const u8, std.testing.allocator, output.written(), .{});
     defer decoded.deinit();
     try std.testing.expectEqualStrings("literal\\*\\?\\\\purpose\"#\n\t", decoded.value);
+}
+
+fn unmanagedString(record: std.json.Value, key: []const u8) []const u8 {
+    if (record != .object) return "";
+    const value = record.object.get(key) orelse return "";
+    return if (value == .string) value.string else "";
+}
+
+fn unmanagedListener(_: *aqueous.UnmanagedSnapshotV1, event: aqueous.UnmanagedSnapshotV1.Event, state: *State) void {
+    switch (event) {
+        .data => |value| {
+            if (state.unmanaged_failed) return;
+            const bytes = value.json.slice(u8);
+            if (bytes.len > 2 * 1024 * 1024 - state.unmanaged_bytes.items.len) {
+                state.unmanaged_failed = true;
+                return;
+            }
+            state.unmanaged_bytes.appendSlice(allocator, bytes) catch {
+                state.unmanaged_failed = true;
+            };
+        },
+        .done => state.unmanaged_done = true,
+    }
 }

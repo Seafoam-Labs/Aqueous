@@ -20,7 +20,7 @@ pub const rule_keys: []const []const u8 = &.{
     "floating",             "fullscreen",      "ignore_struts", "width",        "height",         "x",             "y",
     "placement_policy",     "anchor",          "size",          "scale",        "blur",           "opacity",       "buffer_scale_policy",
     "hdr_expand",           "overlay_plane",   "stack_layer",   "focus",        "fixed_position", "skip_switcher", "skip_taskbar",
-    "scrolling_full_width", "scrolling_width", "tag",
+    "scrolling_full_width", "scrolling_width", "tag",           "scope",        "window_type",
 };
 
 pub fn parseSnapTablePath(name: []const u8) ?SnapTablePath {
@@ -143,7 +143,32 @@ pub fn validRuleSize(value: []const u8) bool {
     return width > 0 and height > 0;
 }
 
+pub fn overrideRedirectKey(key: []const u8) bool {
+    inline for (.{ "scope", "class", "title", "window_type", "opacity", "focus", "x", "y", "output" }) |allowed| {
+        if (std.mem.eql(u8, key, allowed)) return true;
+    }
+    return false;
+}
+
+pub fn validateRuleScope(entries: anytype, table_index: usize) !void {
+    var unmanaged = false;
+    for (entries) |entry| {
+        if (entry.table_index == table_index and std.mem.eql(u8, entry.key, "scope")) {
+            try validateRuleRaw(entry.key, entry.value);
+            unmanaged = std.mem.eql(u8, unquoteToml(entry.value), "override_redirect");
+        }
+    }
+    for (entries) |entry| {
+        if (entry.table_index != table_index) continue;
+        if (unmanaged) {
+            if (!overrideRedirectKey(entry.key) or (std.mem.eql(u8, entry.key, "focus") and !std.mem.eql(u8, entry.value, "false"))) return error.UnsupportedOverrideRedirectRule;
+        } else if (std.mem.eql(u8, entry.key, "window_type")) return error.WindowTypeRequiresOverrideRedirectScope;
+    }
+}
+
 pub fn ruleOptions(key: []const u8) []const []const u8 {
+    if (std.mem.eql(u8, key, "scope")) return &.{ "managed", "override_redirect" };
+    if (std.mem.eql(u8, key, "window_type")) return &.{ "desktop", "dock", "toolbar", "menu", "utility", "splash", "dialog", "dropdown_menu", "popup_menu", "tooltip", "notification", "combo", "dnd", "normal" };
     if (std.mem.eql(u8, key, "layout")) return &.{ "tile", "monocle", "grid", "rows", "dwindle", "reverse-dwindle", "scrolling", "stacking", "game-mode", "composable" };
     if (std.mem.eql(u8, key, "content_type")) return &.{ "none", "photo", "video", "game" };
     if (std.mem.eql(u8, key, "placement_policy")) return &.{ "cascade", "center", "under-pointer", "minimal-overlap" };

@@ -38,7 +38,7 @@ pub fn init(manager: *WindowInfoManager) !void {
         .global = try wl.Global.create(
             server.wl_server,
             aqueous.WindowInfoManagerV1,
-            8,
+            9,
             *WindowInfoManager,
             manager,
             bind,
@@ -66,6 +66,7 @@ fn handleManagerRequest(
     _: ?*anyopaque,
 ) void {
     switch (request) {
+        .get_unmanaged_snapshot => |args| sendUnmanagedSnapshot(resource, args.id),
         .get_window_info => |args| sendSnapshot(resource, args.id, args.toplevel),
         .get_scene_snapshot => |args| sendSceneSnapshot(resource, args.id),
         .get_overlay_plane_snapshot => |args| sendOverlayPlaneSnapshot(resource, args.id),
@@ -554,4 +555,51 @@ fn sendRuleMatcher(
     };
     defer util.gpa.free(terminated);
     info.sendRuleMatcher(matcher, terminated.ptr);
+}
+
+fn sendUnmanagedSnapshot(manager: *aqueous.WindowInfoManagerV1, id: u32) void {
+    const snapshot = aqueous.UnmanagedSnapshotV1.create(manager.getClient(), 1, id) catch {
+        manager.getClient().postNoMemory();
+        return;
+    };
+    snapshot.setHandler(?*anyopaque, handleUnmanagedRequest, null, null);
+    var arena = std.heap.ArenaAllocator.init(util.gpa);
+    defer arena.deinit();
+    var json: std.Io.Writer.Allocating = .init(arena.allocator());
+    writeUnmanagedSnapshot(arena.allocator(), &json) catch {
+        manager.getClient().postImplementationError("Unmanaged surface snapshot exceeds limits or allocation failed");
+        return;
+    };
+    const bytes = json.written();
+    var offset: usize = 0;
+    while (offset < bytes.len) {
+        const part = bytes[offset..@min(bytes.len, offset + 3000)];
+        var array: wl.Array = .{ .size = part.len, .alloc = part.len, .data = @constCast(part.ptr) };
+        snapshot.sendData(&array);
+        offset += part.len;
+    }
+    snapshot.sendDone();
+}
+
+fn writeUnmanagedSnapshot(a: std.mem.Allocator, buffer: *std.Io.Writer.Allocating) !void {
+    const writer = &buffer.writer;
+    try writer.writeByte('[');
+    if (build_options.xwayland) {
+        var cursor = @import("XwaylandOverrideRedirect.zig").first;
+        var first = true;
+        while (cursor) |popup| : (cursor = popup.next) {
+            if (popup.surface_tree == null) continue;
+            if (!first) try writer.writeByte(',');
+            first = false;
+            try std.json.Stringify.value(try popup.snapshot(a), .{}, writer);
+            if (buffer.written().len > 2 * 1024 * 1024 - 1) return error.StateTooLarge;
+        }
+    }
+    try writer.writeByte(']');
+}
+
+fn handleUnmanagedRequest(resource: *aqueous.UnmanagedSnapshotV1, request: aqueous.UnmanagedSnapshotV1.Request, _: ?*anyopaque) void {
+    switch (request) {
+        .destroy => resource.destroy(),
+    }
 }

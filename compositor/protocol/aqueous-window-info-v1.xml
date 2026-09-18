@@ -16,10 +16,11 @@
     5 adds a read-only DRM overlay-plane diagnostic snapshot. Version 6 adds
     xdg-decoration negotiation state to window snapshots. Version 7 adds
     query and live control of the compositor-owned cursor theme. Version 8 adds
-    client-provided toplevel tags, descriptions, and tag rule matchers.
+    client-provided toplevel tags, descriptions, and tag rule matchers. Version 9
+    adds independent enumeration of unmanaged XWayland surfaces.
   </description>
 
-  <interface name="aqueous_window_info_manager_v1" version="8">
+  <interface name="aqueous_window_info_manager_v1" version="9">
     <description summary="window information factory">
       Create a one-shot information snapshot for an Aqueous toplevel.
     </description>
@@ -118,6 +119,13 @@
       <arg name="name" type="string"/>
       <arg name="size" type="uint"/>
     </event>
+    <request name="get_unmanaged_snapshot" since="9">
+      <description summary="enumerate mapped override-redirect XWayland surfaces">
+        Independent of foreign toplevel enumeration. Returns a JSON array of
+        unmanaged_window entities as documented by the shell protocol.
+      </description>
+      <arg name="id" type="new_id" interface="aqueous_unmanaged_snapshot_v1"/>
+    </request>
   </interface>
 
   <interface name="aqueous_window_info_v1" version="8">
@@ -381,5 +389,14 @@
     <event name="done"/>
 
     <request name="destroy" type="destructor"/>
+  </interface>
+  <interface name="aqueous_unmanaged_snapshot_v1" version="1">
+    <description summary="bounded one-shot unmanaged surface snapshot">
+      Concatenate data fragments before decoding UTF-8 JSON. The complete array
+      is limited to 2 MiB. done ends the snapshot; destroy releases the object.
+    </description>
+    <request name="destroy" type="destructor"/>
+    <event name="data"><arg name="json" type="array"/></event>
+    <event name="done"/>
   </interface>
 </protocol>

@@ -9,7 +9,7 @@ SPDX-License-Identifier: MIT</copyright>
     acknowledge each bounded batch before another is sent. Intermediate states
     may be coalesced; base_sequence identifies the state to which a delta applies.
   </description>
-  <interface name="aqueous_shell_manager_v1" version="2">
+  <interface name="aqueous_shell_manager_v1" version="3">
     <enum name="action">
       <entry name="window_activate" value="0"/>
       <entry name="window_close" value="1"/>
@@ -91,5 +91,12 @@ SPDX-License-Identifier: MIT</copyright>
       <arg name="request_id" type="uint"/>
       <arg name="id" type="string" summary="empty if removed"/>
     </event>
+    <request name="subscribe_unmanaged" since="3">
+      <description summary="subscribe including unmanaged XWayland surfaces">
+        Like subscribe, additionally includes unmanaged_window entities. Exactly
+        one of subscribe or subscribe_unmanaged may be used per manager.
+        These IDs cannot be used with managed window commands.
+      </description>
+    </request>
   </interface>
 </protocol>

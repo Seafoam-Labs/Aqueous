@@ -196,7 +196,7 @@ fn maybeHonor(grab: *XwaylandKeyboardGrab) void {
     const node_data = SceneNodeData.fromSurface(grab.surface) orelse return;
     switch (node_data.data) {
         .window => |window| if (window.impl != .xwayland) return,
-        .override_redirect => {},
+        .override_redirect => |popup| if (popup.focusSuppressed()) return,
         else => return,
     }
 
@@ -209,6 +209,10 @@ fn activate(grab: *XwaylandKeyboardGrab) bool {
         server.lock_manager.state != .unlocked)
     {
         return false;
+    }
+
+    if (SceneNodeData.fromSurface(grab.surface)) |data| {
+        if (data.data == .override_redirect and data.data.override_redirect.focusSuppressed()) return false;
     }
 
     // A protocol keyboard grab supersedes any shorter-lived wlroots grab. End

@@ -3528,6 +3528,7 @@ pub fn hasLayerBlurRules(aqueous: *const Aqueous) bool {
 }
 
 fn applyLayerRules(aqueous: *Aqueous) void {
+    if (build_options.xwayland) @import("../XwaylandOverrideRedirect.zig").refreshAll();
     server.background_effect_manager.schedule();
     if (!aqueous.mode.runsInternal()) return;
     var surfaces = server.layer_shell.surfaces.iterator();

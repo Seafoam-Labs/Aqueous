@@ -79,6 +79,7 @@ pub fn parseAndReload(allocator: std.mem.Allocator, engine: *Engine, source: []c
     var parsed_layers: std.ArrayListUnmanaged(Engine.LayerRule) = .empty;
     defer parsed_layers.deinit(allocator);
     var current: ?Engine.Rule = null;
+    var unsupported_popup_key = false;
     var current_layer: ?Engine.LayerRule = null;
     var game_mode: Engine.GameMode = .{};
     var section: enum { none, game_mode, window, layer } = .none;
@@ -87,13 +88,14 @@ pub fn parseAndReload(allocator: std.mem.Allocator, engine: *Engine, source: []c
         const line = toml.cleanLine(raw_line);
         if (line.len == 0) continue;
         if (line[0] == '[') {
-            if (current) |rule| try appendValid(allocator, &parsed, rule);
+            if (current) |rule| try appendValid(allocator, &parsed, rule, unsupported_popup_key);
             if (current_layer) |rule| try appendValidLayer(
                 allocator,
                 &parsed_layers,
                 rule,
             );
             current = null;
+            unsupported_popup_key = false;
             current_layer = null;
             if (std.mem.eql(u8, line, "[[window]]")) {
                 current = .{};
@@ -116,7 +118,18 @@ pub fn parseAndReload(allocator: std.mem.Allocator, engine: *Engine, source: []c
         else
             toml.unquote(raw);
         switch (section) {
-            .window => if (current) |*rule| applyValue(rule, key, value),
+            .window => if (current) |*rule| {
+                if (std.mem.eql(u8, key, "scope")) rule.scope = std.meta.stringToEnum(Engine.Scope, value) orelse return error.InvalidRuleScope;
+                if (std.mem.eql(u8, key, "window_type")) rule.window_type = std.meta.stringToEnum(Engine.X11WindowType, value) orelse return error.InvalidWindowType;
+                if (!overrideRedirectKey(key)) unsupported_popup_key = true;
+                if (std.mem.eql(u8, key, "opacity") and parseOpacity(value) == null) unsupported_popup_key = true;
+                if (std.mem.eql(u8, key, "focus") and parseBool(value) == null) unsupported_popup_key = true;
+                if (std.mem.eql(u8, key, "x") or std.mem.eql(u8, key, "y")) {
+                    const coordinate = std.fmt.parseInt(i32, value, 10) catch 100_001;
+                    if (coordinate < -100_000 or coordinate > 100_000) unsupported_popup_key = true;
+                }
+                applyValue(rule, key, value);
+            },
             .layer => if (current_layer) |*rule| applyLayerValue(
                 rule,
                 key,
@@ -126,7 +139,7 @@ pub fn parseAndReload(allocator: std.mem.Allocator, engine: *Engine, source: []c
             .none => {},
         }
     }
-    if (current) |rule| try appendValid(allocator, &parsed, rule);
+    if (current) |rule| try appendValid(allocator, &parsed, rule, unsupported_popup_key);
     if (current_layer) |rule| try appendValidLayer(
         allocator,
         &parsed_layers,
@@ -151,8 +164,11 @@ fn hash(source: []const u8) u64 {
     return state.final();
 }
 
-fn appendValid(allocator: std.mem.Allocator, rules: *std.ArrayListUnmanaged(Engine.Rule), rule: Engine.Rule) !void {
-    if (rule.app_id == null and rule.class == null and rule.title == null and rule.tag == null and rule.content_type == null) return;
+fn appendValid(allocator: std.mem.Allocator, rules: *std.ArrayListUnmanaged(Engine.Rule), rule: Engine.Rule, unsupported_popup_key: bool) !void {
+    if (rule.scope == .override_redirect and (unsupported_popup_key or rule.focus == true)) return error.UnsupportedOverrideRedirectRule;
+    if (rule.scope == .override_redirect and rule.class == null and rule.title == null and rule.window_type == null) return error.MissingOverrideRedirectMatcher;
+    if (rule.scope == .managed and rule.window_type != null) return error.WindowTypeRequiresOverrideRedirectScope;
+    if (rule.app_id == null and rule.class == null and rule.title == null and rule.tag == null and rule.content_type == null and rule.window_type == null) return;
     try rules.append(allocator, rule);
 }
 
@@ -178,6 +194,13 @@ fn applyGameMode(options: *Engine.GameMode, key: []const u8, value: []const u8) 
     }
 }
 
+pub fn overrideRedirectKey(key: []const u8) bool {
+    inline for (.{ "scope", "class", "title", "window_type", "opacity", "focus", "x", "y", "output" }) |allowed| {
+        if (std.mem.eql(u8, key, allowed)) return true;
+    }
+    return false;
+}
+
 fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "app_id")) rule.app_id = value;
     if (std.mem.eql(u8, key, "class")) rule.class = value;
@@ -189,8 +212,14 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "workspace")) rule.placement.workspace = std.fmt.parseInt(u32, value, 10) catch rule.placement.workspace;
     if (std.mem.eql(u8, key, "width")) rule.placement.width = parsePositive(value) orelse rule.placement.width;
     if (std.mem.eql(u8, key, "height")) rule.placement.height = parsePositive(value) orelse rule.placement.height;
-    if (std.mem.eql(u8, key, "x")) rule.placement.x = std.fmt.parseInt(i32, value, 10) catch rule.placement.x;
-    if (std.mem.eql(u8, key, "y")) rule.placement.y = std.fmt.parseInt(i32, value, 10) catch rule.placement.y;
+    if (std.mem.eql(u8, key, "x")) {
+        rule.position_x = std.fmt.parseInt(i32, value, 10) catch rule.position_x;
+        rule.placement.x = rule.position_x orelse rule.placement.x;
+    }
+    if (std.mem.eql(u8, key, "y")) {
+        rule.position_y = std.fmt.parseInt(i32, value, 10) catch rule.position_y;
+        rule.placement.y = rule.position_y orelse rule.placement.y;
+    }
     if (std.mem.eql(u8, key, "layout")) {
         rule.layout = parseLayout(value) orelse rule.layout;
         if (rule.layout == .floating) rule.placement.floating = true;
@@ -612,4 +641,18 @@ test "scrolling fractions accept only finite positive values through one" {
     defer engine.deinit();
     try parseAndReload(std.testing.allocator, &engine, "[[window]]\napp_id = \"test\"\nlayout = \"scrolling\"\nscrolling_width = 0.65\n");
     try std.testing.expectEqual(Engine.Layout.scrolling, engine.resolve(.{ .app_id = "test" }).?.layout.?);
+}
+
+test "popup rules validate atomically and preserve explicit zero placement" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try parseAndReload(std.testing.allocator, &engine, "[[window]]\nscope = \"override_redirect\"\nwindow_type = \"notification\"\nx = 0\nopacity = 0.8\nfocus = false\n");
+    try std.testing.expectEqual(@as(?i32, 0), engine.rules[0].position_x);
+    try std.testing.expectEqual(@as(?i32, null), engine.rules[0].position_y);
+    inline for (.{ "floating = false", "focus = true", "workspace = 2", "blur = false", "typo = 1", "opacity = nan", "focus = typo", "x = 100001" }) |property| {
+        try std.testing.expectError(error.UnsupportedOverrideRedirectRule, parseAndReload(std.testing.allocator, &engine, "[[window]]\nscope = \"override_redirect\"\nclass = \"*\"\n" ++ property));
+        try std.testing.expectEqual(@as(?f64, 0.8), engine.rules[0].opacity);
+    }
+    try std.testing.expectError(error.InvalidRuleScope, parseAndReload(std.testing.allocator, &engine, "[[window]]\nclass = \"*\"\nscope = \"typo\""));
+    try std.testing.expectError(error.WindowTypeRequiresOverrideRedirectScope, parseAndReload(std.testing.allocator, &engine, "[[window]]\nwindow_type = \"notification\""));
 }

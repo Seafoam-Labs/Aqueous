@@ -41,7 +41,7 @@ already have executed; inspect fresh state first.
 
 All IDs and sequences are JSON strings. IDs are scoped to the session token;
 never interpret them as pointers, indices or persistent configuration keys.
-Window IDs are the exact `ext_foreign_toplevel_handle_v1.identifier` values.
+Managed window IDs are the exact `ext_foreign_toplevel_handle_v1.identifier` values.
 Output, workspace, keyboard group and keyboard device IDs are monotonically
 allocated runtime identities. Seats use their names. Removal/recreation gives
 outputs/devices/groups new IDs even if their names are reused.
@@ -235,3 +235,53 @@ state/actions, keyboard layout, inhibition, flow control, lock, and frame tests.
 No test connects to the user's Wayland display. Hardware capture, DPMS and
 suspend/resume remain desktop release checks; this protocol alone does not add
 an upstream DMS consumer.
+
+
+## Unmanaged XWayland surfaces (manager version 3)
+
+The `unmanaged_windows` capability advertises `subscribe_unmanaged`, which
+includes `unmanaged_window` entities. Updated `aqueousctl shell snapshot` and
+`watch` select this subscription automatically. The original `subscribe`
+retains its managed-only contract, even on version 3. Socket clients opt in
+with `{"include_unmanaged": true}` in `snapshot` or `subscribe` parameters.
+
+These entities represent mapped X11 override-redirect surfaces, including
+application notification bubbles, menus and tooltips. They remain outside
+foreign-toplevel lists, taskbars, workspaces and managed-window commands.
+Their opaque `unmanaged-…` IDs are scoped to the compositor session, stable
+through metadata changes and unmap/remap, and replaced when the underlying
+surface is destroyed or transitions between managed and unmanaged roles.
+
+Fields include `managed: false`, `backend: "xwayland"`,
+`scope: "override_redirect"`, nullable `class`/`title`, `window_types` (all
+recognized EWMH types), `geometry` (global logical content coordinates),
+nullable output ID and `output_name`, and nullable managed `owner` ID.
+`opacity` is the effective compositor opacity. `focus_suppressed` reports the
+explicit rule restriction. `matched_rule` is a nullable decimal semantic
+fingerprint; `supported_rule_effects` lists supported popup effects.
+Metadata changes produce ordinary entity replacements; unmapping removes the
+entity. Coalescing can omit a popup whose entire lifetime occurs between
+acknowledged snapshots, just as it can omit a short-lived managed window.
+
+Window-info manager version 9 adds `get_unmanaged_snapshot`, a bounded JSON
+array of the same entities. This lets `aqueousctl windows --json` and
+`inspect --rule` discover surfaces without manufacturing foreign toplevels.
+Managed records in `windows --json` carry `managed: true`; unmanaged records
+use the entity shape above (including output ID plus `output_name`, and no
+workspace/layout state). Older compositors retain managed-only discovery.
+
+
+To run the isolated regression matrix (legacy coordinates, fractional legacy,
+and fractional native coordinates with negative output origins), build with
+XWayland enabled and the Pixman test renderer:
+
+```sh
+cd compositor
+PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig" \
+LD_LIBRARY_PATH="$PWD/.deps/wlroots-render-hook/lib" \
+zig build test-unmanaged-xwayland -Dxwayland -Dvulkan-effects=false -Dllvm
+```
+
+The fixtures create temporary configuration, state and display sockets. They
+also check compatibility with a version-2 shell client and default socket
+subscriptions, rule reloads, resize/remap restoration, and role transitions.

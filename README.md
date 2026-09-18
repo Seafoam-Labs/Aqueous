@@ -178,6 +178,12 @@ aqueousctl layout --output DP-1 --set grid --json
 
 The rule command emits ready-to-paste `[[window]]` entries. Native Wayland
 windows use `app_id`; XWayland windows use their `WM_CLASS` as `class`.
+Unmanaged XWayland popups also appear in `windows --json` (`managed: false`)
+and in `shell watch --json` (`kind: "unmanaged_window"`). `inspect --rule`
+emits `scope = "override_redirect"` for these surfaces. Scoped popup rules
+support opacity, focus suppression and output-relative x/y placement; see
+[rules.toml.example](rules.toml.example). Ordinary rules still apply only to
+managed windows.
 The outputs command provides the full wlr-randr information set: identity,
 physical size, enabled state, every advertised mode, logical position,
 transform, scale, and adaptive-sync state. It also prints a quoted, stable

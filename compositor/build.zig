@@ -186,8 +186,8 @@ pub fn build(b: *Build) !void {
     scanner.generate("wp_color_representation_manager_v1", 1);
 
     scanner.generate("aqueous_window_manager_v1", 10);
-    scanner.generate("aqueous_window_info_manager_v1", 8);
-    scanner.generate("aqueous_shell_manager_v1", 2);
+    scanner.generate("aqueous_window_info_manager_v1", 9);
+    scanner.generate("aqueous_shell_manager_v1", 3);
     scanner.generate("aqueous_xkb_bindings_v1", 3);
     scanner.generate("aqueous_layer_shell_v1", 1);
     scanner.generate("aqueous_input_manager_v1", 2);
@@ -241,6 +241,19 @@ pub fn build(b: *Build) !void {
         translate_c.defineCMacro("RIVER_VULKAN_EFFECTS", null);
     }
 
+    const unmanaged_tests: [3]*Build.Step.Run = blk: {
+        const step = b.step("test-unmanaged-xwayland", "Headless popup discovery/rules regression (requires -Dxwayland -Dvulkan-effects=false)");
+        var commands: [3]*Build.Step.Run = undefined;
+        for (&commands, 0..) |*command, index| {
+            command.* = b.addSystemCommand(&.{"python3"});
+            command.*.addFileArg(b.path("scripts/test-unmanaged-xwayland.py"));
+            command.*.setEnvironmentVariable("AQUEOUS_UNMANAGED_SCALED", if (index == 0) "0" else "1");
+            command.*.setEnvironmentVariable("AQUEOUS_UNMANAGED_SCALING", if (index == 2) "native" else "legacy");
+            step.dependOn(&command.*.step);
+        }
+        break :blk commands;
+    };
+
     {
         const river = b.addExecutable(.{
             .name = "aqueous",
@@ -255,6 +268,7 @@ pub fn build(b: *Build) !void {
             .use_lld = use_llvm,
         });
         river.build_id = .sha1;
+        for (unmanaged_tests) |command| command.addArtifactArg(river);
         river.root_module.addOptions("build_options", options);
 
         river.root_module.linkSystemLibrary("libevdev", .{});
@@ -338,6 +352,7 @@ pub fn build(b: *Build) !void {
         aqueousctl.root_module.omit_frame_pointer = omit_frame_pointer;
         b.installArtifact(aqueousctl);
         shell_switch_test.addArtifactArg(aqueousctl);
+        for (unmanaged_tests) |command| command.addArtifactArg(aqueousctl);
         shell_switch_test.addArg(instance_name);
     }
 
@@ -655,6 +670,8 @@ pub fn build(b: *Build) !void {
         keyboard_test.root_module.linkSystemLibrary("pixman-1", .{});
         keyboard_test.root_module.linkSystemLibrary("libpng", .{});
         keyboard_test.root_module.linkSystemLibrary("pthread", .{});
+        keyboard_test.root_module.linkSystemLibrary("libsystemd", .{});
+        keyboard_test.root_module.addCSourceFile(.{ .file = b.path("aqueous/activity_bootstrap.c"), .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" } });
         keyboard_test.root_module.addCSourceFile(.{ .file = b.path("aqueous/bell_audio.c"), .flags = &.{ "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror" } });
         keyboard_test.root_module.addCSourceFile(.{ .file = b.path("aqueous/icon_png.c"), .flags = &.{ "-std=c11", "-O2" } });
         if (vulkan_effects) keyboard_test.root_module.linkSystemLibrary("vulkan", .{});

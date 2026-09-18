@@ -1506,11 +1506,12 @@ fn validateWindowRules(document: *const config.Document) !void {
     defer document.allocator.free(entries);
     for (tables) |table| {
         if (!table.repeated or !std.mem.eql(u8, table.name, "window")) continue;
+        try collections.validateRuleScope(entries, table.index);
         var matcher = false;
         for (entries) |entry| {
             if (entry.table_index != table.index) continue;
             if (ruleKnown(entry.key)) try validateRuleRaw(entry.key, entry.value);
-            if ((std.mem.eql(u8, entry.key, "app_id") or std.mem.eql(u8, entry.key, "class") or std.mem.eql(u8, entry.key, "title") or std.mem.eql(u8, entry.key, "content_type") or std.mem.eql(u8, entry.key, "tag")) and (unquoteToml(entry.value).len > 0 or std.mem.eql(u8, entry.key, "tag"))) matcher = true;
+            if ((std.mem.eql(u8, entry.key, "app_id") or std.mem.eql(u8, entry.key, "class") or std.mem.eql(u8, entry.key, "title") or std.mem.eql(u8, entry.key, "content_type") or std.mem.eql(u8, entry.key, "window_type") or std.mem.eql(u8, entry.key, "tag")) and (unquoteToml(entry.value).len > 0 or std.mem.eql(u8, entry.key, "tag"))) matcher = true;
         }
         if (!matcher) return error.WindowRuleMissingMatcher;
     }
@@ -2564,4 +2565,12 @@ fn checkCollectionPreconditions(a: Allocator, request: std.json.ObjectMap, files
         if (!std.mem.eql(u8, expected, &actual)) return error.ExternalChange;
     }
     if (!touched) return error.InvalidCollectionPreconditions;
+}
+
+test "unmanaged window rule edits validate scope and supported effects" {
+    var document = try config.Document.init(std.testing.allocator, "[[window]]\nscope = \"override_redirect\"\nwindow_type = \"notification\"\nx = 0\nopacity = 0.8\nfocus = false\n");
+    defer document.deinit();
+    try validateWindowRules(&document);
+    try setTableRaw(&document, 1, "floating", "false");
+    try std.testing.expectError(error.UnsupportedOverrideRedirectRule, validateWindowRules(&document));
 }

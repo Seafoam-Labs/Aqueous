@@ -45,7 +45,12 @@
         },
         "params": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "include_unmanaged": {
+              "type": "boolean",
+              "default": false
+            }
+          },
           "required": [],
           "additionalProperties": false
         },
@@ -78,7 +83,12 @@
         },
         "params": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "include_unmanaged": {
+              "type": "boolean",
+              "default": false
+            }
+          },
           "required": [],
           "additionalProperties": false
         },

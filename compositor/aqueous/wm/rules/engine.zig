@@ -11,7 +11,13 @@ const scaling = @import("scaling");
 pub const StackLayer = enum { below, normal, above };
 pub const PlacementPolicy = enum { cascade, center, under_pointer, minimal_overlap };
 
+pub const Scope = enum { managed, override_redirect };
+// Values match enum wlr_xwayland_net_wm_window_type.
+pub const X11WindowType = enum(c_int) { desktop, dock, toolbar, menu, utility, splash, dialog, dropdown_menu, popup_menu, tooltip, notification, combo, dnd, normal };
+
 pub const Identity = struct {
+    scope: Scope = .managed,
+    window_types: u16 = 0,
     app_id: ?[]const u8 = null,
     class: ?[]const u8 = null,
     title: ?[]const u8 = null,
@@ -64,6 +70,11 @@ pub const OverlayPreference = enum {
 };
 
 pub const Rule = struct {
+    scope: Scope = .managed,
+    window_type: ?X11WindowType = null,
+    // Presence matters for popup placement: zero is an explicit coordinate.
+    position_x: ?i32 = null,
+    position_y: ?i32 = null,
     app_id: ?[]const u8 = null,
     class: ?[]const u8 = null,
     title: ?[]const u8 = null,
@@ -108,6 +119,8 @@ pub const Rule = struct {
     /// It deliberately excludes source addresses and struct padding.
     pub fn fingerprint(rule: Rule) u64 {
         var hash = std.hash.Wyhash.init(0);
+        hash.update(std.mem.asBytes(&rule.scope));
+        hashOptionalEnum(&hash, rule.window_type);
         hashOptionalString(&hash, rule.app_id);
         hashOptionalString(&hash, rule.class);
         hashOptionalString(&hash, rule.title);
@@ -121,6 +134,10 @@ pub const Rule = struct {
         hash.update(std.mem.asBytes(&rule.placement.height));
         hash.update(std.mem.asBytes(&rule.placement.x));
         hash.update(std.mem.asBytes(&rule.placement.y));
+        if (rule.scope == .override_redirect) {
+            hashOptionalInt(&hash, rule.position_x);
+            hashOptionalInt(&hash, rule.position_y);
+        }
         hash.update(std.mem.asBytes(&rule.anchor));
         switch (rule.size) {
             .native => hash.update(&.{0}),
@@ -159,6 +176,8 @@ pub const Rule = struct {
     /// create a new match and therefore cannot discard user overrides.
     pub fn matcherFingerprint(rule: Rule) u64 {
         var hash = std.hash.Wyhash.init(0);
+        hash.update(std.mem.asBytes(&rule.scope));
+        hashOptionalEnum(&hash, rule.window_type);
         hashOptionalString(&hash, rule.app_id);
         hashOptionalString(&hash, rule.class);
         hashOptionalString(&hash, rule.title);
@@ -252,7 +271,9 @@ pub fn reloadSnapshot(
 
 pub fn resolve(engine: *const Engine, identity: Identity) ?Rule {
     for (engine.rules) |rule| {
-        if (rule.app_id == null and rule.class == null and rule.title == null and rule.tag == null and rule.content_type == null) continue;
+        if (rule.scope != identity.scope) continue;
+        if (rule.window_type) |kind| if (identity.window_types & (@as(u16, 1) << @intCast(@intFromEnum(kind))) == 0) continue;
+        if (rule.app_id == null and rule.class == null and rule.title == null and rule.tag == null and rule.content_type == null and rule.window_type == null) continue;
         if (rule.app_id != null and !glob.matches(rule.app_id, identity.app_id)) continue;
         if (rule.class != null and !glob.matches(rule.class, identity.class)) continue;
         if (rule.title != null and !glob.matches(rule.title, identity.title)) continue;
@@ -369,6 +390,11 @@ fn freeLayerRules(allocator: std.mem.Allocator, rules: []LayerRule) void {
     if (rules.len > 0) allocator.free(rules);
 }
 
+fn hashOptionalInt(hash: *std.hash.Wyhash, value: ?i32) void {
+    hash.update(&.{@intFromBool(value != null)});
+    if (value) |v| hash.update(std.mem.asBytes(&v));
+}
+
 fn hashOptionalString(hash: *std.hash.Wyhash, value: ?[]const u8) void {
     if (value) |text| {
         hash.update(&.{1});
@@ -377,7 +403,7 @@ fn hashOptionalString(hash: *std.hash.Wyhash, value: ?[]const u8) void {
 }
 
 fn hashOptionalEnum(hash: *std.hash.Wyhash, value: anytype) void {
-    const encoded: u8 = if (value) |item| @as(u8, @intFromEnum(item)) + 1 else 0;
+    const encoded: u8 = if (value) |item| @as(u8, @intCast(@intFromEnum(item))) + 1 else 0;
     hash.update(std.mem.asBytes(&encoded));
 }
 
@@ -563,4 +589,24 @@ test "fraction edits change semantics without changing matcher or placement" {
     const old = rule.fingerprint();
     rule.scrolling_width = 0.25;
     try std.testing.expect(old != rule.fingerprint());
+}
+
+test "unmanaged rules are explicit, first-match and match any advertised X11 type" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try engine.reload(&.{
+        .{ .class = "Steam*", .opacity = 0.2 },
+        .{ .scope = .override_redirect, .class = "Steam*", .window_type = .notification, .opacity = 0.7 },
+        .{ .scope = .override_redirect, .class = "Steam*", .opacity = 0.9 },
+    });
+    try std.testing.expectEqual(@as(?f64, 0.2), engine.resolve(.{ .class = "Steam" }).?.opacity);
+    try std.testing.expectEqual(@as(?f64, 0.7), engine.resolve(.{ .scope = .override_redirect, .class = "Steam", .window_types = (1 << 10) | (1 << 13) }).?.opacity);
+    try std.testing.expectEqual(@as(?f64, 0.9), engine.resolve(.{ .scope = .override_redirect, .class = "Steam", .window_types = 1 << 8 }).?.opacity);
+    const base: Rule = .{ .class = "Steam" };
+    var popup = base;
+    popup.scope = .override_redirect;
+    try std.testing.expect(base.matcherFingerprint() != popup.matcherFingerprint());
+    const before = popup.fingerprint();
+    popup.position_x = 0;
+    try std.testing.expect(before != popup.fingerprint());
 }

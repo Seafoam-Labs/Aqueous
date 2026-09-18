@@ -60,6 +60,9 @@
           },
           {
             "$ref": "#/$defs/session"
+          },
+          {
+            "$ref": "#/$defs/unmanaged_window"
           }
         ]
       }
@@ -68,7 +71,7 @@
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^(output|workspace|window|seat|keyboard|keyboard_device|session):.+"
+        "pattern": "^(output|workspace|window|unmanaged_window|seat|keyboard|keyboard_device|session):.+"
       },
       "uniqueItems": true
     }
@@ -591,6 +594,140 @@
             "string",
             "null"
           ]
+        }
+      }
+    },
+    "unmanaged_window": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "managed",
+        "backend",
+        "scope",
+        "class",
+        "title",
+        "window_types",
+        "output",
+        "output_name",
+        "owner",
+        "geometry",
+        "opacity",
+        "focus_suppressed",
+        "matched_rule",
+        "supported_rule_effects"
+      ],
+      "properties": {
+        "kind": {
+          "const": "unmanaged_window"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^unmanaged-[0-9]+$"
+        },
+        "managed": {
+          "const": false
+        },
+        "backend": {
+          "const": "xwayland"
+        },
+        "scope": {
+          "const": "override_redirect"
+        },
+        "class": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "window_types": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "desktop",
+              "dock",
+              "toolbar",
+              "menu",
+              "utility",
+              "splash",
+              "dialog",
+              "dropdown_menu",
+              "popup_menu",
+              "tooltip",
+              "notification",
+              "combo",
+              "dnd",
+              "normal"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "output": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "geometry": {
+          "type": "object",
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "properties": {
+            "x": {
+              "type": "integer"
+            },
+            "y": {
+              "type": "integer"
+            },
+            "width": {
+              "type": "integer"
+            },
+            "height": {
+              "type": "integer"
+            }
+          }
+        },
+        "opacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "focus_suppressed": {
+          "type": "boolean"
+        },
+        "matched_rule": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "supported_rule_effects": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     }

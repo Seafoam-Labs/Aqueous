@@ -45,7 +45,12 @@ aqueousctl - inspect and control Aqueous compositor state
 
 *aqueousctl* is a Wayland client for Aqueous's window information protocol. It
 enumerates mapped windows through ext_foreign_toplevel_list_v1 and uses their
-stable identifiers to request compositor-owned state. Output information is
+stable identifiers to request compositor-owned state. With window-info version
+9, windows and inspect also enumerate unmanaged XWayland override-redirect
+surfaces. JSON marks these as managed=false; generated rules use
+scope="override_redirect". Popup rules support opacity, focus=false, output,
+x and y. Shell snapshots/watch include unmanaged_window entities when the
+compositor supports shell manager version 3. Output information is
 read from the event stream of zwlr_output_manager_v1. Its mutating operations
 include layout and cursor updates. Shell commands use the separate versioned
 aqueous_shell_manager_v1 protocol for live state and typed policy actions.

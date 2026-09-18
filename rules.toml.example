@@ -238,3 +238,33 @@ gaps_inner = 8             # integer >= 0
 # app_id = "org.example.Editor"
 # tag = "settings"
 # floating = true
+
+
+# XWayland notification/menu rules (explicitly unmanaged scope).
+# Discover the actual class/title/types with `aqueousctl windows --json` or
+# generate a starting rule with `aqueousctl inspect --rule`. This is an example;
+# Steam versions may use different class/title/type values.
+# [[window]]
+# scope = "override_redirect"
+# class = "Steam*"
+# window_type = "notification"
+# opacity = 1.0
+# focus = false
+# output = "DP-1"
+# x = 24
+# y = 24
+#
+# scope defaults to "managed". Override-redirect rules support only scope,
+# class, title, window_type, opacity, focus=false, output, x and y. At least
+# one of class/title/window_type is required. All present matchers must match;
+# the first matching rule in the same scope wins. window_type matches any
+# advertised EWMH type (notification, popup_menu, dropdown_menu, tooltip,
+# normal, dialog, menu, utility, splash, toolbar, dock, desktop, combo, dnd).
+# Unsupported properties and focus=true reject the reload; the old rules stay.
+# x/y are logical offsets from the output's full origin; zero is explicit.
+# Without output, use the popup's normal projection. Without an axis, preserve
+# its client-requested offset. An unavailable output leaves placement at the
+# client request until that output becomes available. Coordinates outside the
+# X11 signed 16-bit range after projection also leave client placement intact.
+# Removing a rule restores the latest client-requested position, inherited
+# owner/default opacity, and normal focus eligibility (without stealing focus).
