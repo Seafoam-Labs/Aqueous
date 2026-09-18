@@ -4,7 +4,7 @@ Reference: https://gitlab.freedesktop.org/wlroots/wlroots/-/merge_requests/5220
 Reference author: Simon Ser <contact@emersion.fr>
 Reference head: e67d45a31e2df6492a00dc94498774e1dbaaf7e3
 Adapted implementation for wlroots 0.20.2; preserves output/state ABI.
-Default: auto. Disable with AQUEOUS_DRM_COLOR_PIPELINE=off.
+Default: auto (disabled on NVIDIA). Disable with AQUEOUS_DRM_COLOR_PIPELINE=off.
 
 --- a/backend/drm/atomic.c
 +++ b/backend/drm/atomic.c
@@ -72,7 +72,7 @@ Default: auto. Disable with AQUEOUS_DRM_COLOR_PIPELINE=off.
  	if (test_only) {
 --- /dev/null
 +++ b/backend/drm/color_pipeline.c
-@@ -0,0 +1,476 @@
+@@ -0,0 +1,493 @@
 +/* Based on the discovery and atomic programming design in wlroots !5220,
 + * head e67d45a31e2df6492a00dc94498774e1dbaaf7e3. See patch provenance. */
 +#include "backend/drm/color_pipeline.h"
@@ -134,6 +134,23 @@ Default: auto. Disable with AQUEOUS_DRM_COLOR_PIPELINE=off.
 +		wlr_log(WLR_INFO, "Color pipelines unavailable on legacy/multi-GPU backend");
 +		return;
 +	}
++	// Check the driver owning this DRM fd before opting into colorop semantics.
++	// Both NVIDIA kernel module variants report nvidia-drm; Nouveau also drives
++	// NVIDIA hardware. An unrelated GPU must not disable this backend's support.
++	drmVersion *version = drmGetVersion(drm->fd);
++	if (!version || !version->name) {
++		drmFreeVersion(version);
++		wlr_log(WLR_INFO, "DRM fd %d: color pipelines disabled; driver identification failed", drm->fd);
++		return;
++	}
++	bool nvidia = strcmp(version->name, "nvidia-drm") == 0 ||
++		strcmp(version->name, "nouveau") == 0;
++	drmFreeVersion(version);
++	if (nvidia) {
++		wlr_log(WLR_INFO, "DRM fd %d: color pipelines disabled by NVIDIA compatibility policy", drm->fd);
++		return;
++	}
++
 +	drm->color_pipeline_enabled =
 +		drmSetClientCap(drm->fd, DRM_CLIENT_CAP_PLANE_COLOR_PIPELINE, 1) == 0;
 +	wlr_log(WLR_INFO, "DRM fd %d (%s): color pipeline capability %s", drm->fd,

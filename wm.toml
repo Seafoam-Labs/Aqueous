@@ -176,6 +176,7 @@ rollback_seconds = 0
 [render]
 overlay_planes = false
 # Experimental DRM hardware color conversion: "auto" (default) or "off".
+# "auto" disables this on NVIDIA and tries supported pipelines on other GPUs.
 # Startup-only: restart Aqueous after changing this. An explicit
 # AQUEOUS_DRM_COLOR_PIPELINE environment variable overrides this setting.
 color_pipeline = "auto"

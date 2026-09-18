@@ -21,6 +21,24 @@ static bool cursor_visible, cyclic, unknown_mandatory, cap_failure;
 static uint64_t written[128][16];
 static struct drm_color_ctm_3x4 last_matrix;
 
+// Distinct DRM fds model a mixed NVIDIA/AMD/Intel machine.
+drmVersion *drmGetVersion(int fd) {
+	if (fd == 104) return NULL;
+	const char *driver = fd == 100 ? "nvidia-drm" : fd == 101 ? "nouveau" :
+		fd == 102 ? "i915" : fd == 103 ? "xe" : "amdgpu";
+	drmVersion *version = calloc(1, sizeof(*version));
+	assert(version);
+	version->name = strdup(driver);
+	assert(version->name);
+	version->name_len = strlen(driver);
+	return version;
+}
+void drmFreeVersion(drmVersion *version) {
+	if (!version) return;
+	free(version->name);
+	free(version);
+}
+
 const struct wlr_drm_interface legacy_iface = {0};
 const struct wlr_drm_interface atomic_iface = {0};
 bool drm_connector_is_cursor_visible(struct wlr_drm_connector *conn) { return cursor_visible; }
@@ -198,6 +216,22 @@ static void scene_resources(void) {
 
 int main(void) {
 	numeric();
+	// NVIDIA must never negotiate the capability, including an explicit auto.
+	const char *modes[] = {NULL, "auto", "off"};
+	for (size_t mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
+		if (modes[mode]) setenv("AQUEOUS_DRM_COLOR_PIPELINE", modes[mode], 1);
+		else unsetenv("AQUEOUS_DRM_COLOR_PIPELINE");
+		for (int fd = 99; fd <= 104; fd++) {
+			struct wlr_drm_backend backend = { .fd = fd, .iface = &atomic_iface };
+			cap_calls = 0;
+			drm_color_pipeline_init(&backend);
+			bool enabled = mode != 2 && (fd == 99 || fd == 102 || fd == 103);
+			assert(backend.color_pipeline_enabled == enabled);
+			assert(cap_calls == (enabled ? 1u : 0u));
+		}
+	}
+	cap_calls = 0;
+	puts("PASS: NVIDIA/nouveau skip capability negotiation; AMD/Intel remain eligible; unknown driver stays disabled");
 	struct wlr_drm_plane plane = { .id = 2 };
 	struct wlr_drm_crtc crtc = { .id = 3 };
 	struct wlr_drm_backend drm = { .fd = -1, .planes = &plane, .num_planes = 1 };

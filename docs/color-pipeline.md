@@ -2,7 +2,8 @@
 
 Aqueous has experimental support for DRM plane `COLOR_PIPELINE` and
 `drm_colorop`, carried in its private wlroots 0.20.2 dependency. It defaults to
-**auto**, attempting compatible hardware pipelines with renderer fallback.
+**auto**, disabling hardware color pipelines on NVIDIA and attempting compatible
+hardware pipelines with renderer fallback on other GPUs.
 The implementation has passed builds, mock DRM tests and headless
 regressions; no GPU/display combination has completed physical color acceptance.
 
@@ -22,6 +23,11 @@ retain the running mode until restart.
 `AQUEOUS_DRM_COLOR_PIPELINE=auto|off` remains available as a startup override
 and takes precedence over `wm.toml`. Remove that override to use the file setting.
 Invalid environment values warn and fall back to the file setting.
+The NVIDIA compatibility policy also applies to an explicit `auto` override.
+It checks the DRM backend's driver (`nvidia-drm` or `nouveau`) before enabling
+the client capability, and logs when NVIDIA is skipped. Other GPUs in the same
+machine retain their own policy. If driver identification fails, hardware color
+pipelines remain disabled for that backend.
 This setting does not change driver module settings or HDR
 policy. Nested/headless, legacy DRM and multi-GPU secondary backends do not use
 hardware color pipelines.
