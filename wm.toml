@@ -175,6 +175,10 @@ rollback_seconds = 0
 # across AMD and NVIDIA KMS drivers; rules select individual windows below.
 [render]
 overlay_planes = false
+# Experimental DRM hardware color conversion: "auto" (default) or "off".
+# Startup-only: restart Aqueous after changing this. An explicit
+# AQUEOUS_DRM_COLOR_PIPELINE environment variable overrides this setting.
+color_pipeline = "auto"
 
 # -----------------------------------------------------------------------------
 # Per-workspace layout overrides. Each [[workspace]] block forces one workspace

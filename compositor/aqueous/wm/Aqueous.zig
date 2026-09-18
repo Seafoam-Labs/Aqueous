@@ -209,6 +209,10 @@ pub fn reloadConfig(aqueous: *Aqueous) !void {
         log.warn("render.overlay_planes is startup-only; restart Aqueous to apply the change", .{});
         replacement.wm.overlay_planes = aqueous.config.wm.overlay_planes;
     }
+    if (replacement.wm.color_pipeline != aqueous.config.wm.color_pipeline) {
+        log.warn("render.color_pipeline is startup-only; restart Aqueous to apply the change", .{});
+        replacement.wm.color_pipeline = aqueous.config.wm.color_pipeline;
+    }
     preserveTabletPolicy(aqueous, &replacement);
     aqueous.config = replacement;
     {
@@ -3341,6 +3345,10 @@ fn handleReloadTimer(aqueous: *Aqueous) c_int {
         if (replacement.wm.overlay_planes != aqueous.config.wm.overlay_planes) {
             log.warn("render.overlay_planes is startup-only; restart Aqueous to apply the change", .{});
             replacement.wm.overlay_planes = aqueous.config.wm.overlay_planes;
+        }
+        if (replacement.wm.color_pipeline != aqueous.config.wm.color_pipeline) {
+            log.warn("render.color_pipeline is startup-only; restart Aqueous to apply the change", .{});
+            replacement.wm.color_pipeline = aqueous.config.wm.color_pipeline;
         }
         preserveTabletPolicy(aqueous, &replacement);
         aqueous.config = replacement;

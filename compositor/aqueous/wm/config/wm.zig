@@ -7,6 +7,8 @@ const scaling = @import("scaling");
 
 pub const max_mappings = 32;
 
+pub const DrmColorPipeline = enum { auto, off };
+
 pub const Text = struct {
     bytes: [256]u8 = undefined,
     len: u16 = 0,
@@ -154,6 +156,8 @@ pub const Snapshot = struct {
     /// Startup-only DRM overlay-plane optimization. Selecting wlroots'
     /// libliftoff interface must happen before backend creation.
     overlay_planes: bool = false,
+    /// Startup-only DRM color-pipeline capability negotiation.
+    color_pipeline: DrmColorPipeline = .auto,
 
     pub fn resolveOutput(snapshot: *const Snapshot, identity: OutputIdentity) ?layout.LayoutId {
         // Name matches have precedence even if a metadata selector appeared first.
@@ -225,6 +229,8 @@ pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []c
             },
             .render => if (std.mem.eql(u8, key, "overlay_planes")) {
                 snapshot.overlay_planes = parseBool(value) orelse snapshot.overlay_planes;
+            } else if (std.mem.eql(u8, key, "color_pipeline")) {
+                snapshot.color_pipeline = std.meta.stringToEnum(DrmColorPipeline, value) orelse snapshot.color_pipeline;
             },
             .struts => applyStrut(&snapshot.struts, key, value),
             .state => {
@@ -494,6 +500,19 @@ test "render config parses overlay planes and defaults off" {
         \\overlay_planes = invalid
     );
     try std.testing.expect(snapshot.overlay_planes);
+}
+
+test "render color pipeline defaults auto and ignores invalid overrides" {
+    var snapshot: Snapshot = .{};
+    var layout_snapshot: layout.Snapshot = .{};
+    try std.testing.expectEqual(DrmColorPipeline.auto, snapshot.color_pipeline);
+    apply(&snapshot, &layout_snapshot, "[render]\ncolor_pipeline = \"off\"");
+    try std.testing.expectEqual(DrmColorPipeline.off, snapshot.color_pipeline);
+    apply(&snapshot, &layout_snapshot, "[render]\ncolor_pipeline = \"invalid\"\noverlay_planes = true");
+    try std.testing.expectEqual(DrmColorPipeline.off, snapshot.color_pipeline);
+    try std.testing.expect(snapshot.overlay_planes);
+    apply(&snapshot, &layout_snapshot, "[render]\ncolor_pipeline = \"auto\"");
+    try std.testing.expectEqual(DrmColorPipeline.auto, snapshot.color_pipeline);
 }
 
 test "Num Lock parsing records only valid explicit values" {

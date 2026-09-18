@@ -163,6 +163,17 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     var startup_locked = true;
     defer if (startup_locked) startup_lock.release();
     var startup_config = try config_loader.load(util.gpa);
+    // wlroots negotiates this capability while creating the DRM backend.
+    // Keep the environment switch as an explicit troubleshooting override.
+    if (init.environ.getPosix("AQUEOUS_DRM_COLOR_PIPELINE")) |value| {
+        if (std.meta.stringToEnum(@import("wm/config/wm.zig").DrmColorPipeline, value)) |mode| {
+            startup_config.wm.color_pipeline = mode;
+        } else {
+            log.warn("ignoring invalid AQUEOUS_DRM_COLOR_PIPELINE '{s}'; using render.color_pipeline", .{value});
+        }
+    }
+    if (setenv("AQUEOUS_DRM_COLOR_PIPELINE", @tagName(startup_config.wm.color_pipeline), 1) != 0)
+        return error.SetEnvironmentFailed;
     const overlay_planes_enabled = if (result.flags.@"drm-overlay-planes")
         true
     else if (result.flags.@"no-drm-overlay-planes")

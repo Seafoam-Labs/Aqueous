@@ -6,15 +6,23 @@ Aqueous has experimental support for DRM plane `COLOR_PIPELINE` and
 The implementation has passed builds, mock DRM tests and headless
 regressions; no GPU/display combination has completed physical color acceptance.
 
-Leaving `AQUEOUS_DRM_COLOR_PIPELINE` unset is equivalent to:
+Configure it in your instance's `wm.toml` (`~/.config/aqueous/wm.toml`, or
+`~/.config/aqueous-git/wm.toml` for the Git package):
 
-```sh
-AQUEOUS_DRM_COLOR_PIPELINE=auto aqueous
+```toml
+[render]
+color_pipeline = "off"
 ```
 
-Use `AQUEOUS_DRM_COLOR_PIPELINE=off` to keep the
-existing rendering path. This is a startup setting: capability negotiation
-applies to the DRM connection. It does not change driver module settings or HDR
+`"auto"` is the default; `"off"` keeps the existing rendering path. Invalid
+values are ignored. **Restart the compositor session after changing it**:
+capability negotiation applies to the DRM connection. Config reloads warn and
+retain the running mode until restart.
+
+`AQUEOUS_DRM_COLOR_PIPELINE=auto|off` remains available as a startup override
+and takes precedence over `wm.toml`. Remove that override to use the file setting.
+Invalid environment values warn and fall back to the file setting.
+This setting does not change driver module settings or HDR
 policy. Nested/headless, legacy DRM and multi-GPU secondary backends do not use
 hardware color pipelines.
 
