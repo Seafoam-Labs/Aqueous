@@ -10,7 +10,7 @@ reject() { if "$@" > "$base/rejected.log" 2>&1; then fail "Unexpected success: $
 assert_no() { [[ ! -e $1 && ! -L $1 ]] || fail "Unexpected path: $1"; }
 artifacts=$root/packaging/component-artifacts.sh
 build=$base/build
-for path in bin/aqueous bin/aqueousctl bin/aqueous-config bin/aqueous-welcome bin/aqueous-dms-portal-chooser \
+for path in bin/aqueous bin/aqueous-activity-launch bin/aqueousctl bin/aqueous-config bin/aqueous-welcome bin/aqueous-dms-portal-chooser \
     lib/aqueous/libwlroots-0.20.so share/man/man1/aqueous.1 share/man/man1/aqueousctl.1 \
     share/aqueous-protocols/experimental/aqueous-capture-color-v1.xml share/pkgconfig/aqueous-protocols.pc; do
     install -d "$build/$(dirname "$path")"
@@ -51,7 +51,7 @@ reject "$artifacts" manifest core "$base/core" "$base/cohort.json" "$base/bad.js
 rm "$base/core/usr/bin/aqueous-settings"
 jq '.cohort.revision="other"' "$base/session.json" > "$base/other.json"
 reject "$artifacts" compose "$base/mixed" "${pairs[0]}" "$base/session=$base/other.json"
-for flag in output_retry_testing display_preview_acceptance; do
+for flag in output_retry_testing display_preview_acceptance input_activity_testing; do
     jq --arg flag "$flag" '.[$flag]=true' "$base/core/usr/share/aqueous/build-policy.json" > "$build/share/aqueous/build-policy.json"
     reject env DESTDIR="$base/$flag" "$root/packaging/stage-component.sh" core
 done

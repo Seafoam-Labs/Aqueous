@@ -78,6 +78,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         .{ .name = "h", .kind = .boolean },
         .{ .name = "version", .kind = .boolean },
         .{ .name = "c", .kind = .arg },
+        .{ .name = "input-activity-test-fd", .kind = .arg },
         .{ .name = "log-level", .kind = .arg },
         .{ .name = "policy", .kind = .arg },
         .{ .name = "log-scopes", .kind = .arg },
@@ -255,6 +256,12 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     server.ipc_server.start() catch |err| log.warn("IPC socket unavailable: {}", .{err});
     if (server.ipc_server.path) |path| {
         if (setenv("AQUEOUS_SOCKET", path.ptr, 1) != 0) return error.SetEnvironmentFailed;
+        server.input_activity.start(path);
+    }
+    if (result.flags.@"input-activity-test-fd") |value| {
+        if (comptime build_options.input_activity_testing) {
+            try @import("InputActivityTest.zig").start(try std.fmt.parseInt(c_int, value, 10));
+        } else return error.TestSupportDisabled;
     }
     // Finish every canonical startup reader before releasing the generation
     // lock; user startup commands run after release.

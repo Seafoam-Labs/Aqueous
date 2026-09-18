@@ -11,5 +11,5 @@ aq_empty_root() {
     [[ -z $(find "$1" -mindepth 1 -print -quit) ]] || aq_die 'Destination must be empty'
 }
 aq_policy() {
-    jq -e '. == {schema:1, output_retry_testing:false, display_preview_acceptance:false}' "$1" >/dev/null || aq_die 'Refusing non-production compositor policy'
+    jq -e '(.input_activity_testing // false) == false and (del(.input_activity_testing) == {schema:1, output_retry_testing:false, display_preview_acceptance:false})' "$1" >/dev/null || aq_die 'Refusing non-production compositor policy'
 }

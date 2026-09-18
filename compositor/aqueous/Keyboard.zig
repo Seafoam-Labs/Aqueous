@@ -82,6 +82,7 @@ pub fn create(seat: *Seat, wlr_device: *wlr.InputDevice, virtual: bool) !*Keyboa
     try keyboard.device.init(seat, wlr_device, virtual);
     errdefer keyboard.device.deinit();
 
+    for (wlr_keyboard.keycodes[0..wlr_keyboard.num_keycodes]) |code| _ = keyboard.device.activity_presses.update(code, true);
     wlr_keyboard.data = keyboard;
 
     wlr_keyboard.events.key.add(&keyboard.key);
@@ -249,6 +250,10 @@ pub fn processKeymap(keyboard: *Keyboard, keymap: *xkb.Keymap) void {
 fn queueKey(listener: *wl.Listener(*wlr.Keyboard.event.Key), event: *wlr.Keyboard.event.Key) void {
     const keyboard: *Keyboard = @fieldParentPtr("key", listener);
     assert(!keyboard.device_destroyed);
+    if (@import("InputActivityManager.zig").observeInput()) {
+        const fresh = keyboard.device.activity_presses.update(event.keycode, event.state == .pressed);
+        if (fresh and !keyboard.device.virtual and keyboard.device.seat == server.input_manager.defaultSeat()) server.input_activity.noteActivity(.keyboard);
+    }
     keyboard.queued_events += 1;
     keyboard.device.seat.queueEvent(.{ .keyboard_key = .{
         .keyboard = keyboard,

@@ -19,7 +19,8 @@ build to check output transfers with real pointer events. `--compositor` and
 ## Building
 
 Required development libraries include Wayland, wayland-protocols 1.49 or newer,
-libxkbcommon, libinput, libevdev, pixman, Vulkan headers and loader, and the
+libxkbcommon, libinput, libevdev, pixman, libsystemd with PIDFD identity APIs,
+Vulkan headers and loader, and the
 wlroots 0.20 build dependencies. Zig 0.16 or newer is required; scdoc is
 optional for man pages.
 
@@ -614,3 +615,28 @@ headset scanout. Use `--renderer pixman` with a no-effects build and
 `--compositor`/`--ctl` for separate build prefixes. See the
 [implementation and validation record](../docs/drm-lease-v1-implementation-plan.md)
 for the complete policy, dependency fixes, tests, and remaining hardware checks.
+
+## Input activity
+
+The custom `aqueous-input-activity-v1` interface reports rate-limited keyboard/mouse
+activity flags on the existing Wayland connection, without input values. Access
+requires a process-bound, single-use capability from the packaged Pearl service
+bootstrap. See the [protocol contract](protocol/aqueous-input-activity-v1.md) for
+authorization, suspension, supported launch paths and the Pearl adapter handoff.
+
+The isolated test requires a diagnostic build and never connects to the host display:
+
+```sh
+zig build -Dinput-activity-testing=true -Dvulkan-effects=false
+python3 scripts/test-input-activity.py
+python3 scripts/test-input-activity-latency.py
+```
+
+Never package a build with `input-activity-testing` enabled.
+
+The latency fixture compares native keyboard/mouse delivery with the observer
+bypassed, idle and actively publishing. It reports handler time and application
+delivery percentiles, plus confidence intervals for paired differences. Use
+`--max-p95-increase-us N` to enforce a delivery budget; the default records a
+comparison without imposing an arbitrary performance threshold. See the
+[measurement method and results](../docs/input-activity-latency.md).

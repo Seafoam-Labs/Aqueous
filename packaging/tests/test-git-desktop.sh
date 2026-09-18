@@ -51,7 +51,7 @@ for channel in git; do
         grep -qx 'SendSIGKILL=yes' "$shell_unit"
     done
     pearl_units=$base/$channel-integration-pearl/usr/lib/systemd/user
-    grep -qx 'ExecStart=/usr/bin/pearl-git' "$pearl_units/$instance-pearl.service"
+    grep -qx "ExecStart=/usr/lib/$instance/bin/aqueous-activity-launch /usr/bin/pearl-git" "$pearl_units/$instance-pearl.service"
     grep -qx '\[Install\]' "$pearl_units/$instance-pearl.service"
     grep -qx 'WantedBy=graphical-session.target' "$pearl_units/$instance-pearl.service"
     [[ -L $pearl_units/graphical-session.target.wants/$instance-pearl.service ]]

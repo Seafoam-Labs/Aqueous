@@ -9,7 +9,7 @@ reject() { if "$@" > "$base/rejected.log" 2>&1; then fail "Unexpected success: $
 files() { find "$1" \( -type f -o -type l \) -printf '%P\n' | sort; }
 source "$root/packaging/components/common.sh"
 build=$base/build
-for path in bin/aqueous bin/aqueousctl bin/aqueous-config lib/aqueous/libwlroots-0.20.so \
+for path in bin/aqueous bin/aqueous-activity-launch bin/aqueousctl bin/aqueous-config lib/aqueous/libwlroots-0.20.so \
     share/man/man1/aqueous.1 share/man/man1/aqueousctl.1 \
     share/aqueous-protocols/experimental/aqueous-capture-color-v1.xml; do
     install -d "$build/$(dirname "$path")"

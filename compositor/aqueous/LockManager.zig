@@ -88,6 +88,7 @@ fn handleLock(listener: *wl.Listener(*wlr.SessionLockV1), lock: *wlr.SessionLock
         server.aqueous.cancelSnapPreview();
         server.system_bell.cancel();
         manager.state = .waiting_for_lock_surfaces;
+        server.input_activity.refresh();
         server.drm_lease.setLocked(true);
         var drag_seats = server.input_manager.seats.iterator(.forward);
         while (drag_seats.next()) |seat| seat.toplevel_drag.cancel();
@@ -186,6 +187,7 @@ fn handleUnlock(listener: *wl.Listener(void)) void {
     const manager: *LockManager = @fieldParentPtr("unlock", listener);
 
     manager.state = .unlocked;
+    server.input_activity.refresh();
     @import("OutputMirror.zig").invalidateAll();
 
     log.info("session unlocked", .{});

@@ -1273,6 +1273,11 @@ fn queueMotionAbsolute(listener: *wl.Listener(*wlr.Pointer.event.MotionAbsolute)
 
 fn queueButton(listener: *wl.Listener(*wlr.Pointer.event.Button), event: *wlr.Pointer.event.Button) void {
     const cursor: *Cursor = @fieldParentPtr("button", listener);
+    if (@import("InputActivityManager.zig").observeInput()) if (event.device.data) |data| {
+        const device: *InputDevice = @ptrCast(@alignCast(data));
+        const fresh = device.activity_presses.update(event.button, event.state == .pressed);
+        if (fresh and !device.virtual and device.seat == server.input_manager.defaultSeat()) server.input_activity.noteActivity(.mouse);
+    };
     cursor.seat.queueEvent(.{ .pointer_button = .{
         .time_msec = event.time_msec,
         .button = event.button,

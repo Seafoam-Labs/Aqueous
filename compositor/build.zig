@@ -104,10 +104,12 @@ pub fn build(b: *Build) !void {
     const display_preview_acceptance = b.option(bool, "display-preview-acceptance", "Enable explicitly selected DRM feature preview acceptance tests; never ship this build") orelse false;
     options.addOption(bool, "display_preview_acceptance", display_preview_acceptance);
     options.addOption([]const u8, "version", full_version);
+    const input_activity_testing = b.option(bool, "input-activity-testing", "Compile isolated input activity fixture support (never ship)") orelse false;
+    options.addOption(bool, "input_activity_testing", input_activity_testing);
     // Generated from the actual build options, never supplied by a packaging caller.
     const policy = b.addWriteFiles().add("build-policy.json", b.fmt(
-        "{{\"schema\":1,\"output_retry_testing\":{},\"display_preview_acceptance\":{}}}\n",
-        .{ output_retry_testing, display_preview_acceptance },
+        "{{\"schema\":1,\"output_retry_testing\":{},\"display_preview_acceptance\":{},\"input_activity_testing\":{}}}\n",
+        .{ output_retry_testing, display_preview_acceptance, input_activity_testing },
     ));
     b.getInstallStep().dependOn(&b.addInstallFile(policy, "share/aqueous/build-policy.json").step);
 
@@ -132,6 +134,8 @@ pub fn build(b: *Build) !void {
     scanner.addCustomProtocol(b.path("protocol/aqueous-window-management-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/aqueous-window-info-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/aqueous-shell-v1.xml"));
+    scanner.addCustomProtocol(b.path("protocol/aqueous-input-activity-v1.xml"));
+    scanner.generate("aqueous_input_activity_manager_v1", 1);
     scanner.addCustomProtocol(b.path("protocol/aqueous-xkb-bindings-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/aqueous-layer-shell-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/aqueous-input-management-v1.xml"));
@@ -266,6 +270,8 @@ pub fn build(b: *Build) !void {
         river.root_module.linkSystemLibrary("pixman-1", .{});
         river.root_module.linkSystemLibrary("libpng", .{});
         river.root_module.linkSystemLibrary("pthread", .{});
+        river.root_module.linkSystemLibrary("libsystemd", .{});
+        river.root_module.addCSourceFile(.{ .file = b.path("aqueous/activity_bootstrap.c"), .flags = if (input_activity_testing) &.{ "-std=c11", "-Wall", "-Wextra", "-Werror", "-DAQUEOUS_ACTIVITY_TESTING" } else &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" } });
         river.root_module.addCSourceFile(.{ .file = b.path("aqueous/icon_png.c"), .flags = &.{ "-std=c11", "-O2", "-Wall", "-Wextra" } });
 
         river.root_module.addCSourceFile(.{ .file = b.path("aqueous/bell_audio.c"), .flags = &.{ "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror" } });
@@ -300,6 +306,12 @@ pub fn build(b: *Build) !void {
             .{ .cwd_relative = library },
             "lib/aqueous/libwlroots-0.20.so",
         ).step);
+    }
+
+    {
+        const launcher = b.addExecutable(.{ .name = "aqueous-activity-launch", .root_module = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true }) });
+        launcher.root_module.addCSourceFile(.{ .file = b.path("aqueous/activity_launch.c"), .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" } });
+        b.installArtifact(launcher);
     }
 
     const shell_switch_test = b.addSystemCommand(&.{"python3"});
@@ -346,6 +358,8 @@ pub fn build(b: *Build) !void {
             "aqueous-window-management-v1.xml",
             "aqueous-window-info-v1.xml",
             "aqueous-shell-v1.xml",
+            "aqueous-input-activity-v1.xml",
+            "aqueous-input-activity-v1.md",
             "aqueous-shell-v1.md",
             "aqueous-shell-v1.schema.json",
             "aqueous-xkb-bindings-v1.xml",
@@ -776,6 +790,8 @@ pub fn build(b: *Build) !void {
         snapshot_test_step.dependOn(&run_scene_buffer_clone_test.step);
 
         const test_step = b.step("test", "Run the tests");
+        const activity_test = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("aqueous/input_activity.zig"), .target = target, .optimize = optimize }) });
+        test_step.dependOn(&b.addRunArtifact(activity_test).step);
         test_step.dependOn(&run_preview_policy_test.step);
         const tablet_test = b.addTest(.{ .root_module = tablet });
         const run_tablet_test = b.addRunArtifact(tablet_test);

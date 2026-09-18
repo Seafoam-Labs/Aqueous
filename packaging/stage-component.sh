@@ -29,6 +29,7 @@ core)
     compositor=${AQUEOUS_COMPOSITOR_DIST:-$root/compositor/zig-out}
     aq_policy "$compositor/share/aqueous/build-policy.json"
     copy "$compositor/bin/aqueous" "$prefix/bin/aqueous" 755
+    copy "$compositor/bin/aqueous-activity-launch" "$prefix/bin/aqueous-activity-launch" 755
     copy "$compositor/lib/aqueous/libwlroots-0.20.so" "$prefix/lib/aqueous/libwlroots-0.20.so" 755
     AQUEOUSCTL_BINARY="$compositor/bin/aqueousctl" DESTDIR="$destination" PREFIX="$prefix" \
         bash "$root/settingsApplication/packaging/install-config.sh"
@@ -108,7 +109,7 @@ integration-*)
     case $shell in
         dms) kind=exec; command="$prefix/bin/dms run --session" ;;
         noctalia) kind=forking; command="$prefix/bin/noctalia --daemon" ;;
-        pearl) kind=simple; command="$prefix/bin/pearl" ;;
+        pearl) kind=simple; command="$prefix/bin/aqueous-activity-launch $prefix/bin/pearl" ;;
     esac
     units=$prefix/lib/systemd/user
     unit=aqueous-$shell.service

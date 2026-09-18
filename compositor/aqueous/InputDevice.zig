@@ -27,6 +27,7 @@ const log = std.log.scoped(.input);
 seat: *Seat,
 wlr_device: *wlr.InputDevice,
 virtual: bool,
+activity_presses: @import("input_activity.zig").Presses = .{},
 objects: wl.list.Head(aqueous.InputDeviceV1, null),
 
 libinput: LibinputDevice,

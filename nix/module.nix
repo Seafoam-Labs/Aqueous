@@ -112,7 +112,7 @@ in {
         serviceConfig = {
           Type = if selected == "dms" then "dbus" else if selected == "noctalia" then "forking" else "simple";
           ExecCondition = "${runtime} condition ${selected}";
-          ExecStart = shellCommand;
+          ExecStart = if selected == "pearl" then "${components.core}/bin/aqueous-activity-launch ${shellCommand}" else shellCommand;
           Restart = "on-failure";
           RestartSec = 2;
           Slice = "app-graphical.slice";

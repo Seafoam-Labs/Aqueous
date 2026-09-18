@@ -112,7 +112,7 @@ integration-dms|integration-noctalia|integration-pearl)
     case $shell in
         dms) kind=exec; command="$prefix/bin/dms run --session";;
         noctalia) kind=forking; command="$prefix/bin/noctalia --daemon";;
-        pearl) kind=simple; command="$prefix/bin/pearl-git";;
+        pearl) kind=simple; command="$private/bin/aqueous-activity-launch $prefix/bin/pearl-git";;
     esac
     units=$prefix/lib/systemd/user
     unit=$instance-$shell.service

@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="aqueous_input_activity_v1">
+  <copyright>Copyright © 2026 Seafoam Labs
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.</copyright>
+  <interface name="aqueous_input_activity_manager_v1" version="1">
+    <description summary="authorized coarse activity on the existing display">
+      Discovery grants no access. Only a single authorized shell connection may
+      subscribe. Input values, counts, positions and input timestamps are never
+      sent. Authorization is scoped to this interface. Normal denial/revocation
+      must not disconnect the shared display. See the installed companion
+      document for the bootstrap, limits and client lifecycle obligations.
+    </description>
+    <enum name="availability">
+      <entry name="available" value="0"/>
+      <entry name="permission_denied" value="1"/>
+      <entry name="unsupported" value="2"/>
+      <entry name="suspended" value="3"/>
+    </enum>
+    <request name="destroy" type="destructor"/>
+    <request name="authorize">
+      <description summary="consume a single-use instance and process-bound capability">
+        Always closes the received FD. Forged, expired or consumed capabilities
+        return permission_denied. Successful authorization applies only to the
+        requesting wl_client and is lost on manager destruction or owner death.
+      </description>
+      <arg name="capability" type="fd"/>
+    </request>
+    <request name="get_subscription">
+      <arg name="id" type="new_id" interface="aqueous_input_activity_v1"/>
+    </request>
+    <event name="capabilities">
+      <arg name="minimum_interval_ms" type="uint"/>
+      <arg name="categories" type="uint"/>
+    </event>
+    <event name="authorization">
+      <arg name="status" type="uint" enum="availability"/>
+    </event>
+  </interface>
+  <interface name="aqueous_input_activity_v1" version="1">
+    <description summary="bounded category-presence notifications">
+      One subscription per owner. It starts suspended. Changes of source gates
+      invalidate readiness and advance generation. Acknowledge each notification;
+      no more than one is in flight. Old buckets are dropped, never replayed.
+      Destroyed/revoked parent managers leave this object inert until destroy.
+    </description>
+    <enum name="category" bitfield="true">
+      <entry name="keyboard" value="1" summary="physical keyboard press occurred"/>
+      <entry name="mouse" value="2" summary="physical pointer button press occurred"/>
+    </enum>
+    <request name="destroy" type="destructor"/>
+    <request name="set_ready">
+      <arg name="serial" type="uint"/>
+      <arg name="generation_hi" type="uint"/>
+      <arg name="generation_lo" type="uint"/>
+      <arg name="ready" type="uint" summary="zero or one"/>
+    </request>
+    <request name="ack">
+      <arg name="generation_hi" type="uint"/>
+      <arg name="generation_lo" type="uint"/>
+      <arg name="sequence" type="uint"/>
+    </request>
+    <request name="inhibit">
+      <description summary="suspend before lock preparation or authentication">
+        Creation adds an independent inhibit. The state event acknowledging
+        serial is sent only after counts/flags and readiness are invalidated.
+        Destroying one inhibitor never clears other inhibits. Reasons and
+        authentication contents are not sent to the compositor.
+      </description>
+      <arg name="id" type="new_id" interface="aqueous_input_activity_inhibitor_v1"/>
+      <arg name="serial" type="uint"/>
+    </request>
+    <event name="state">
+      <arg name="status" type="uint" enum="aqueous_input_activity_manager_v1.availability"/>
+      <arg name="generation_hi" type="uint"/>
+      <arg name="generation_lo" type="uint"/>
+      <arg name="serial" type="uint" summary="acknowledged request, zero for unsolicited state"/>
+    </event>
+    <event name="activity">
+      <arg name="generation_hi" type="uint"/>
+      <arg name="generation_lo" type="uint"/>
+      <arg name="sequence" type="uint" summary="delivered notification ordinal, never input count"/>
+      <arg name="categories" type="uint" enum="category" summary="keyboard, mouse or both"/>
+    </event>
+  </interface>
+  <interface name="aqueous_input_activity_inhibitor_v1" version="1">
+    <description summary="one independently owned source inhibit">
+      Destroy releases this inhibit only. Resources become inert on subscription
+      destruction. Resuming requires fresh readiness for the new generation.
+    </description>
+    <request name="destroy" type="destructor"/>
+  </interface>
+</protocol>

@@ -263,6 +263,7 @@ stdenv.mkDerivation (finalAttrs: {
     required=(
       bin/aqueous
       bin/aqueousctl
+      bin/aqueous-activity-launch
       lib/aqueous/libwlroots-0.20.so
       share/man/man1/aqueous.1
       share/man/man1/aqueousctl.1

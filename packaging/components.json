@@ -18,7 +18,8 @@
         "usr/share/licenses/aqueous-core/*",
         "usr/share/licenses/aqueous-config/*",
         "usr/share/doc/aqueous-core/*",
-        "usr/share/doc/aqueous-config/*"
+        "usr/share/doc/aqueous-config/*",
+        "usr/bin/aqueous-activity-launch"
       ],
       "required": [
         "usr/bin/aqueous",
@@ -28,7 +29,8 @@
         "usr/share/man/man1/aqueous.1",
         "usr/share/man/man1/aqueousctl.1",
         "usr/share/aqueous/build-policy.json",
-        "usr/share/aqueous-protocols/experimental/aqueous-capture-color-v1.xml"
+        "usr/share/aqueous-protocols/experimental/aqueous-capture-color-v1.xml",
+        "usr/bin/aqueous-activity-launch"
       ],
       "depends": []
     },

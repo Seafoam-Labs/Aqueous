@@ -79,6 +79,7 @@ wl_server: *wl.Server,
 sigint_source: *wl.EventSource,
 sigterm_source: *wl.EventSource,
 child_processes: @import("ChildProcesses.zig") = .{},
+input_activity: @import("InputActivityManager.zig") = .{},
 
 fixes: *wlr.Fixes,
 
@@ -595,6 +596,7 @@ pub fn init(
     try server.idle_inhibit_manager.init();
     try server.lock_manager.init();
     try server.shell_manager.init();
+    try server.input_activity.init();
     try server.shortcuts.init();
     try server.background_effect_manager.init();
 
@@ -616,6 +618,8 @@ pub fn init(
 /// Free allocated memory and clean up. Note: order is important here
 pub fn deinit(server: *Server) void {
     server.child_processes.deinit();
+    if (comptime build_options.input_activity_testing) @import("InputActivityTest.zig").finish();
+    server.input_activity.stop();
     server.drm_lease.stop();
     server.ipc_server.deinit();
     server.sigint_source.remove();
@@ -784,7 +788,8 @@ fn allowlist(server: *Server, global: *const wl.Global) bool {
     // For other globals I like the current pointer comparison approach as it
     // should catch river accidentally exposing multiple copies of e.g. wl_shm
     // with an assertion failure.
-    return global == server.fixes.global or
+    return global == server.input_activity.global or
+        global == server.fixes.global or
         global == server.fifo.global() or
         global == server.commit_timing.global() or
         global == server.shm.global or
