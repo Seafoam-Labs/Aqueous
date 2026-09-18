@@ -74,6 +74,8 @@ window_states: StateStore,
 output_service: OutputService,
 started: bool = false,
 drag: ?Drag = null,
+/// Admission can complete after the initiating button has been released.
+pending_tiled_transfer: ?TiledTransfer = null,
 last_scrolling_click: ?ScrollingClick = null,
 untrap_keysym: ?u32 = null,
 requested_stack_focus: ?layout_types.Handle = null,
@@ -98,6 +100,14 @@ pub const Drag = struct {
     /// Geometry belongs to the workspace floating layout, not PolicyState.
     layout_floating: bool = false,
     snap_candidate: ?SnapCandidate = null,
+};
+
+const TiledTransfer = struct {
+    handle: layout_types.Handle,
+    key: LayoutStateKey,
+    target: ?layout_types.Handle = null,
+    zone: layout_types.DropZone = .column_after,
+    layout: ?layout_config.LayoutId = null,
 };
 
 const SnapCandidate = struct {
@@ -215,6 +225,7 @@ pub fn reloadConfig(aqueous: *Aqueous) !void {
     }
     preserveTabletPolicy(aqueous, &replacement);
     aqueous.config = replacement;
+    if (aqueous.pending_tiled_transfer) |*pending| pending.target = null;
     {
         var seats = server.input_manager.seats.iterator(.forward);
         while (seats.next()) |seat| seat.wheel.reset();
@@ -564,7 +575,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 replacement_focus_requested = true;
             }
         }
-        const placements = try layout_engine.arrange(
+        var placements = try layout_engine.arrange(
             util.gpa,
             entry.value_ptr,
             &output_layout,
@@ -574,6 +585,26 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             gameConfigOptions(aqueous.rules.game_mode, &output_layout),
         );
         defer util.gpa.free(placements);
+        if (aqueous.completeTiledTransfer(layout_key, entry.value_ptr, managed.items)) {
+            const reordered = try layout_engine.arrange(
+                util.gpa,
+                entry.value_ptr,
+                &output_layout,
+                usable_area,
+                managed.items,
+                cycle_focus,
+                gameConfigOptions(aqueous.rules.game_mode, &output_layout),
+            );
+            util.gpa.free(placements);
+            placements = reordered;
+        }
+        if (aqueous.drag) |drag| {
+            if (drag.action == .swap_tiled and std.meta.eql(drag.layout_key, layout_key) and
+                layout_engine.usesFloatingLayout(entry.value_ptr, drag.handle))
+            {
+                aqueous.finishInteractiveDrag();
+            }
+        }
         for (placements) |*placement| {
             if (!placement.tiled) {
                 placement.z_order = stacking.floating_band;
@@ -620,6 +651,9 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             );
         }
     }
+
+    // An inactive/removed destination never consumes deferred placement.
+    aqueous.pending_tiled_transfer = null;
 
     // A newly admitted window which cannot appear on any active output (for
     // example, a transient owned by an inactive workspace) must not steal
@@ -974,7 +1008,8 @@ fn finishInvalidInteractiveDrag(
                 const layout_floating = drag.layout_floating and
                     state.kind() == .tiled and
                     aqueous.windowUsesFloatingLayout(drag.layout_key, drag.handle);
-                if (drag.action == .swap_tiled or
+                if ((drag.action == .swap_tiled and
+                    pointer_drag.tiledMoveAllowed(state.kind(), state.fixed_position, window.fullscreen)) or
                     (drag.action == .resize_scrolling and
                         state.kind() == .tiled and
                         !window.fullscreen and
@@ -1085,6 +1120,13 @@ fn reconcileTransientParent(aqueous: *Aqueous, window: layout_types.Window, usab
 
 /// Drop policy state before the compositor invalidates a stable window handle.
 pub fn forgetWindow(aqueous: *Aqueous, handle: layout_types.Handle) void {
+    if (aqueous.pending_tiled_transfer) |*pending| {
+        if (pending.handle == handle) {
+            aqueous.pending_tiled_transfer = null;
+        } else if (pending.target == handle) {
+            pending.target = null;
+        }
+    }
     if (!aqueous.started) return;
     var close_overview = false;
     if (aqueous.overview) |*overview| {
@@ -1345,6 +1387,8 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
     else
         active_layout == .floating;
     const drag_action = pointer_drag.action(button, state.kind(), layout_floating, scrolling_resizable);
+    if (drag_action == .swap_tiled and
+        !pointer_drag.tiledMoveAllowed(state.kind(), state.fixed_position, aqueous.api.windowIsFullscreen(target.handle))) return false;
     var drag_geometry = target.geometry;
     if ((drag_action == .move_floating or drag_action == .resize_floating) and
         state.snap_state != .none and
@@ -1502,17 +1546,23 @@ pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
         _ = aqueous.updateOverviewHover(x, y);
         return;
     }
-    const drag = &(aqueous.drag orelse return);
-    aqueous.updateInteractiveDrag(drag, x, y);
+    if (aqueous.drag) |*drag| aqueous.updateInteractiveDrag(drag, x, y);
 }
 
 pub fn updateInteractiveDrag(aqueous: *Aqueous, drag: *Drag, x: f64, y: f64) void {
     drag.last_pointer_x = x;
     drag.last_pointer_y = y;
     if (drag.action == .swap_tiled) {
+        const state = aqueous.window_states.get(drag.handle) orelse return;
+        if (!pointer_drag.tiledMoveAllowed(state.kind(), state.fixed_position, aqueous.api.windowIsFullscreen(drag.handle))) return;
+        if (!aqueous.api.windowOnWorkspace(drag.handle, drag.layout_key.output, drag.layout_key.workspace)) return;
         if (!pointer_drag.stayedClick(drag.pointer_x, drag.pointer_y, x, y)) {
             drag.click_eligible = false;
         }
+        // Resolve output ownership even over empty space or while the previous
+        // output's layout/scene is still catching up with a reorder.
+        if (aqueous.transferTiledDrag(drag, x, y)) return;
+        if (aqueous.pending_tiled_transfer != null) return;
         const target = aqueous.api.windowAt(x, y) orelse return;
         if (drag.awaiting_layout != null) {
             // Do not swap back while the scene still exposes the old geometry.
@@ -1678,6 +1728,70 @@ fn updateStackingSnapPreview(
     }
     drag.snap_candidate = null;
     return false;
+}
+
+/// Ownership is committed immediately; destination ordering waits for arrange
+/// to admit the window. Only the latest crossing can have a pending drop.
+fn transferTiledDrag(aqueous: *Aqueous, drag: *Drag, x: f64, y: f64) bool {
+    const target = aqueous.api.outputTargetAt(x, y, false) orelse return false;
+    if (target.id == drag.layout_key.output) return false;
+    const key: LayoutStateKey = .{ .output = target.id, .workspace = target.workspace_number };
+    var pending: TiledTransfer = .{ .handle = drag.handle, .key = key };
+    if (aqueous.layout_states.getPtr(key)) |layout_state| {
+        pending.layout = layout_state.active_layout;
+    }
+    if (aqueous.api.windowAt(x, y)) |hit| {
+        if (hit.handle != drag.handle and aqueous.api.windowOnWorkspace(hit.handle, key.output, key.workspace)) {
+            pending.target = hit.handle;
+            pending.zone = pointer_drag.dropZone(hit.geometry, x, y);
+        }
+    }
+    if (!aqueous.api.moveWindowToWorkspace(drag.handle, key.output, key.workspace)) return false;
+    if (aqueous.layout_states.getPtr(drag.layout_key)) |source| {
+        // Orders/columns are reconciled by arrange; persistent composable
+        // membership and cached freeform geometry must not follow a departure.
+        layout_engine.forgetWindow(source, drag.handle);
+    }
+    if (aqueous.workspace_stacks.getPtr(drag.layout_key)) |stack| stack.remove(drag.handle);
+    if (aqueous.window_states.get(drag.handle)) |state| {
+        state.overrideWorkspace();
+        state.needs_output_recovery = false;
+    }
+    drag.layout_key = key;
+    drag.awaiting_layout = null;
+    drag.click_eligible = false;
+    aqueous.last_scrolling_click = null;
+    aqueous.pending_tiled_transfer = pending;
+    _ = aqueous.api.selectOutput(key.output);
+    const previous_cause = aqueous.focus_cause;
+    aqueous.focus_cause = .pointer;
+    defer aqueous.focus_cause = previous_cause;
+    aqueous.requestFocus(drag.handle);
+    aqueous.api.requestManageCycle();
+    log.debug("tiled drag entered output {} workspace {}", .{ key.output, key.workspace });
+    return true;
+}
+
+/// Called after destination admission, including when release ended the drag.
+/// Normal admission remains valid if the optional target vanished or changed
+/// layout. Never wait for the pointer to hit the newly admitted window.
+fn completeTiledTransfer(aqueous: *Aqueous, key: LayoutStateKey, layout_state: *layout_engine.State, windows: []const layout_types.Window) bool {
+    const pending = aqueous.pending_tiled_transfer orelse return false;
+    if (!std.meta.eql(key, pending.key)) return false;
+    aqueous.pending_tiled_transfer = null;
+    if (!containsWindow(windows, pending.handle) or
+        !aqueous.api.windowOnWorkspace(pending.handle, key.output, key.workspace)) return false;
+    const state = aqueous.window_states.get(pending.handle) orelse return false;
+    if (!pointer_drag.tiledMoveAllowed(state.kind(), state.fixed_position, aqueous.api.windowIsFullscreen(pending.handle)) or
+        layout_engine.usesFloatingLayout(layout_state, pending.handle)) return false;
+    if (pending.layout != layout_state.active_layout) return false;
+    const target = pending.target orelse return false;
+    if (!containsWindow(windows, target) or
+        !aqueous.api.windowOnWorkspace(target, key.output, key.workspace)) return false;
+    return layout_engine.drop(util.gpa, layout_state, pending.handle, target, pending.zone) catch {
+        log.err("out of memory placing transferred tiled window", .{});
+        return false;
+    };
 }
 
 fn transferFloatingDrag(aqueous: *Aqueous, drag: *Drag, rect: layout_types.Rect, x: f64, y: f64) void {

@@ -11,6 +11,20 @@ pub const ResizeAxis = enum { horizontal, vertical };
 
 pub const ResizeEdges = geometry_policy.ResizeEdges;
 
+/// The layout dispatcher selects this path for every non-stacking layout.
+pub fn tiledMoveAllowed(kind: PolicyState.Kind, fixed: bool, fullscreen: bool) bool {
+    return kind == .tiled and !fixed and !fullscreen;
+}
+
+test "tiled moves reject fixed fullscreen and non-tiled windows" {
+    try std.testing.expect(tiledMoveAllowed(.tiled, false, false));
+    try std.testing.expect(!tiledMoveAllowed(.tiled, true, false));
+    try std.testing.expect(!tiledMoveAllowed(.tiled, false, true));
+    inline for (std.meta.tags(PolicyState.Kind)) |kind| {
+        if (kind != .tiled) try std.testing.expect(!tiledMoveAllowed(kind, false, false));
+    }
+}
+
 /// Client decoration resize requests use freeform geometry. Modifier drags
 /// have a separate tiled/scrolling policy and do not use this affordance.
 pub fn clientResizeAllowed(kind: PolicyState.Kind, fixed: bool, floating_layout: bool) bool {

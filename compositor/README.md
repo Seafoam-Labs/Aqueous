@@ -3,6 +3,19 @@
 This directory contains the Zig implementation of Aqueous: a wlroots-based
 Wayland compositor with integrated window-management, input, and output policy.
 
+Super + left-click drag moves a window between outputs in every non-stacking
+layout (tile, monocle, grid, rows, dwindle, reverse-dwindle, scrolling, game-mode,
+and non-stacking composable regions). Entering another output moves the window
+to its active workspace, including an empty workspace, while keeping it tiled.
+Continue dragging to rearrange it using the destination layout's usual behavior.
+Entering a stacking layout completes the tiled gesture; the next drag uses the
+stacking layout's freeform movement. The gesture follows the configured primary
+modifier if overridden through `AQUEOUS_MOD`.
+
+Run `python3 scripts/test-tiled-output-drag.py` against the diagnostic pixman
+build to check output transfers with real pointer events. `--compositor` and
+`--ctl` select an alternate build; `--modifier Alt` checks a modifier override.
+
 ## Building
 
 Required development libraries include Wayland, wayland-protocols 1.49 or newer,

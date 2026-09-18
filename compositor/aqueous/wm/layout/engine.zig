@@ -44,6 +44,71 @@ pub fn drop(allocator: std.mem.Allocator, state: *State, dragged: types.Handle, 
         leaf.drop(allocator, &state.standalone, dragged, target, zone);
 }
 
+test "output transfer admits then reorders in every non-stacking layout" {
+    const allocator = std.testing.allocator;
+    const source_area: types.Rect = .{ .x = -1280, .y = -100, .width = 1280, .height = 720 };
+    const target_area: types.Rect = .{ .x = 100, .y = 80, .width = 480, .height = 853 };
+    for (std.enums.values(config.LayoutId)) |id| {
+        if (id == .floating) continue;
+        var snapshot: config.Snapshot = .{};
+        snapshot.default = id;
+        var source: State = .{};
+        defer source.deinit(allocator);
+        var target: State = .{};
+        defer target.deinit(allocator);
+        const original = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
+        const residents = [_]types.Window{ .{ .handle = 3 }, .{ .handle = 4 } };
+        allocator.free(try arrange(allocator, &source, &snapshot, source_area, &original, 1, .{}));
+        allocator.free(try arrange(allocator, &target, &snapshot, target_area, &residents, 3, .{}));
+        // A workspace move alone cannot reorder an unadmitted handle.
+        try std.testing.expect(!try drop(allocator, &target, 1, 3, .column_before));
+        forgetWindow(&source, 1);
+        const remaining = try arrange(allocator, &source, &snapshot, source_area, original[1..], 2, .{});
+        defer allocator.free(remaining);
+        try std.testing.expectEqual(@as(usize, 1), remaining.len);
+        try std.testing.expectEqual(@as(types.Handle, 2), remaining[0].handle);
+        const admitted = residents ++ [_]types.Window{.{ .handle = 1 }};
+        allocator.free(try arrange(allocator, &target, &snapshot, target_area, &admitted, 1, .{}));
+        try std.testing.expect(!usesFloatingLayout(&target, 1));
+        try std.testing.expect(try drop(allocator, &target, 1, 3, .column_before));
+        const reordered = try arrange(allocator, &target, &snapshot, target_area, &admitted, 1, .{});
+        defer allocator.free(reordered);
+        try std.testing.expectEqual(@as(usize, 3), reordered.len);
+        for (admitted) |window| {
+            var count: usize = 0;
+            for (reordered) |placement| {
+                if (placement.handle == window.handle) count += 1;
+            }
+            try std.testing.expectEqual(@as(usize, 1), count);
+        }
+        // Moving again remains possible after destination admission/reflow.
+        try std.testing.expect(try drop(allocator, &target, 1, 4, .stack_after));
+    }
+}
+
+test "transferring a scrolling member retains its former column peers" {
+    const allocator = std.testing.allocator;
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .scrolling;
+    var source: State = .{};
+    defer source.deinit(allocator);
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 1280, .height = 720 };
+    const original = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+    allocator.free(try arrange(allocator, &source, &snapshot, area, &original, 1, .{}));
+    try std.testing.expect(try drop(allocator, &source, 2, 1, .stack_after));
+    allocator.free(try arrange(allocator, &source, &snapshot, area, &original, 1, .{}));
+    try std.testing.expectEqualSlices(types.Handle, &.{ 1, 2 }, scrollingColumnMembers(&source, 1).?);
+    forgetWindow(&source, 1);
+    allocator.free(try arrange(allocator, &source, &snapshot, area, original[1..], 2, .{}));
+    try std.testing.expectEqualSlices(types.Handle, &.{2}, scrollingColumnMembers(&source, 2).?);
+    try std.testing.expectEqual(@as(usize, 2), source.standalone.scrolling.columns.items.len);
+    try std.testing.expect(scrollingColumnMembers(&source, 1) == null);
+    forgetWindow(&source, 2);
+    allocator.free(try arrange(allocator, &source, &snapshot, area, original[2..], 3, .{}));
+    try std.testing.expectEqual(@as(usize, 1), source.standalone.scrolling.columns.items.len);
+    try std.testing.expectEqualSlices(types.Handle, &.{3}, scrollingColumnMembers(&source, 3).?);
+}
+
 pub fn consumeWindowIntoColumn(allocator: std.mem.Allocator, state: *State, focused: types.Handle) !bool {
     return if (state.active_layout == .composable)
         composable.consumeWindowIntoColumn(allocator, &state.composite, focused)
