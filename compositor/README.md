@@ -377,6 +377,7 @@ scripts/test-qt-transient-natural-size.sh
 scripts/test-floating-outputs.sh
 scripts/test-output-rotation-keybinding.sh
 python3 scripts/test-output-focus.py # both mouse/focus options, reload and constraints
+python3 scripts/test-primary-selection.py # middle-click transfers, focus ordering, modal/layer policy and target teardown (diagnostic pixman build)
 python3 scripts/test-negative-output-position.py # Xwayland negative origins, rotation, reload and clicks (diagnostic pixman build)
 python3 scripts/test-output-retry.py --compositor /tmp/aqueous-retry/bin/aqueous --ctl /tmp/aqueous-retry/bin/aqueousctl # requires -Doutput-retry-testing=true; see ../docs/output-commit-retry.md
 scripts/test-scaling.sh
@@ -385,6 +386,12 @@ scripts/test-client-buffer-scaling.sh
 scripts/test-xwayland-input.sh
 scripts/test-xwayland-floating.sh
 ```
+
+Client button presses that request focus are delivered after the normal focus
+decision, so middle-click handlers receive the current primary-selection offer
+before requesting its contents. Modal dialogs, exclusive layers and grabs keep
+their existing focus policy. Pending presses are cancelled if their target
+unmaps or is destroyed; the physical release is still consumed.
 
 Run the XWayland floating and input coverage at 125% native scaling with:
 

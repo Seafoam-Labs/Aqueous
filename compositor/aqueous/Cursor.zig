@@ -107,6 +107,15 @@ wm_image_surface_destroy: wl.Listener(*wlr.Surface) = .init(handleWmImageSurface
 /// The set of currently pressed pointer buttons and the corresponding pointer mapping if any.
 pressed: std.AutoHashMapUnmanaged(u32, ?*PointerBinding) = .{},
 
+/// The first client press waits for the interaction's normal focus decision.
+/// Later input stays in Seat.event_queue until that manage cycle completes.
+pending_button: ?struct {
+    event: Seat.Event.PointerButton,
+    surface: *wlr.Surface,
+} = null,
+pending_button_unmap: wl.Listener(void) = .init(handlePendingButtonUnmap),
+pending_button_destroy: wl.Listener(*wlr.Surface) = .init(handlePendingButtonDestroy),
+
 /// The pointer constraint for the surface that currently has pointer focus, if
 /// any. This constraint is not necessarily active; activation only occurs once
 /// the cursor is inside the constraint region.
@@ -226,6 +235,7 @@ pub fn init(cursor: *Cursor, seat: *Seat) !void {
 }
 
 pub fn deinit(cursor: *Cursor) void {
+    cursor.cancelPendingButton();
     cursor.axis.link.remove();
     cursor.button.link.remove();
     cursor.frame.link.remove();
@@ -415,6 +425,7 @@ fn handleRequestSetCursor(
 }
 
 fn clearFocus(cursor: *Cursor) void {
+    cursor.cancelPendingButton();
     cursor.setImage(cursor.wm_image);
     cursor.seat.wlr_seat.pointerNotifyClearFocus();
     cursor.seat.updatePointerConstraint(null);
@@ -877,7 +888,6 @@ pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) vo
                     cursor.interact(at);
 
                     if (at.surface != null) {
-                        _ = cursor.seat.wlr_seat.pointerNotifyButton(event.time_msec, event.button, event.state);
                         log.debug("entering cursor mode down", .{});
                         cursor.mode = .{
                             .down = .{
@@ -888,6 +898,7 @@ pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) vo
                                 .surface_scale = scene_surface_projection.scale(at.node),
                             },
                         };
+                        cursor.sendButtonAfterFocus(event);
                         return;
                     }
                 }
@@ -948,6 +959,59 @@ pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) vo
             return;
         }
     }
+}
+
+fn sendButtonAfterFocus(cursor: *Cursor, event: *const Seat.Event.PointerButton) void {
+    assert(cursor.pending_button == null);
+    assert(cursor.mode == .down and event.state == .pressed);
+    if (server.wm.scheduled.dirty and server.lock_manager.state == .unlocked) {
+        if (cursor.seat.wlr_seat.pointer_state.focused_surface) |surface| {
+            log.debug("deferring pointer button {d} until focus is applied", .{event.button});
+            cursor.pending_button = .{ .event = event.*, .surface = surface };
+            surface.events.unmap.add(&cursor.pending_button_unmap);
+            surface.events.destroy.add(&cursor.pending_button_destroy);
+            return;
+        }
+    }
+    _ = cursor.seat.wlr_seat.pointerNotifyButton(event.time_msec, event.button, event.state);
+}
+
+/// Run after policy has applied focus, including modal/layer/grab restrictions.
+/// wlroots sends the new primary-selection offer during keyboard focus change,
+/// so a client can request it immediately from its button-press callback.
+pub fn finishPendingButton(cursor: *Cursor) void {
+    const pending = cursor.pending_button orelse return;
+    if (cursor.mode != .down or server.lock_manager.state != .unlocked or
+        !pending.surface.mapped or cursor.seat.wlr_seat.pointer_state.focused_surface != pending.surface)
+    {
+        cursor.cancelPendingButton();
+        return;
+    }
+    cursor.pending_button = null;
+    cursor.pending_button_unmap.link.remove();
+    cursor.pending_button_destroy.link.remove();
+    const event = pending.event;
+    _ = cursor.seat.wlr_seat.pointerNotifyButton(event.time_msec, event.button, event.state);
+}
+
+fn cancelPendingButton(cursor: *Cursor) void {
+    const pending = cursor.pending_button orelse return;
+    log.debug("cancelling pending pointer button {d}", .{pending.event.button});
+    cursor.pending_button = null;
+    cursor.pending_button_unmap.link.remove();
+    cursor.pending_button_destroy.link.remove();
+    // Keep the physical press tracked, but do not send an unmatched release.
+    if (cursor.mode == .down) cursor.mode = .ignore;
+}
+
+fn handlePendingButtonUnmap(listener: *wl.Listener(void)) void {
+    const cursor: *Cursor = @fieldParentPtr("pending_button_unmap", listener);
+    cursor.clearFocus();
+}
+
+fn handlePendingButtonDestroy(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
+    const cursor: *Cursor = @fieldParentPtr("pending_button_destroy", listener);
+    cursor.clearFocus();
 }
 
 pub fn processAxis(cursor: *Cursor, event: *const Seat.Event.PointerAxis) void {

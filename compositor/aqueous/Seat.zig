@@ -829,6 +829,7 @@ fn handleRequest(
 }
 
 pub fn manageFinish(seat: *Seat) void {
+    defer seat.cursor.finishPendingButton();
     defer seat.modal_focus_origin = null;
     seat.xkb_bindings_seat.manageFinish();
 
