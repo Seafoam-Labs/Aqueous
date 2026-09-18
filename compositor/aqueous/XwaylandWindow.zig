@@ -128,7 +128,13 @@ pub fn configure(xwindow: *XwaylandWindow) bool {
         if (projected_output) |value| blk: {
             const projected_x, const projected_y = value.logicalToX11Point(window.box.x, window.box.y);
             const projected_width, const projected_height = value.logicalToX11Size(width, height);
-            xwindow.projection_scale = value.scale;
+            if (xwindow.projection_scale != value.scale) {
+                xwindow.projection_scale = value.scale;
+                // WM_NORMAL_HINTS is expressed in X11 pixels. Moving between
+                // differently scaled outputs changes its logical constraints
+                // even when the client has not rewritten the property.
+                handleSetSizeHints(&xwindow.set_size_hints);
+            }
             if (xwindow.surface_tree) |tree| setSurfaceTreeScale(tree, value.scale);
             setSurfaceTreeScale(&window.capture_scene.tree, value.scale);
             break :blk .{
@@ -322,7 +328,15 @@ pub fn handleMap(listener: *wl.Listener(void)) void {
     if (xwindow.xsurface.fullscreen) {
         window.wm_scheduled.fullscreen_requested = .{ .fullscreen = null };
     }
+    if (xwindow.xsurface.maximized_vert or xwindow.xsurface.maximized_horz) {
+        window.wm_scheduled.maximize_requested = .maximize;
+    }
 
+    // A surface can become managed after its properties were read while it
+    // was override-redirect. Seed cached metadata instead of requiring the
+    // client to rewrite those properties after the new listeners are attached.
+    handleSetSizeHints(&xwindow.set_size_hints);
+    handleSetDecorations(&xwindow.set_decorations);
     xwindow.updateFocusHint();
 
     window.state = .initialized;
@@ -522,6 +536,9 @@ fn handleSetSizeHints(listener: *wl.Listener(void)) void {
             .max_aspect_num = @intCast(@max(0, size_hints.max_aspect_num)),
             .max_aspect_den = @intCast(@max(0, size_hints.max_aspect_den)),
         });
+    } else {
+        // Deleting WM_NORMAL_HINTS removes the previous constraints.
+        xwindow.window.setDimensionsHint(.{});
     }
 }
 

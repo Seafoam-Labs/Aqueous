@@ -212,6 +212,14 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     );
     defer server.deinit();
 
+    // Xwayland is a graphics client too. Apply the renderer's GPU selection
+    // before its first fork, so initial startup and automatic restarts inherit
+    // the same environment as the applications it will serve.
+    if (server.gpu_pin.vk_select) |value| inheritAssignment("MESA_VK_DEVICE_SELECT", value);
+    if (server.gpu_pin.gl_vendor) |value| inheritAssignment("__GLX_VENDOR_LIBRARY_NAME", value);
+    if (server.gpu_pin.dri_prime) |value| inheritAssignment("DRI_PRIME", value);
+    if (server.gpu_pin.nv_offload) |value| inheritAssignment("__NV_PRIME_RENDER_OFFLOAD", value);
+
     // wlroots starts the Xwayland process from an idle event source, the reasoning being that
     // this gives the compositor time to set up event listeners before Xwayland is actually
     // started. We want Xwayland to be started by wlroots before we modify our rlimits in
@@ -232,10 +240,6 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     if (build_options.xwayland) {
         if (server.xwayland) |xwayland| _ = setenv("DISPLAY", xwayland.display_name, 1);
     }
-    if (server.gpu_pin.vk_select) |value| inheritAssignment("MESA_VK_DEVICE_SELECT", value);
-    if (server.gpu_pin.gl_vendor) |value| inheritAssignment("__GLX_VENDOR_LIBRARY_NAME", value);
-    if (server.gpu_pin.dri_prime) |value| inheritAssignment("DRI_PRIME", value);
-    if (server.gpu_pin.nv_offload) |value| inheritAssignment("__NV_PRIME_RENDER_OFFLOAD", value);
     if (unsetenv("AQUEOUS_SOCKET") != 0) return error.SetEnvironmentFailed;
     server.ipc_server.start() catch |err| log.warn("IPC socket unavailable: {}", .{err});
     if (server.ipc_server.path) |path| {

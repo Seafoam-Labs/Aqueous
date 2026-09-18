@@ -32,6 +32,7 @@ patch_files=(
     "$here/patches/wlroots/0024-protocol-versions.patch"
     "$here/patches/wlroots/0025-drm-color-pipeline.patch"
     "$here/patches/wlroots/0026-scene-color-pipeline.patch"
+    "$here/patches/wlroots/0027-xwayland-size-hints.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -246,6 +247,7 @@ python3 "$here/scripts/test-protocol-version-handlers.py" "$source_dir" "$prefix
 python3 "$here/scripts/test-overlay-backend.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-color-pipeline.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-vulkan-sync.py" "$source_dir" "$prefix"
+python3 "$here/scripts/test-xwayland-size-hints.py" "$source_dir"
 python3 "$here/scripts/test-drm-lease-protocol.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-drm-lease-backend.py" "$source_dir" "$prefix"
 
