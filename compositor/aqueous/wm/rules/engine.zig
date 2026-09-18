@@ -84,6 +84,8 @@ pub const Rule = struct {
     fullscreen: bool = false,
     /// Initial scrolling column preset; null leaves the user's width alone.
     scrolling_full_width: ?bool = null,
+    /// Base scrolling column footprint as a fraction of its usable viewport.
+    scrolling_width: ?f64 = null,
     ignore_struts: bool = false,
     blur: ?bool = null,
     opacity: ?f64 = null,
@@ -136,6 +138,7 @@ pub const Rule = struct {
         hash.update(std.mem.asBytes(&rule.scale));
         hash.update(std.mem.asBytes(&rule.fullscreen));
         hashOptionalBool(&hash, rule.scrolling_full_width);
+        hashOptionalFloat(&hash, rule.scrolling_width);
         hash.update(std.mem.asBytes(&rule.ignore_struts));
         hashOptionalBool(&hash, rule.blur);
         hashOptionalFloat(&hash, rule.opacity);
@@ -175,6 +178,7 @@ pub const Rule = struct {
         placement_only.layout = null;
         placement_only.fullscreen = false;
         placement_only.scrolling_full_width = null;
+        placement_only.scrolling_width = null;
         placement_only.blur = null;
         placement_only.opacity = null;
         placement_only.hdr_expand = null;
@@ -265,6 +269,7 @@ pub fn resolve(engine: *const Engine, identity: Identity) ?Rule {
         visual.scale = 1;
         visual.fullscreen = false;
         visual.scrolling_full_width = null;
+        visual.scrolling_width = null;
         visual.ignore_struts = false;
         visual.stack_layer = null;
         visual.placement_policy = null;
@@ -441,6 +446,7 @@ test "scrolling presets affect semantic identity but not placement or visual-onl
     const unset: Rule = .{ .app_id = "browser" };
     var enabled = unset;
     enabled.scrolling_full_width = true;
+    enabled.scrolling_width = 0.65;
     var disabled = unset;
     disabled.scrolling_full_width = false;
     try std.testing.expect(unset.fingerprint() != enabled.fingerprint());
@@ -457,6 +463,7 @@ test "scrolling presets affect semantic identity but not placement or visual-onl
     try engine.reload(&.{enabled});
     const visual = engine.resolve(.{ .app_id = "browser", .content_type = .video }).?;
     try std.testing.expectEqual(@as(?bool, null), visual.scrolling_full_width);
+    try std.testing.expectEqual(@as(?f64, null), visual.scrolling_width);
     try std.testing.expectEqual(@as(?Layout, null), visual.layout);
     try std.testing.expectEqual(@as(?f64, 0.8), visual.opacity);
 }
@@ -543,4 +550,17 @@ test "tag identity composes matchers, owns strings and preserves visual-only pol
     try std.testing.expect(original.fingerprint() != changed.fingerprint());
     try std.testing.expect(original.matcherFingerprint() != changed.matcherFingerprint());
     try std.testing.expectEqual(original.floatingFingerprint(), changed.floatingFingerprint());
+}
+
+test "fraction edits change semantics without changing matcher or placement" {
+    const unset: Rule = .{ .app_id = "browser" };
+    var rule = unset;
+    rule.scrolling_width = 0.65;
+    try std.testing.expect(unset.fingerprint() != rule.fingerprint());
+    try std.testing.expectEqual(unset.matcherFingerprint(), rule.matcherFingerprint());
+    try std.testing.expectEqual(unset.floatingFingerprint(), rule.floatingFingerprint());
+    try std.testing.expectEqual(unset.placementFingerprint(), rule.placementFingerprint());
+    const old = rule.fingerprint();
+    rule.scrolling_width = 0.25;
+    try std.testing.expect(old != rule.fingerprint());
 }

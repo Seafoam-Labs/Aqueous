@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import shlex
 import shutil
 import socket
@@ -21,18 +22,21 @@ def main():
     compositor = os.environ.get('AQUEOUS_COMPOSITOR_BIN', str(here / 'zig-out/bin/aqueous'))
     ctl = os.environ.get('AQUEOUSCTL_BIN', str(here / 'zig-out/bin/aqueousctl'))
     work = Path(tempfile.mkdtemp(prefix='aqueous-rule-scrolling-width-'))
-    env = dict(os.environ)
-    env.pop('LD_PRELOAD', None)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(('AQUEOUS_', 'WLR_'))}
+    for name in ('LD_PRELOAD', 'WAYLAND_SOCKET', 'DISPLAY', 'WAYLAND_DISPLAY', 'DBUS_SESSION_BUS_ADDRESS'):
+        env.pop(name, None)
     processes, logs = [], []
     succeeded = False
 
     def run(*command):
         return subprocess.check_output(command, env=env, text=True, stderr=subprocess.PIPE, timeout=10)
 
-    def launch(command, name, **extra):
+    def launch(command, name, interactive=False, **extra):
         log = (work / f'{name}.log').open('w')
         logs.append(log)
-        process = subprocess.Popen(command, env=dict(env, **extra), stdout=log, stderr=log)
+        process = subprocess.Popen(command, env=dict(env, **extra),
+                                   stdout=subprocess.PIPE if interactive else log, stderr=log,
+                                   stdin=subprocess.PIPE if interactive else None, text=True)
         processes.append(process)
         return process
 
@@ -115,6 +119,15 @@ reload_rules = "Super+R"
             str(here / 'scripts/fixtures/scrolling-vertical-reference.c'),
             str(work / 'xdg-shell-protocol.c'), '-o', fixture,
             *shlex.split(run('pkg-config', '--cflags', '--libs', 'wayland-client')))
+        for name, xml in {
+            'virtual-keyboard': here / 'protocol/upstream/virtual-keyboard-unstable-v1.xml',
+            'virtual-pointer': here / 'protocol/upstream/wlr-virtual-pointer-unstable-v1.xml',
+        }.items():
+            run('wayland-scanner', 'client-header', str(xml), str(work / f'{name}-client-protocol.h'))
+            run('wayland-scanner', 'private-code', str(xml), str(work / f'{name}.c'))
+        run('cc', '-Wall', '-Wextra', '-Werror', '-O2', '-I' + str(work),
+            str(here / 'scripts/fixtures/tiled-drag-input.c'), str(work / 'virtual-keyboard.c'),
+            str(work / 'virtual-pointer.c'), '-lwayland-client', '-lxkbcommon', '-o', str(work / 'input'))
         env.update(XDG_RUNTIME_DIR=str(runtime), XDG_CONFIG_HOME=str(work / 'config'),
                    HOME=str(work / 'home'), AQUEOUS_CONFIG=str(config), AQUEOUS_RULES=str(rules),
                    WLR_BACKENDS='headless', WLR_HEADLESS_OUTPUTS='1', WLR_RENDERER='pixman')
@@ -211,8 +224,126 @@ reload_rules = "Super+R"
         width('aq-width-one', portrait_full)
         width('aq-width-two', portrait_full)
         width('aq-normal', portrait_full)
+        # Exercise custom fractions through first configure, reloads and real
+        # pointer input after the existing full-width compatibility checks.
+        assert output_request({'op': 'set', 'changes': [{'name': output['name'], 'transform': 'normal'}]})['ok']
+        key('t')
+
+        def fraction_rule(value=0.65, matcher='aq-custom', full_width=False):
+            rules.write_text(f'[[window]]\napp_id = "{matcher}"\nscrolling_full_width = {str(full_width).lower()}\n'
+                             + (f'scrolling_width = {value}\n' if value is not None else ''))
+            key('r')
+
+        def fraction_width(fraction, available=viewport):
+            return max(1, int(available * fraction + 0.5) - 4)
+
+        fraction_rule()
+        launch([fixture, 'aq-custom', 'ff00ffff', '1'], 'custom', WAYLAND_DEBUG='1')
+        custom = width('aq-custom', fraction_width(0.65))
+        original_height = custom['geometry']['height']
+        configures = re.findall(r'xdg_toplevel[@#]\d+\.configure\((\d+), (\d+),', (work / 'custom.log').read_text())
+        assert next(int(w) for w, h in configures if int(w) > 0) == fraction_width(0.65), configures
+        key('z', 'SUPER,SHIFT')
+        width('aq-custom', full)
+        key('z', 'SUPER,SHIFT')
+        width('aq-custom', fraction_width(0.65))
+        for value in [0.25, 1.0, 0.65]:
+            fraction_rule(value)
+            assert width('aq-custom', fraction_width(value))['geometry']['height'] == original_height
+        fraction_rule(None)
+        width('aq-custom', normal)
+        fraction_rule()
+        width('aq-custom', fraction_width(0.65))
+        assert output_request({'op': 'set', 'changes': [{'name': output['name'], 'transform': '90'}]})['ok']
+        width('aq-custom', fraction_width(0.65, portrait_viewport))
+        assert output_request({'op': 'set', 'changes': [{'name': output['name'], 'transform': 'normal'}]})['ok']
+        width('aq-custom', fraction_width(0.65))
+        assert output_request({'op': 'set', 'changes': [{'name': output['name'], 'scale': 1.25}]})['ok']
+        scaled_viewport = int(output['current_mode']['width'] / 1.25) - 40 - 16
+        width('aq-custom', fraction_width(0.65, scaled_viewport))
+        assert output_request({'op': 'set', 'changes': [{'name': output['name'], 'scale': output['scale']}]})['ok']
+        width('aq-custom', fraction_width(0.65))
+
+        input_process = launch([str(work / 'input')], 'input', interactive=True)
+
+        def input_reply():
+            assert select.select([input_process.stdout], [], [], 5)[0], 'input fixture timed out'
+            return input_process.stdout.readline().strip()
+
+        assert input_reply() == 'ready'
+
+        def send(command):
+            input_process.stdin.write(command + '\n')
+            input_process.stdin.flush()
+            assert input_reply() == 'done', command
+
+        def point_at_custom():
+            g = next(w for w in windows() if w['app_id'] == 'aq-custom')['geometry']
+            send('motion -10000 -10000')
+            send(f'motion {g["x"] + g["width"] // 2} {g["y"] + min(50, g["height"] // 2)}')
+
+        def resize(dx, dy):
+            point_at_custom()
+            send('modifiers 64')
+            send('button 1 273')
+            send(f'motion {dx} {dy}')
+            send('button 0 273')
+            send('modifiers 0')
+
+        def reset_size():
+            point_at_custom()
+            send('modifiers 64')
+            for _ in range(2):
+                send('button 1')
+                send('button 0')
+            send('modifiers 0')
+
+        resize(0, 30)
+        wait_for(lambda: next((w for w in windows() if w['app_id'] == 'aq-custom'
+                              and w['geometry']['height'] != original_height), None), 'vertical resize')
+        width('aq-custom', fraction_width(0.65))
+        fraction_rule(0.25)
+        width('aq-custom', fraction_width(0.25))
+        resize(40, 0)
+        resized = wait_for(lambda: next((w for w in windows() if w['app_id'] == 'aq-custom'
+                                        and w['geometry']['width'] != fraction_width(0.25)), None), 'horizontal resize')
+        manual_width = resized['geometry']['width']
+        fraction_rule(0.65)
+        width('aq-custom', manual_width)
+        reset_size()
+        width('aq-custom', normal)
+        fraction_rule(0.75)
+        width('aq-custom', normal)
+        # Different matcher reclaims the rule after a manual override.
+        fraction_rule(0.65, matcher='aq-custo*')
+        width('aq-custom', fraction_width(0.65))
+        # Clearing only a fraction must schedule an arrangement too.
+        reset_size()
+        width('aq-custom', normal)
+        fraction_rule(0.65, matcher='aq-custom')
+        width('aq-custom', fraction_width(0.65))
+        # A stacked member must not reassert its fraction after column resizing.
+        fraction_rule(0.65, matcher='aq-custom*')
+        launch([fixture, 'aq-custom-peer', 'ffffff00', '1'], 'custom-peer')
+        width('aq-custom-peer', fraction_width(0.65))
+        send('key 105 65') # Super+Shift+Left
+        custom = width('aq-custom', fraction_width(0.65))
+        peer = width('aq-custom-peer', fraction_width(0.65))
+        assert custom['geometry']['x'] == peer['geometry']['x']
+        # Focus the first row so pointer input targets the visible member.
+        send('key 103 64') # Super+Up
+        resize(30, 0)
+        resized = wait_for(lambda: next((w for w in windows() if w['app_id'] == 'aq-custom'
+                                        and w['geometry']['width'] != fraction_width(0.65)), None), 'stack resize')
+        manual_width = resized['geometry']['width']
+        fraction_rule(0.25, matcher='aq-custom*')
+        width('aq-custom', manual_width)
+        width('aq-custom-peer', manual_width)
+        reset_size()
+        width('aq-custom', normal)
+        width('aq-custom-peer', normal)
         succeeded = True
-        print('Window rules: scrolling presets, explicit game mode, anchor removal, fallback, manual layout reset, output rotation, stacking, and nested scrolling passed.')
+        print('Window rules: scrolling presets and fractions, first configure, reload, pointer resizing/reset, stack ownership, explicit layouts, output rotation, and nested scrolling passed.')
     finally:
         for process in reversed(processes):
             if process.poll() is None:

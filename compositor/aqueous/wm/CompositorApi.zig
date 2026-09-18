@@ -798,6 +798,7 @@ fn snapshotWindows(allocator: std.mem.Allocator, include_inactive: bool) !Policy
                 .accepts_focus = window_snapshot.accepts_focus,
                 .fullscreen = window_snapshot.fullscreen,
                 .scrolling_full_width = window.policy_state.scrolling_full_width,
+                .scrolling_width = window.policy_state.scrolling_width,
                 .min_width = window_snapshot.min_width,
                 .min_height = window_snapshot.min_height,
                 .max_width = window_snapshot.max_width,

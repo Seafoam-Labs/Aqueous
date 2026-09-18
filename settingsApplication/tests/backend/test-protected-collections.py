@@ -158,6 +158,19 @@ with Fixture() as f:
     assert saved['raw_files'] == reviewed['raw_files']
     assert f.reloads() == 'reload\n', repr(f.reloads())
 
+# Custom scrolling fractions participate in the same digest-bound transaction.
+with Fixture() as f:
+    snap = f.call('snapshot')
+    req = f.request(snap, window_rule_changes=[dict(id=snap['window_rules'][0]['id'], values={'scrolling_width': 0.65})])
+    approved = f.approved(req)
+    changed = dict(approved, window_rule_changes=[dict(id=snap['window_rules'][0]['id'], values={'scrolling_width': 0.25})])
+    f.reject(changed, 'candidate_mismatch')
+    saved = f.call('apply', approved)
+    assert saved['window_rules'][0]['values']['scrolling_width'] == 0.65
+    req = f.request(saved, window_rule_changes=[dict(id=saved['window_rules'][0]['id'], values={'scrolling_width': None})])
+    saved = f.call('apply', f.approved(req))
+    assert 'scrolling_width' not in saved['window_rules'][0]['values']
+
 # IDs survive unrelated source changes; approval never follows automatically.
 with Fixture() as f:
     req = f.request()

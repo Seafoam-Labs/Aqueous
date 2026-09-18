@@ -515,6 +515,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             // The snapshot predates rule reconciliation. Use the new preset
             // for this transaction's first arrangement too.
             layout_window.scrolling_full_width = state.scrolling_full_width;
+            layout_window.scrolling_width = state.scrolling_width;
             managed.appendAssumeCapacity(layout_window);
             if (effect.workspace_visible and window.accepts_focus and state.focus_allowed) focusable.appendAssumeCapacity(window);
             if (rule != null and rule.?.layout == .game_mode and managed.items.len > 1) {
@@ -1463,6 +1464,8 @@ fn handleScrollingClick(aqueous: *Aqueous, drag: Drag, time_msec: u32) void {
         for (members) |handle| {
             const state = aqueous.window_states.get(handle) orelse continue;
             state.overrideScrollingFullWidth();
+            changed = state.scrolling_width != null or changed;
+            state.overrideScrollingWidth();
             if (!state.scrolling_full_width) continue;
             state.scrolling_full_width = false;
             changed = true;
@@ -1601,6 +1604,8 @@ pub fn updateInteractiveDrag(aqueous: *Aqueous, drag: *Drag, x: f64, y: f64) voi
                 for (members) |handle| {
                     const member_state = aqueous.window_states.get(handle) orelse continue;
                     member_state.overrideScrollingFullWidth();
+                    cleared_expanded = member_state.scrolling_width != null or cleared_expanded;
+                    member_state.overrideScrollingWidth();
                     cleared_expanded = member_state.scrolling_full_width or cleared_expanded;
                     member_state.scrolling_full_width = false;
                 }
@@ -3302,6 +3307,7 @@ fn prepareWindowRuleMatch(aqueous: *Aqueous, window: layout_types.Window, output
     }
     _ = aqueous.window_states.restoreRuleFloating(window.handle);
     state.restoreRuleScrollingFullWidth();
+    state.restoreRuleScrollingWidth();
     if (state.rule_stack_layer_owned) state.stack_layer = state.rule_stack_layer_previous;
     state.focus_allowed = true;
     state.fixed_position = false;
@@ -3341,6 +3347,7 @@ fn reconcileWindowRule(
     const matched = rule orelse return effect;
 
     state.reconcileScrollingFullWidth(matched.scrolling_full_width);
+    state.reconcileScrollingWidth(matched.scrolling_width);
     state.focus_allowed = matched.focus orelse true;
     state.fixed_position = matched.fixed_position;
     state.skip_switcher = matched.skip_switcher;

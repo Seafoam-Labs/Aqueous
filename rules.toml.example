@@ -38,6 +38,20 @@ gaps_inner = 8             # integer >= 0
 # with the preset disabled; unset leaves it alone. Manual toggles, horizontal
 # resizing, and size reset override it until a different matcher becomes active.
 #
+# To use a custom base width instead of the global scrolling column fraction:
+# [[window]]
+# app_id = "firefox"
+# scrolling_width = 0.65 # 65%; finite number greater than 0 and at most 1
+# This scales the complete tile width (including borders) within the local
+# viewport after reserved areas and outer gaps. Height is unchanged. It also
+# works in composable regions and game-mode scrolling remainders/fallbacks.
+# Full width temporarily takes priority; toggling it off reveals the base.
+# Stacked members share a stable width owner. Horizontal resizing overrides all
+# current members' fractions; size reset returns to the global column fraction.
+# Vertical resizing preserves the fraction. Reloads update rule-owned widths;
+# manual overrides survive until a different matcher becomes active. Add this
+# field to the first matching rule rather than a later duplicate.
+#
 # Rules use first-match-wins order. At least one matcher is required; a block
 # without app_id, class, title, or content_type is silently discarded. Every
 # matcher present in a block must match. app_id is used by native Wayland
@@ -69,6 +83,7 @@ gaps_inner = 8             # integer >= 0
 #   floating        true/false; enables floating placement independently of
 #                   layout (layout="float" also sets floating=true)
 #   fullscreen      true/false
+#   scrolling_width finite fraction in (0, 1], e.g. 0.65 for 65% width
 #   ignore_struts   true/false; use the full output instead of panel struts
 #   stack_layer     below | normal | above
 #   focus           true/false; false excludes the window from focus actions

@@ -1371,7 +1371,11 @@ fn writeRuleJsonValue(json: *std.json.Stringify, key: []const u8, raw: []const u
         if (std.fmt.parseInt(i64, std.mem.trim(u8, raw, " \t\r"), 10)) |value| return json.write(value) else |_| {}
     }
     if (ruleDouble(key)) {
-        if (std.fmt.parseFloat(f64, std.mem.trim(u8, raw, " \t\r"))) |value| return json.write(value) else |_| {}
+        if (std.fmt.parseFloat(f64, std.mem.trim(u8, raw, " \t\r"))) |value| {
+            // Malformed source values still need a valid snapshot carrying
+            // their diagnostics. JSON cannot represent NaN or infinity.
+            if (std.math.isFinite(value)) return json.write(value);
+        } else |_| {}
     }
     const text = if (std.mem.eql(u8, key, "layout")) schema.normalizeLayout(unquoteToml(raw)) else if (ruleKnown(key)) unquoteToml(raw) else raw;
     try json.write(text);
@@ -1484,6 +1488,7 @@ fn encodeRuleValue(allocator: Allocator, key: []const u8, value: Json) ![]const 
         const actual = jsonNumber(value) orelse return error.InvalidWindowRuleValue;
         if (!std.math.isFinite(actual) or
             (std.mem.eql(u8, key, "scale") and (actual <= 0 or actual > 16)) or
+            (std.mem.eql(u8, key, "scrolling_width") and (actual <= 0 or actual > 1)) or
             (std.mem.eql(u8, key, "opacity") and (actual < 0 or actual > 1))) return error.InvalidWindowRuleValue;
         return std.fmt.allocPrint(allocator, "{d}", .{actual});
     }
@@ -2502,9 +2507,9 @@ fn writeCollectionSchema(json: *std.json.Stringify) !void {
         try field(json, "default", @as(?bool, null));
         try field(json, "options", ruleOptions(key));
         try field(json, "matcher", if (std.mem.eql(u8, key, "app_id") or std.mem.eql(u8, key, "class") or std.mem.eql(u8, key, "title")) @as(?[]const u8, "anchored_case_sensitive_glob") else null);
-        const bounds: ?[2]f64 = if (std.mem.eql(u8, key, "workspace")) .{ 1, std.math.maxInt(u32) } else if (std.mem.eql(u8, key, "width") or std.mem.eql(u8, key, "height")) .{ 1, 100000 } else if (std.mem.eql(u8, key, "x") or std.mem.eql(u8, key, "y")) .{ -100000, 100000 } else if (std.mem.eql(u8, key, "scale")) .{ 0, 16 } else if (std.mem.eql(u8, key, "opacity")) .{ 0, 1 } else null;
+        const bounds: ?[2]f64 = if (std.mem.eql(u8, key, "workspace")) .{ 1, std.math.maxInt(u32) } else if (std.mem.eql(u8, key, "width") or std.mem.eql(u8, key, "height")) .{ 1, 100000 } else if (std.mem.eql(u8, key, "x") or std.mem.eql(u8, key, "y")) .{ -100000, 100000 } else if (std.mem.eql(u8, key, "scale")) .{ 0, 16 } else if (std.mem.eql(u8, key, "opacity") or std.mem.eql(u8, key, "scrolling_width")) .{ 0, 1 } else null;
         try field(json, "range", bounds);
-        try field(json, "exclusive_minimum", std.mem.eql(u8, key, "scale"));
+        try field(json, "exclusive_minimum", std.mem.eql(u8, key, "scale") or std.mem.eql(u8, key, "scrolling_width"));
         try json.endObject();
     }
     try json.endArray();

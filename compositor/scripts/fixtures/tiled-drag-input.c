@@ -72,7 +72,8 @@ int main(void) {
                 zwlr_virtual_pointer_v1_frame(pointer);
             }
         } else if (!strcmp(op, "button")) {
-            zwlr_virtual_pointer_v1_button(pointer, ++tick, 0x110, a ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED);
+            // Optional second argument selects the Linux button code (left by default).
+            zwlr_virtual_pointer_v1_button(pointer, ++tick, b ? (uint32_t)b : 0x110, a ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED);
             zwlr_virtual_pointer_v1_frame(pointer);
         } else if (!strcmp(op, "modifiers")) {
             zwp_virtual_keyboard_v1_modifiers(keyboard, a, 0, 0, 0);

@@ -774,3 +774,70 @@ test "right insertion stays within the focused composable region" {
     try expectPlacementOrder(placements, &.{ 1, 2, 6, 3, 4, 7, 5 });
     try std.testing.expectEqual(@as(?u8, 1), state.composite.membership.get(7));
 }
+
+test "fractional widths route through scrolling and game fallback and leave other layouts alone" {
+    const windows = [_]types.Window{.{ .handle = 1, .scrolling_width = 0.65 }};
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 400, .height = 200 };
+    var snapshot: config.Snapshot = .{};
+    for (&snapshot.options) |*options| {
+        options.gaps_outer = 0;
+        options.border = .none;
+    }
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    for ([_]config.LayoutId{ .scrolling, .monocle, .game_mode, .scrolling }) |id| {
+        snapshot.default = id;
+        const result = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 1, .{ .fallback = .scrolling });
+        defer std.testing.allocator.free(result);
+        try std.testing.expectEqual(@as(i32, if (id == .monocle) 400 else 260), result[0].geometry.width);
+        try std.testing.expectEqual(@as(i32, 200), result[0].geometry.height);
+    }
+}
+
+test "fractional widths use game remainder and composable region rectangles" {
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 400, .height = 200 };
+    const windows = [_]types.Window{ .{ .handle = 1, .scrolling_width = 0.65 }, .{ .handle = 2, .scrolling_width = 0.25 } };
+    var snapshot: config.Snapshot = .{};
+    for (&snapshot.options) |*options| {
+        options.gaps_outer = 0;
+        options.gaps_inner = 0;
+        options.border = .none;
+    }
+    snapshot.default = .game_mode;
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const game = gameModeState(&state);
+    game.rule_anchor = 1;
+    game.rule_options = .{
+        .anchor = .left,
+        .size = .{ .pixels = .{ .width = 100, .height = 100 } },
+        .remainder = .scrolling,
+        .gaps_inner = 0,
+    };
+    var result = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 2, .{});
+    try std.testing.expectEqual(@as(i32, 100), result[0].geometry.width);
+    try std.testing.expectEqual(@as(i32, 75), result[1].geometry.width);
+    std.testing.allocator.free(result);
+
+    snapshot.default = .composable;
+    config.apply(&snapshot,
+        \\[layout.composable.a]
+        \\layout = "scrolling"
+        \\p1 = [0.0, 0.0]
+        \\p2 = [0.25, 0.0]
+        \\p3 = [0.25, 1.0]
+        \\p4 = [0.0, 1.0]
+        \\[layout.composable.b]
+        \\layout = "scrolling"
+        \\p1 = [0.25, 0.0]
+        \\p2 = [1.0, 0.0]
+        \\p3 = [1.0, 1.0]
+        \\p4 = [0.25, 1.0]
+    );
+    std.testing.allocator.free(try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 1, .{}));
+    try std.testing.expect(moveToComposableSlot(&state, 2, 1));
+    result = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 2, .{});
+    defer std.testing.allocator.free(result);
+    try std.testing.expectEqual(@as(i32, 65), result[0].geometry.width);
+    try std.testing.expectEqual(@as(i32, 75), result[1].geometry.width);
+}

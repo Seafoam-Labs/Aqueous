@@ -85,6 +85,22 @@ with tempfile.TemporaryDirectory(prefix='aqueous-collection-impact-') as scratch
     assert s['window_rules'][0]['values']['opacity'] == 0
     check(s, {'window_rule_changes': [dict(op='delete', id=rule_id)]}, apply=True)
 
+    s = seed(rules=RULE)
+    s = check(s, {'window_rule_changes': [dict(id=s['window_rules'][0]['id'], values=dict(scrolling_width=0.65))]}, apply=True)
+    assert s['window_rules'][0]['values']['scrolling_width'] == 0.65
+    check(s, {'raw_files': {'rules': RULE + 'scrolling_width = 0.650\n'}}, effects=['none'])
+    check(s, {'raw_files': {'rules': RULE + 'scrolling_width = 0.25\n'}}, apply=True)
+    s = call('snapshot')
+    check(s, {'window_rule_changes': [dict(id=s['window_rules'][0]['id'], values=dict(scrolling_width=None))]}, apply=True)
+    for invalid in ['0', '-0.1', '1.01', 'nan', 'inf', '-inf', '"invalid"']:
+        s = seed(rules=RULE)
+        before = files['rules'].read_bytes()
+        call('validate', dict(protocol=1, expected_generation=s['generation'],
+                             raw_files={'rules': RULE + 'scrolling_width = ' + invalid + '\n'}), ok=False)
+        assert files['rules'].read_bytes() == before
+        s = seed(rules=RULE + 'scrolling_width = ' + invalid + '\n')
+        check(s, {'raw_files': {'rules': RULE}}, complete=False)
+
     s = seed(rules=RULE + RULE.replace('false', 'true'))
     check(s, {'window_rule_changes': [dict(op='move', id=s['window_rules'][1]['id'], direction=-1)]}, apply=True)
     s = seed(rules=RULE + RULE)

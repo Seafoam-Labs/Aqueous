@@ -200,6 +200,7 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "scale")) rule.scale = parseScale(value) orelse rule.scale;
     if (std.mem.eql(u8, key, "fullscreen")) rule.fullscreen = parseBool(value) orelse rule.fullscreen;
     if (std.mem.eql(u8, key, "scrolling_full_width")) rule.scrolling_full_width = parseBool(value) orelse rule.scrolling_full_width;
+    if (std.mem.eql(u8, key, "scrolling_width")) rule.scrolling_width = parseScrollingWidth(value) orelse rule.scrolling_width;
     if (std.mem.eql(u8, key, "ignore_struts")) rule.ignore_struts = parseBool(value) orelse rule.ignore_struts;
     if (std.mem.eql(u8, key, "blur")) rule.blur = parseBool(value) orelse rule.blur;
     if (std.mem.eql(u8, key, "opacity")) rule.opacity = parseOpacity(value) orelse rule.opacity;
@@ -304,6 +305,11 @@ fn parseOpacity(value: []const u8) ?f64 {
     return if (std.math.isFinite(result) and result >= 0 and result <= 1) result else null;
 }
 
+fn parseScrollingWidth(value: []const u8) ?f64 {
+    const result = std.fmt.parseFloat(f64, value) catch return null;
+    return if (std.math.isFinite(result) and result > 0 and result <= 1) result else null;
+}
+
 fn exists(path: []const u8) bool {
     const io = std.Io.Threaded.global_single_threaded.io();
     std.Io.Dir.cwd().access(io, path, .{}) catch return false;
@@ -389,9 +395,11 @@ test "scrolling width rules preserve the current layout and explicit layout choi
         \\[[window]]
         \\app_id = "browser"
         \\scrolling_full_width = true
+        \\scrolling_width = 0.65
         \\[[window]]
         \\app_id = "browser"
         \\scrolling_full_width = false
+        \\scrolling_width = 0.25
         \\[[window]]
         \\class = "editor"
         \\scrolling_full_width = false
@@ -412,6 +420,7 @@ test "scrolling width rules preserve the current layout and explicit layout choi
     );
     const browser = engine.resolve(.{ .app_id = "browser" }).?;
     try std.testing.expectEqual(@as(?bool, true), browser.scrolling_full_width);
+    try std.testing.expectEqual(@as(?f64, 0.65), browser.scrolling_width);
     try std.testing.expectEqual(@as(?Engine.Layout, null), browser.layout);
     const editor = engine.resolve(.{ .class = "editor" }).?;
     try std.testing.expectEqual(@as(?bool, false), editor.scrolling_full_width);
@@ -580,4 +589,27 @@ test "tag rules parse empty, literal and escaped basic strings and survive reloa
     try std.testing.expect(engine.resolve(.{ .tag = "settings" }).?.skip_switcher);
     try std.testing.expectError(error.SyntaxError, parseAndReload(std.testing.allocator, &engine, "[[window]]\ntag = \"bad\\q\""));
     try std.testing.expectEqual(@as(usize, 3), engine.rules.len);
+}
+
+test "scrolling fractions accept only finite positive values through one" {
+    const cases = .{
+        .{ "0.25", @as(?f64, 0.25) },        .{ "0.65", @as(?f64, 0.65) },
+        .{ "1", @as(?f64, 1) },              .{ "1.0", @as(?f64, 1) },
+        .{ "0", @as(?f64, null) },           .{ "-0.1", @as(?f64, null) },
+        .{ "1.01", @as(?f64, null) },        .{ "nan", @as(?f64, null) },
+        .{ "inf", @as(?f64, null) },         .{ "-inf", @as(?f64, null) },
+        .{ "\"invalid\"", @as(?f64, null) },
+    };
+    inline for (cases) |case| {
+        var engine = Engine.init(std.testing.allocator);
+        defer engine.deinit();
+        try parseAndReload(std.testing.allocator, &engine, "[[window]]\napp_id = \"test\"\nscrolling_width = " ++ case[0] ++ "\n");
+        const rule = engine.resolve(.{ .app_id = "test" }).?;
+        try std.testing.expectEqual(case[1], rule.scrolling_width);
+        try std.testing.expectEqual(@as(?Engine.Layout, null), rule.layout);
+    }
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try parseAndReload(std.testing.allocator, &engine, "[[window]]\napp_id = \"test\"\nlayout = \"scrolling\"\nscrolling_width = 0.65\n");
+    try std.testing.expectEqual(Engine.Layout.scrolling, engine.resolve(.{ .app_id = "test" }).?.layout.?);
 }

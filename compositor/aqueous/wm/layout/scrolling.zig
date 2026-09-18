@@ -8,11 +8,14 @@ const types = @import("types.zig");
 pub const Column = struct {
     windows: std.ArrayListUnmanaged(types.Handle) = .empty,
     /// Pointer resizing records an explicit logical-pixel width for the whole
-    /// column. Null follows the configured column fraction.
+    /// column. Null follows the member rule or configured column fraction.
     width_override: ?i32 = null,
     /// The member whose per-window flag currently expands this column. All
     /// members necessarily share the column width.
     expanded_owner: ?types.Handle = null,
+    /// Retain the member supplying a fractional base width across focus and
+    /// row changes. All members share the destination column's width.
+    width_owner: ?types.Handle = null,
     /// Vertical viewport state is kept on the column so moving between columns
     /// restores each stack to its previous position.
     viewport_y: i32 = 0,
@@ -99,8 +102,7 @@ pub fn arrange(
     // Scrolling dimensions describe the complete tile footprint. Borders are
     // drawn outside the client surface, so reserve their space here instead of
     // letting them enlarge the tile and consume the configured gaps.
-    const base_outer_width = @max(1, @as(i32, @intFromFloat(@round(@as(f64, @floatFromInt(area.width)) * scrolling_options.column_width))));
-    const base_width = contentLength(base_outer_width, border_width);
+    const base_width = fractionalContentWidth(area.width, scrolling_options.column_width, border_width);
     const widths = try allocator.alloc(i32, state.columns.items.len);
     defer allocator.free(widths);
     const offsets = try allocator.alloc(i32, state.columns.items.len);
@@ -120,10 +122,14 @@ pub fn arrange(
                     @min(maximum_width, window.max_width);
             }
         }
+        const fractional_width = if (column.width_owner) |owner|
+            fractionalContentWidth(area.width, findWindow(windows, owner).?.scrolling_width.?, border_width)
+        else
+            base_width;
         const requested_width = if (column.expanded_owner != null)
             contentLength(area.width, border_width)
         else
-            column.width_override orelse base_width;
+            column.width_override orelse fractional_width;
         width.* = if (column.expanded_owner == null and column.width_override != null)
             clampRequestedSize(requested_width, minimum_width, maximum_width)
         else
@@ -611,8 +617,31 @@ fn sync(
         added = .{ .column = index, .row = 0 };
         if (prefer_vertical) target_column = index;
     }
-    for (state.columns.items) |*column| refreshExpandedOwner(column, windows);
+    for (state.columns.items) |*column| {
+        refreshExpandedOwner(column, windows);
+        refreshWidthOwner(column, windows);
+    }
     return added;
+}
+
+fn fractionalContentWidth(available: i32, fraction: f64, border: i32) i32 {
+    const footprint = @max(1, @as(i32, @intFromFloat(@round(@as(f64, @floatFromInt(available)) * fraction))));
+    return contentLength(footprint, border);
+}
+
+fn refreshWidthOwner(column: *Column, windows: []const types.Window) void {
+    if (column.width_owner) |owner| {
+        if (findWindow(windows, owner)) |window| {
+            if (window.scrolling_width != null and contains(column.windows.items, owner)) return;
+        }
+    }
+    column.width_owner = null;
+    for (column.windows.items) |handle| {
+        if (findWindow(windows, handle).?.scrolling_width != null) {
+            column.width_owner = handle;
+            return;
+        }
+    }
 }
 
 fn refreshExpandedOwner(column: *Column, windows: []const types.Window) void {
@@ -1450,4 +1479,111 @@ test "right insertion preserves a manually selected viewport column" {
     try expectColumnOrder(&state, &.{ 1, 4, 2, 3 });
     try std.testing.expectEqual(@as(usize, 3), state.viewport_column);
     try std.testing.expectEqual(@as(usize, 0), state.focused_column);
+}
+
+test "fractional columns use local footprints and recompute without changing height" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{
+        .{ .handle = 1, .scrolling_width = 0.25 },
+        .{ .handle = 2, .scrolling_width = 0.65 },
+        .{ .handle = 3, .scrolling_width = 1 },
+        .{ .handle = 4 },
+    };
+    const options: types.Options = .{
+        .gaps_outer = 10,
+        .gaps_inner = 6,
+        .border = .{ .width = 2, .focused = 0, .normal = 0, .urgent = 0 },
+    };
+    for ([_]i32{ 420, 820 }) |area_width| {
+        const placements = try arrange(std.testing.allocator, &state, .{ .x = 20, .y = 30, .width = area_width, .height = 220 }, &windows, 2, options, .{});
+        defer std.testing.allocator.free(placements);
+        const available = area_width - 20;
+        for ([_]i32{ 25, 65, 100, 50 }, placements) |percent, placement| {
+            try std.testing.expectEqual(@divTrunc(available * percent, 100) - 4, placement.geometry.width);
+            try std.testing.expectEqual(@as(i32, 196), placement.geometry.height);
+        }
+        for (placements[0..3], placements[1..]) |first, second| {
+            try std.testing.expectEqual(@as(i32, 6), second.geometry.x - first.geometry.x - first.geometry.width - 4);
+        }
+    }
+    const tiny = try arrange(std.testing.allocator, &state, .{ .x = 0, .y = 0, .width = 2, .height = 2 }, &windows, 1, options, .{});
+    defer std.testing.allocator.free(tiny);
+    for (tiny) |placement| try std.testing.expect(placement.geometry.width >= 1 and placement.geometry.height >= 1);
+}
+
+test "fractional width respects full preset and pixel precedence and client constraints" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    var windows = [_]types.Window{.{ .handle = 1, .scrolling_width = 0.65, .min_width = 70, .max_width = 80 }};
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+    const options: types.Options = .{ .gaps_outer = 0, .gaps_inner = 0 };
+    var result = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    try std.testing.expectEqual(@as(i32, 70), result[0].geometry.width);
+    std.testing.allocator.free(result);
+    try std.testing.expect(try resize(&state, std.testing.allocator, 1, .{ .height = 30 }));
+    result = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    try std.testing.expectEqual(@as(i32, 70), result[0].geometry.width);
+    try std.testing.expectEqual(@as(i32, 30), result[0].geometry.height);
+    std.testing.allocator.free(result);
+    try std.testing.expect(try resize(&state, std.testing.allocator, 1, .{ .width = 95 }));
+    result = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    try std.testing.expectEqual(@as(i32, 80), result[0].geometry.width);
+    std.testing.allocator.free(result);
+    windows[0].scrolling_full_width = true;
+    result = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    try std.testing.expectEqual(@as(i32, 100), result[0].geometry.width);
+    std.testing.allocator.free(result);
+    windows[0].scrolling_full_width = false;
+    result = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    try std.testing.expectEqual(@as(i32, 80), result[0].geometry.width);
+    std.testing.allocator.free(result);
+    try std.testing.expect(resetSize(&state, 1));
+    // The compositor releases the rule on a manual reset; layout alone only
+    // clears the pixel override, revealing a still-active fraction.
+    windows[0].min_width = 0;
+    result = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    try std.testing.expectEqual(@as(i32, 65), result[0].geometry.width);
+    std.testing.allocator.free(result);
+}
+
+test "fraction owner survives stack focus reorder and merges and follows expelled members" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    var windows = [_]types.Window{
+        .{ .handle = 1, .scrolling_width = 0.65 },
+        .{ .handle = 2, .scrolling_width = 0.25 },
+        .{ .handle = 3, .scrolling_width = 1 },
+    };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+    const options: types.Options = .{ .gaps_outer = 0, .gaps_inner = 0 };
+    std.testing.allocator.free(try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{}));
+    try std.testing.expect(try consumeFromRight(&state, std.testing.allocator, 1));
+    try std.testing.expect(moveWithinColumn(&state, 2, -1));
+    var result = try arrange(std.testing.allocator, &state, area, &windows, 2, options, .{});
+    try std.testing.expectEqual(@as(i32, 65), findPlacement(result, 2).geometry.width);
+    std.testing.allocator.free(result);
+    try std.testing.expect(try drop(&state, std.testing.allocator, 3, 2, .stack_before));
+    result = try arrange(std.testing.allocator, &state, area, &windows, 3, options, .{});
+    for (result) |placement| try std.testing.expectEqual(@as(i32, 65), placement.geometry.width);
+    std.testing.allocator.free(result);
+    try std.testing.expect(try expelToRight(&state, std.testing.allocator, 1));
+    result = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    try std.testing.expectEqual(@as(i32, 65), findPlacement(result, 1).geometry.width);
+    try std.testing.expectEqual(@as(i32, 100), findPlacement(result, 2).geometry.width);
+    std.testing.allocator.free(result);
+    try std.testing.expect(try moveToAdjacentColumn(&state, std.testing.allocator, 1, -1));
+    result = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    for (result) |placement| try std.testing.expectEqual(@as(i32, 100), placement.geometry.width);
+    std.testing.allocator.free(result);
+    // Removing the owner's field selects the next eligible row, not focus.
+    windows[2].scrolling_width = null;
+    result = try arrange(std.testing.allocator, &state, area, &windows, 1, options, .{});
+    for (result) |placement| try std.testing.expectEqual(@as(i32, 25), placement.geometry.width);
+    std.testing.allocator.free(result);
+    // Removing that member also repairs the owner before arranging.
+    const remaining = [_]types.Window{ windows[0], windows[2] };
+    result = try arrange(std.testing.allocator, &state, area, &remaining, 3, options, .{});
+    for (result) |placement| try std.testing.expectEqual(@as(i32, 65), placement.geometry.width);
+    std.testing.allocator.free(result);
 }

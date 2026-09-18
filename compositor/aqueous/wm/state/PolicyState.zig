@@ -55,6 +55,8 @@ needs_output_recovery: bool = false,
 /// Scrolling-layout column width override. This is independent of `kind` so
 /// the window remains part of the layout and viewport navigation keeps working.
 scrolling_full_width: bool = false,
+/// Fractional base width remains independent of the full-width preset.
+scrolling_width: ?f64 = null,
 
 /// Last non-null toplevel parent for which automatic transient placement was
 /// applied. Keeping this edge-triggered lets a user tile the dialog manually
@@ -95,6 +97,10 @@ rule_scrolling_full_width_owned: bool = false,
 rule_scrolling_full_width_overridden: bool = false,
 rule_scrolling_full_width_requested: ?bool = null,
 rule_scrolling_full_width_previous: bool = false,
+rule_scrolling_width_owned: bool = false,
+rule_scrolling_width_overridden: bool = false,
+rule_scrolling_width_requested: ?f64 = null,
+rule_scrolling_width_previous: ?f64 = null,
 focus_allowed: bool = true,
 fixed_position: bool = false,
 skip_switcher: bool = false,
@@ -199,6 +205,34 @@ pub fn ruleChanged(state: *const PolicyState, match: u64) bool {
     return !state.rule_initialized or state.rule_match != match;
 }
 
+/// Manual horizontal sizing releases the fractional rule for this matcher.
+pub fn overrideScrollingWidth(state: *PolicyState) void {
+    state.rule_scrolling_width_owned = false;
+    state.rule_scrolling_width_overridden = true;
+    state.scrolling_width = null;
+}
+
+pub fn restoreRuleScrollingWidth(state: *PolicyState) void {
+    if (state.rule_scrolling_width_owned) {
+        state.scrolling_width = state.rule_scrolling_width_previous;
+        state.rule_scrolling_width_owned = false;
+    }
+}
+
+pub fn reconcileScrollingWidth(state: *PolicyState, requested: ?f64) void {
+    if (requested == state.rule_scrolling_width_requested) return;
+    if (requested) |value| {
+        if (!state.rule_scrolling_width_overridden) {
+            if (!state.rule_scrolling_width_owned) state.rule_scrolling_width_previous = state.scrolling_width;
+            state.scrolling_width = value;
+            state.rule_scrolling_width_owned = true;
+        }
+    } else {
+        state.restoreRuleScrollingWidth();
+    }
+    state.rule_scrolling_width_requested = requested;
+}
+
 /// Start ownership tracking for a different semantic matcher after the caller
 /// has rolled back properties still owned by the prior match.
 pub fn acceptRuleMatch(state: *PolicyState, match: u64) void {
@@ -218,6 +252,9 @@ pub fn acceptRuleMatch(state: *PolicyState, match: u64) void {
     state.rule_scrolling_full_width_owned = false;
     state.rule_scrolling_full_width_overridden = false;
     state.rule_scrolling_full_width_requested = null;
+    state.rule_scrolling_width_owned = false;
+    state.rule_scrolling_width_overridden = false;
+    state.rule_scrolling_width_requested = null;
     state.rule_initialized = true;
     state.rule_match = match;
 }
@@ -346,4 +383,33 @@ test "snap state remains independent of presentation and visibility" {
     state.visibility = .visible;
     try std.testing.expectEqual(Kind.floating, state.kind());
     try std.testing.expectEqual(@as(i32, 300), state.snap_restore_geometry.width);
+}
+
+test "fractional width reloads restore previous state and preserve manual intent" {
+    var state: PolicyState = .{ .scrolling_width = 0.25 };
+    state.acceptRuleMatch(1);
+    state.reconcileScrollingWidth(0.65);
+    try std.testing.expectEqual(@as(?f64, 0.65), state.scrolling_width);
+    state.reconcileScrollingWidth(1);
+    try std.testing.expectEqual(@as(?f64, 1), state.scrolling_width);
+    state.reconcileScrollingWidth(null);
+    try std.testing.expectEqual(@as(?f64, 0.25), state.scrolling_width);
+    state.reconcileScrollingWidth(0.65);
+    // Full-width toggles are an independent overlay on the base fraction.
+    try std.testing.expect(state.toggleScrollingFullWidth());
+    try std.testing.expect(!state.toggleScrollingFullWidth());
+    try std.testing.expectEqual(@as(?f64, 0.65), state.scrolling_width);
+    state.overrideScrollingWidth();
+    state.reconcileScrollingWidth(0.65);
+    state.reconcileScrollingWidth(0.75);
+    state.reconcileScrollingWidth(null);
+    state.reconcileScrollingWidth(1);
+    state.restoreRuleScrollingWidth();
+    try std.testing.expectEqual(@as(?f64, null), state.scrolling_width);
+    state.acceptRuleMatch(2);
+    state.reconcileScrollingWidth(0.75);
+    try std.testing.expectEqual(@as(?f64, 0.75), state.scrolling_width);
+    state.restoreRuleScrollingWidth();
+    state.acceptRuleMatch(0);
+    try std.testing.expectEqual(@as(?f64, null), state.scrolling_width);
 }

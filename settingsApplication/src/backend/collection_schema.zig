@@ -16,11 +16,11 @@ pub const SnapTablePath = struct {
 };
 
 pub const rule_keys: []const []const u8 = &.{
-    "app_id",               "class",         "title",         "content_type", "layout",         "output",        "workspace",
-    "floating",             "fullscreen",    "ignore_struts", "width",        "height",         "x",             "y",
-    "placement_policy",     "anchor",        "size",          "scale",        "blur",           "opacity",       "buffer_scale_policy",
-    "hdr_expand",           "overlay_plane", "stack_layer",   "focus",        "fixed_position", "skip_switcher", "skip_taskbar",
-    "scrolling_full_width", "tag",
+    "app_id",               "class",           "title",         "content_type", "layout",         "output",        "workspace",
+    "floating",             "fullscreen",      "ignore_struts", "width",        "height",         "x",             "y",
+    "placement_policy",     "anchor",          "size",          "scale",        "blur",           "opacity",       "buffer_scale_policy",
+    "hdr_expand",           "overlay_plane",   "stack_layer",   "focus",        "fixed_position", "skip_switcher", "skip_taskbar",
+    "scrolling_full_width", "scrolling_width", "tag",
 };
 
 pub fn parseSnapTablePath(name: []const u8) ?SnapTablePath {
@@ -77,7 +77,7 @@ pub fn ruleInteger(key: []const u8) bool {
 }
 
 pub fn ruleDouble(key: []const u8) bool {
-    return std.mem.eql(u8, key, "scale") or std.mem.eql(u8, key, "opacity");
+    return std.mem.eql(u8, key, "scale") or std.mem.eql(u8, key, "opacity") or std.mem.eql(u8, key, "scrolling_width");
 }
 
 pub fn decodeRuleTag(raw: []const u8, buffer: []u8) ![]const u8 {
@@ -111,6 +111,7 @@ pub fn validateRuleRaw(key: []const u8, raw: []const u8) !void {
         const value = std.fmt.parseFloat(f64, std.mem.trim(u8, raw, " \t\r")) catch return error.InvalidWindowRuleValue;
         if (!std.math.isFinite(value) or
             (std.mem.eql(u8, key, "scale") and (value <= 0 or value > 16)) or
+            (std.mem.eql(u8, key, "scrolling_width") and (value <= 0 or value > 1)) or
             (std.mem.eql(u8, key, "opacity") and (value < 0 or value > 1))) return error.InvalidWindowRuleValue;
         return;
     }

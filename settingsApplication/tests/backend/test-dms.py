@@ -61,15 +61,19 @@ with tempfile.TemporaryDirectory(prefix='aqueous-dms-helper-') as temporary:
     live = dict(protocol=1,expected_generation=applied['generation'],monitor_changes=[dict(id='live:HDMI-A-2',name='HDMI-A-2',x=-1920,y=0,transform='90')])
     applied = call('apply',live)
     assert any(m['name']=='HDMI-A-2' and m['x']==-1920 for m in applied['monitors'])
-    # Both rule editors round-trip the optional scrolling preset as a boolean.
+    width_field = next(f for f in snap['collection_schema']['window_rules']['fields'] if f['key'] == 'scrolling_width')
+    assert width_field['type'] == 'number' and width_field['range'] == [0, 1]
+    assert width_field['exclusive_minimum'] is True
+    # Both shell adapters round-trip the preset and independent base fraction.
     for shell in ['dms', 'noctalia']:
         change = dict(protocol=1, expected_generation=applied['generation'],
                       window_rule_changes=[dict(id='new-rule:width', op='add',
-                          values=dict(app_id='aq-width-test', scrolling_full_width=True))])
+                          values=dict(app_id='aq-width-test', scrolling_full_width=True, scrolling_width=0.65))])
         call('validate', change, shell=shell)
         applied = call('apply', change, shell=shell)
         rule = next(r for r in applied['window_rules'] if r['values'].get('app_id') == 'aq-width-test')
         assert rule['values']['scrolling_full_width'] is True
+        assert rule['values']['scrolling_width'] == 0.65
         assert 'layout' not in rule['values']
         for value in [False, None, True]:
             change = dict(protocol=1, expected_generation=applied['generation'],
@@ -82,7 +86,21 @@ with tempfile.TemporaryDirectory(prefix='aqueous-dms-helper-') as temporary:
             else:
                 assert rule['values']['scrolling_full_width'] is value
                 assert 'scrolling_full_width = ' + str(value).lower() in (config/'rules.toml').read_text()
+        for value in [0.25, 1, None, 0.65]:
+            change = dict(protocol=1, expected_generation=applied['generation'],
+                          window_rule_changes=[dict(id=rule['id'], op='update', values=dict(scrolling_width=value))])
+            applied = call('apply', change, shell=shell)
+            rule = next(r for r in applied['window_rules'] if r['values'].get('app_id') == 'aq-width-test')
+            if value is None:
+                assert 'scrolling_width' not in rule['values']
+            else:
+                assert rule['values']['scrolling_width'] == value
         before_rules = (config/'rules.toml').read_bytes()
+        for value in [0, -0.1, 1.01, '65%', True]:
+            invalid = dict(protocol=1, expected_generation=applied['generation'],
+                           window_rule_changes=[dict(id=rule['id'], op='update', values=dict(scrolling_width=value))])
+            call('validate', invalid, shell=shell, success=False)
+            assert (config/'rules.toml').read_bytes() == before_rules
         invalid = dict(protocol=1, expected_generation=applied['generation'],
                        window_rule_changes=[dict(id=rule['id'], op='update',
                            values=dict(scrolling_full_width='invalid'))])

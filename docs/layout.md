@@ -246,6 +246,10 @@ The default column-management bindings are:
   Set `scrolling_full_width = true` in a matching window rule to enable this
   preset by default. Manual toggles and horizontal resizing override the rule;
   see [window rules](rules.md).
+  A matching `scrolling_width = 0.65` rule sets a custom base width of 65% of
+  the local scrolling viewport. The full-width toggle preserves that base;
+  horizontal resizing overrides it and size reset returns to `column_fraction`.
+  Stacked members share a stable width owner, independent of keyboard focus.
 - `Super+Shift+Left/Right` moves the focused window into the adjacent column,
   creating a vertical stack. At an edge with no adjacent column, a stacked
   member is expelled into a new column in that direction. `Super+Shift+Up/Down`

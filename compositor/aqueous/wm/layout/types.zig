@@ -62,6 +62,7 @@ pub const Window = struct {
     floating: bool = false,
     fullscreen: bool = false,
     scrolling_full_width: bool = false,
+    scrolling_width: ?f64 = null,
 };
 
 pub const FloatingPlacement = enum {

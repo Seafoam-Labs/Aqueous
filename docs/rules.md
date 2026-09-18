@@ -66,6 +66,7 @@ matters.
 | `layout` | string | no | Select a built-in layout, including `composable`; `"float"` also marks the window floating. Omitted leaves the workspace layout unchanged. Game mode requires explicit `"game-mode"` (or `"game_mode"`). |
 | `floating` | bool | no | Force floating placement. |
 | `scrolling_full_width` | bool | no | Set the initial scrolling column preset, equivalent to `Super+Shift+Z` when true. False starts with the preset disabled; unset leaves it alone. A rule using this field preserves the current layout when `layout` is omitted. |
+| `scrolling_width` | number | no | Base scrolling column width as a finite fraction greater than `0` and at most `1` (`0.65` means 65%). Unset uses the global column fraction unless another member owns the column width. Preserves the current layout when `layout` is omitted. |
 | `placement_policy` | string | no | Per-rule `cascade`, `center`, `under-pointer`, or `minimal-overlap` initial placement. |
 | `stack_layer` | string | no | Place the window in the `below`, `normal`, or `above` semantic stack layer. |
 | `focus` | bool | no | When false, exclude the window from compositor focus selection. |
@@ -117,6 +118,38 @@ restores their previous preset without undoing manual overrides. All rules
 preserve the current layout when `layout` is omitted; an explicit `layout`
 always takes precedence. Add the field to an existing matching rule if
 one exists, since only the first matching rule applies.
+
+To give an application a custom scrolling width:
+
+```toml
+[[window]]
+app_id = "firefox"
+scrolling_width = 0.65 # 65% of the scrolling viewport
+```
+
+The fraction describes the complete tile footprint, including borders, after
+reserved areas and outer gaps. Inner gaps remain between columns. It affects
+only width, respects client minimum sizes, and is recalculated when the usable
+area changes. Nested scrolling layouts use their own region's width. Other
+layouts retain their existing geometry.
+
+An active full-width preset takes priority, followed by a manually resized
+pixel width, then the custom fraction, then the global `column_fraction`.
+Both rule fields may be set: toggling full width off reveals the custom base
+width. Toggling a base fraction of `1.0` may make no visible difference.
+
+Stacked members share the column width. The first eligible member supplies its
+fraction until it leaves the column or its fraction is removed. Changing focus
+or row order does not change that owner; merging preserves the destination
+column's owner. An expelled window carries its own fraction into its new column.
+
+Horizontal pointer resizing and size reset override fractional rules for every
+current member of the column. Reset returns to the global column fraction.
+Vertical resizing and full-width toggling preserve the custom base fraction.
+Reloads update fractions still owned by a rule; removing a field or matcher
+restores the previous fraction without undoing manual overrides. Manual overrides
+survive edits to the same matcher until a different matcher becomes active.
+Add `scrolling_width` to the first matching rule, or it will not take effect.
 
 Older versions implicitly selected game mode for most rules with no `layout`.
 To retain that behavior for a game, add `layout = "game-mode"` to its matching
