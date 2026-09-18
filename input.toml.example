@@ -27,7 +27,8 @@ pinch_4_in = "builtin:toggle_start_menu"
 [input]
 # Focus a window when the pointer enters it.
 focus_follows_mouse = false
-# Move into newly focused windows except after pointer interactions.
+# Move into newly focused windows, including keyboard and wheel bindings.
+# Hover and click focus do not move the pointer.
 # Output navigation still moves the pointer when this is disabled.
 mouse_follows_focus = false
 focus_new_windows = false

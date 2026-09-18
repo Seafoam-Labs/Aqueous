@@ -1281,7 +1281,9 @@ pub fn wheelBindingVerb(aqueous: *Aqueous, seat: *Seat, direction: wheel_input.D
 
 pub fn handleWheel(aqueous: *Aqueous, seat: *Seat, direction: wheel_input.Direction, modifiers: u32, count: u32) void {
     const previous_cause = aqueous.focus_cause;
-    aqueous.focus_cause = .pointer;
+    // Bound wheel actions navigate focus like keyboard bindings. Hover and
+    // clicks still retain pointer-originated focus without an automatic warp.
+    aqueous.focus_cause = .non_pointer;
     defer aqueous.focus_cause = previous_cause;
     const verb = aqueous.wheelBindingVerb(seat, direction, modifiers) orelse return;
     if (wheel_input.navigationForVerb(verb)) |navigation| {
@@ -1314,9 +1316,6 @@ fn wheelNavigationAxis(aqueous: *Aqueous, axis: wheel_input.NavigationAxis) ?whe
 }
 
 pub fn navigateWithWheel(aqueous: *Aqueous, axis: wheel_input.NavigationAxis, steps: i32) bool {
-    const previous_cause = aqueous.focus_cause;
-    aqueous.focus_cause = .pointer;
-    defer aqueous.focus_cause = previous_cause;
     if (steps == 0) return false;
     return switch (axis) {
         .horizontal => aqueous.scrollViewport(steps, 0),

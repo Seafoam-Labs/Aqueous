@@ -510,15 +510,16 @@ and finally the first usable output. Left/right output navigation uses physical
 output rectangles rather than iterator order.
 
 `input.mouse_follows_focus = true` moves the pointer into newly focused windows
-following keyboard navigation, activation, workspace restoration, and automatic
-new-window/replacement focus. It defaults to `false` and is hot-reloadable; an
-explicit value in `input.toml` overrides `wm.toml`. DMS and Noctalia expose it as
-“Move pointer with focus” in Input settings.
+following keyboard or wheel-bound navigation, activation, workspace restoration,
+and automatic new-window/replacement focus. It defaults to `false` and is
+hot-reloadable; an explicit value in `input.toml` overrides `wm.toml`. DMS and
+Noctalia expose it as “Move pointer with focus” in Input settings.
 
 The pointer stays put if already over the target's visible content. Otherwise
 Aqueous prefers the visible center and checks alternative inset points when
-occluded. Pointer-originated focus (including wheel navigation and overview
-clicks), grabs, interactive drags, and non-window focus do not trigger it.
+occluded. Hover and click focus (including overview clicks), grabs, interactive
+drags, and non-window focus do not trigger it. Unbound scrolling passes through
+to the application without moving the pointer.
 Physical pointer input cancels a deferred warp. The destination is resolved
 once after live geometry and stacking commit, with output/viewport clipping
 and hit testing; animation frames do not repeatedly move the pointer. Policy

@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import subprocess
 import select
+import socket
 import tempfile
 import time
 
@@ -244,7 +245,92 @@ try:
     send('scroll 1 0 -15 -1')
     time.sleep(.08)
     assert positions() == first_positions, 'disabled navigation chord still active'
-    print('Wheel directions, steps, navigation rebinding, reload, inhibition, and passthrough passed')
+    def focused():
+        snapshot = json.loads(subprocess.check_output(
+            [str(CTL), 'shell', 'snapshot', '--json'], env=env, timeout=5))
+        return next(r['window'] for r in snapshot['upsert'] if r['kind'] == 'seat')
+
+    def pointer_xy():
+        with socket.socket(socket.AF_UNIX) as sock:
+            sock.settimeout(5)
+            sock.connect(str(runtime / 'aqueous/outputd.sock'))
+            sock.sendall(b'{"op":"cursor_state"}\n')
+            with sock.makefile('r') as stream:
+                result = json.loads(stream.readline())
+        assert result['ok'], result
+        return result['x'], result['y']
+
+    def inside(wid):
+        g = next(w['geometry'] for w in windows() if w['id'] == wid)
+        x, y = pointer_xy()
+        return g['x'] <= x < g['x'] + g['width'] and g['y'] <= y < g['y'] + g['height']
+
+    def all_axes():
+        return sum(line.startswith('pointer axis ') and not line.startswith('pointer axis stop ')
+                   for path in [client_log, *base.glob('companion-*.log')]
+                   for line in path.read_text().splitlines())
+
+    # Issue #64: the same focus action follows mouse_follows_focus for keyboard,
+    # all wheel directions, and touchpad steps, with either hover-focus policy.
+    for follows_mouse in (False, True):
+        for follows_focus in (False, True):
+            policy = preamble.replace('focus_follows_mouse = false',
+                                     f'focus_follows_mouse = {str(follows_mouse).lower()}')
+            policy = policy.replace('mouse_follows_focus = false',
+                                    f'mouse_follows_focus = {str(follows_focus).lower()}')
+            wm.write_text(policy + '\n[keybinds.custom]\n' + '\n'.join(
+                f'"Super+Wheel{direction}" = "builtin:cycle_focus"'
+                for direction in ('Up', 'Down', 'Left', 'Right')) + '\n')
+            reload()
+            send('mods 0')
+            send('move')
+            under_pointer = next(w['id'] for w in windows() if inside(w['id']))
+            subprocess.run([str(CTL), 'window', 'activate', '--id', under_pointer, '--json'],
+                           env=env, check=True, stdout=subprocess.DEVNULL, timeout=5)
+            wait_for(lambda: focused() == under_pointer)
+            for source, axis, delta in [(0, 0, -15), (0, 0, 15), (0, 1, -15),
+                                        (0, 1, 15), (1, 0, 50), (None, 0, 0)]:
+                before_focus, point, before_axes = focused(), pointer_xy(), all_axes()
+                if source is None:
+                    send('mods 0')
+                    client_command('chord 15 64')  # Super+Tab: same cycle_focus action
+                else:
+                    send('mods 64')
+                    send(f'scroll {axis} {source} {delta} {1 if delta > 0 else -1}')
+                    if source == 1:
+                        send('scroll 0 1 0 0')
+                wait_for(lambda: focused() != before_focus)
+                if follows_focus:
+                    wait_for(lambda: inside(focused()))
+                    assert pointer_xy() != point, 'focus changed without moving into the target'
+                else:
+                    time.sleep(.08)
+                    assert pointer_xy() == point, 'disabled mouse_follows_focus still warped'
+                assert all_axes() == before_axes, 'bound focus scroll leaked to a client'
+
+            # Unbound scrolling stays with the application, preserving focus
+            # and pointer position even when automatic focus warps are enabled.
+            send('mods 0')
+            before_focus, point, before_axes = focused(), pointer_xy(), all_axes()
+            send('scroll 0 0 15 1')
+            wait_for(lambda: all_axes() > before_axes)
+            assert focused() == before_focus and pointer_xy() == point
+
+    # Default scrolling navigation goes through navigateWithWheel as well as
+    # handleWheel; it must retain the binding's focus cause after viewport motion.
+    wm.write_text(scrolling.replace('mouse_follows_focus = false', 'mouse_follows_focus = true'))
+    reload()
+    leftmost = min(windows(), key=lambda w: w['geometry']['x'])['id']
+    subprocess.run([str(CTL), 'window', 'activate', '--id', leftmost, '--json'],
+                   env=env, check=True, stdout=subprocess.DEVNULL, timeout=5)
+    wait_for(lambda: focused() == leftmost and inside(leftmost))
+    send('move')
+    point = pointer_xy()
+    send('mods 64')
+    send('scroll 0 0 15 1')
+    wait_for(lambda: focused() != leftmost and inside(focused()))
+    assert pointer_xy() != point, 'viewport focus failed to move the pointer'
+    print('Wheel directions, steps, navigation rebinding, reload, inhibition, passthrough, and focus warps passed')
 finally:
     for child in reversed(children):
         if child.poll() is None:
