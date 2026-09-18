@@ -22,6 +22,9 @@ jobs:
   release:
     name: Build and publish release artifacts
     runs-on: ubuntu-latest
+    env:
+      CFLAGS: -march=x86-64-v3 -mtune=generic
+      CXXFLAGS: -march=x86-64-v3 -mtune=generic
     container:
       image: archlinux:latest
       options: --user root
@@ -90,7 +93,7 @@ jobs:
           rm -rf -- "$GITHUB_WORKSPACE/publish/aqueous-compositor/share/aqueous-protocols"
           PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
           tag="${{ github.event.inputs.tag || github.ref_name }}"
-          zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm -Dman-pages=true -Dversion-string="${tag#v}" \
+          zig build -Dcpu=x86_64_v3 -Doptimize=ReleaseSafe -Dxwayland -Dllvm -Dman-pages=true -Dversion-string="${tag#v}" \
             --prefix "$GITHUB_WORKSPACE/publish/aqueous-compositor" install
           cmp "$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/libwlroots-0.20.so" \
             "$GITHUB_WORKSPACE/publish/aqueous-compositor/lib/aqueous/libwlroots-0.20.so"
@@ -125,19 +128,19 @@ jobs:
         run: |
           set -euxo pipefail
           zig build --build-file welcome/build.zig \
-            -Dcpu=baseline -Doptimize=ReleaseSafe test
+            -Dcpu=x86_64_v3 -Doptimize=ReleaseSafe test
           zig build --build-file welcome/build.zig \
-            -Dcpu=baseline -Doptimize=ReleaseSafe \
+            -Dcpu=x86_64_v3 -Doptimize=ReleaseSafe \
             --prefix "$GITHUB_WORKSPACE/publish/aqueous-welcome" install
 
       - name: Build canonical configuration helper
         shell: bash
         run: |
           zig build --build-file settingsApplication/build.zig test test-driver \
-            -Dmodel-only=true -Dcpu=baseline -Doptimize=ReleaseSafe
+            -Dmodel-only=true -Dcpu=x86_64_v3 -Doptimize=ReleaseSafe
           settingsApplication/tests/test-backend.sh
           zig build --build-file settingsApplication/build.zig \
-            -Dcpu=baseline -Doptimize=ReleaseSafe \
+            -Dcpu=x86_64_v3 -Doptimize=ReleaseSafe \
             --prefix "$GITHUB_WORKSPACE/publish/aqueous-config"
           AQUEOUS_CONFIG_BINARY="$GITHUB_WORKSPACE/publish/aqueous-config/bin/aqueous-config" \
             AQUEOUSCTL_BINARY="$GITHUB_WORKSPACE/publish/aqueous-compositor/bin/aqueousctl" \
@@ -148,7 +151,7 @@ jobs:
         run: |
           set -euo pipefail
           zig build --build-file packaging/portal/bridge/build.zig \
-            -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$GITHUB_WORKSPACE/publish/aqueous-chooser"
+            -Dcpu=x86_64_v3 -Doptimize=ReleaseSafe --prefix "$GITHUB_WORKSPACE/publish/aqueous-chooser"
           export AQUEOUS_COMPOSITOR_DIST="$GITHUB_WORKSPACE/publish/aqueous-compositor"
           export AQUEOUS_CONFIG_BINARY="$GITHUB_WORKSPACE/publish/aqueous-config/bin/aqueous-config"
           export AQUEOUS_WELCOME_BINARY="$GITHUB_WORKSPACE/publish/aqueous-welcome/bin/aqueous-welcome"

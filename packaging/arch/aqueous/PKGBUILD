@@ -2,7 +2,7 @@
 # Minimal stable compositor for consumers such as pearl-greeter.
 pkgname=aqueous
 pkgver=0.8.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Aqueous Wayland compositor (stable, compositor only)'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Seafoam-Labs/Aqueous'
@@ -16,7 +16,7 @@ makedepends=('git' 'curl' 'patch' 'scdoc' 'python' 'shaderc' 'clang' 'lld' 'llvm
              'vulkan-headers' 'hwdata' 'zig>=0.16')
 provides=("aqueous=$pkgver")
 # These packages own the same unsuffixed binary/private library.
-# The suffixed aqueous-core-{git,intel-git} packages can coexist.
+# The suffixed aqueous-core-git package can coexist.
 conflicts=('aqueous-bin' 'aqueous-core' 'aqueous-core-bin'
            'aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms')
 options=('!strip' '!debug')
@@ -25,10 +25,20 @@ source=("aqueous::git+${url}.git#tag=v${pkgver}"
 sha256sums=('SKIP' '972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343')
 
 build() {
+    # x86-64-v3 is shared by supported Intel and AMD CPUs; ARM stays baseline.
+    case ${CARCH:-$(uname -m)} in
+        x86_64)
+            AQUEOUS_ZIG_CPU=x86_64_v3
+            export CFLAGS="${CFLAGS:+$CFLAGS }-march=x86-64-v3 -mtune=generic"
+            export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-march=x86-64-v3 -mtune=generic"
+            ;;
+        aarch64) AQUEOUS_ZIG_CPU=baseline ;;
+        *) printf 'Unsupported package architecture: %s\n' "${CARCH:-$(uname -m)}" >&2; return 1 ;;
+    esac
     cd "$srcdir/aqueous/compositor"
     AQUEOUS_WLROOTS_CACHE_DIR="$srcdir" bash scripts/build-wlroots-render-hook.sh
     PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig" \
-        zig build -Dcpu=baseline -Doptimize=ReleaseSafe -Dxwayland -Dllvm \
+        zig build -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe -Dxwayland -Dllvm \
         -Dman-pages=true -Dversion-string="$pkgver" --prefix "$srcdir/aqueous-dist"
 }
 

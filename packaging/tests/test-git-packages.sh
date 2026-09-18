@@ -22,7 +22,7 @@ printf 'prefix=/usr\ndatarootdir=${prefix}/share\npkgdatadir=${pc_sysrootdir}${d
 export AQUEOUS_COMPOSITOR_DIST=$build AQUEOUS_CONFIG_DIST=$build AQUEOUS_CONFIG_BINARY=$build/bin/aqueous-config
 DESTDIR="$base/stable" PREFIX=/usr "$root/packaging/stage-component.sh" core
 files "$base/stable" > "$base/stable-files"
-for channel in git intel-git; do
+for channel in git; do
     instance=aqueous-$channel
     jq -n --arg instance "$instance" '{schema:1,instance:$instance}' > "$build/share/aqueous/build-instance.json"
     DESTDIR="$base/$channel" PREFIX=/usr "$root/packaging/git/stage.sh" "$channel"
@@ -53,13 +53,12 @@ SH
         "$base/prefix-$channel/bin/aqueous-config-$channel" > "$base/routing.json"
     jq -e '.config=="/explicit/wm.toml" and .socket=="/explicit/ipc.sock" and .display=="explicit-display"' "$base/routing.json" >/dev/null
     recipe=$root/packaging/arch/aqueous-core-$channel/PKGBUILD
-    bash -c 'set -eu; source "$1"; [[ ${provides+x} != x && ${conflicts+x} != x && ${replaces+x} != x && ${install+x} != x ]]; [[ $pkgname == "$2" ]]; for dep in "${depends[@]}"; do case $dep in dms*|noctalia*|pearl*|aqueous|aqueous-core) exit 1;; esac; done' _ "$recipe" "aqueous-core-$channel"
+    bash -c 'set -eu; source "$1"; [[ ${provides+x} != x && ${conflicts+x} != x && ${install+x} != x ]]; [[ $pkgname == "$2" ]]; [[ ${#replaces[@]} == 1 && ${replaces[0]} == aqueous-core-intel-git ]]; for dep in "${depends[@]}"; do case $dep in dms*|noctalia*|pearl*|aqueous|aqueous-core) exit 1;; esac; done' _ "$recipe" "aqueous-core-$channel"
     reject env DESTDIR="$base/reused-$channel" PREFIX=/usr AQUEOUS_CONFIG_DIST="$base/missing" "$root/packaging/git/stage.sh" "$channel"
 done
-[[ -z $(comm -12 "$base/git-files" "$base/intel-git-files") ]] || fail 'Git variants overlap'
 printf '{"schema":1,"instance":"aqueous"}\n' > "$build/share/aqueous/build-instance.json"
 reject env DESTDIR="$base/wrong-instance" PREFIX=/usr "$root/packaging/git/stage.sh" git
-printf 'PASS: stable/Git/Intel file ownership, metadata, relocatable private tools and endpoint isolation\n'
+printf 'PASS: stable/Git file ownership, metadata, relocatable private tools and endpoint isolation\n'
 if [[ $# == 0 ]]; then exit; fi
 [[ $# == 3 && ($3 == git || $3 == intel-git) ]] || fail 'Expected compositor-dist helper-dist git|intel-git'
 compositor=$(realpath "$1"); helper=$(realpath "$2"); channel=$3; instance=aqueous-$channel

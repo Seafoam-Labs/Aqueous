@@ -1,7 +1,7 @@
 pkgbase = aqueous
 	pkgdesc = Aqueous Wayland compositor (stable, compositor only)
-	pkgver = 0.7.0
-	pkgrel = 3
+	pkgver = 0.8.0
+	pkgrel = 2
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = x86_64
 	arch = aarch64
@@ -46,7 +46,7 @@ pkgbase = aqueous
 	depends = xcb-util-errors
 	depends = xcb-util-wm
 	depends = xcb-util-renderutil
-	provides = aqueous=0.7.0
+	provides = aqueous=0.8.0
 	conflicts = aqueous-bin
 	conflicts = aqueous-core
 	conflicts = aqueous-core-bin
@@ -55,7 +55,7 @@ pkgbase = aqueous
 	conflicts = aqueous-git-dms
 	options = !strip
 	options = !debug
-	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v0.7.0
+	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v0.8.0
 	source = wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz
 	sha256sums = SKIP
 	sha256sums = 972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343

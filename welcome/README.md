@@ -2,16 +2,14 @@
 
 A native Zig + GTK4 first-run application for selecting **Pearl**, **DMS**,
 **Noctalia**, or **Nothing**, with an optional application catalog. Pearl is
-installed as `pearl` for stable Aqueous and `pearl-git` for both Git variants.
+installed as `pearl` for stable Aqueous and `pearl-git` for Git.
 Nothing installs no desktop
 shell. Close the window to leave the current selection unchanged.
 
 On split desktops, welcome explicitly installs the selected shell and its
 matching integration preset together. Stable Pearl selection requests `pearl`
 plus `aqueous-shell-pearl`. Git selection requests `pearl-git` plus
-`aqueous-shell-pearl-git` or `aqueous-shell-pearl-intel-git`, according to the
-welcome build. Both packages
-must be reported installed before setup completes. Git welcome retains its Git
+`aqueous-shell-pearl-git`. Both packages must be reported installed before setup completes. Git welcome retains its Git
 preset choice when recovering from a missing session runtime.
 
 Welcome launches system package transactions through `sudo -- shelly` because
@@ -70,8 +68,8 @@ Completing setup writes the existing `welcome-v1` completion marker and
 After successful setup, **Close Welcome and start desktop** hides Welcome,
 enables the selected user service, updates the active session choice, and starts
 the desktop. It stops any other running Aqueous-managed shell for that instance.
-Git builds use `aqueous-git-{shell}.service` or
-`aqueous-intel-git-{shell}.service`; stable uses `aqueous-{shell}.service`.
+Git builds use `aqueous-git-{shell}.service`; stable uses
+`aqueous-{shell}.service`.
 Nothing offers **Close Welcome and use no shell**, which stops the managed shell
 without enabling another. The window close control simply dismisses Welcome and
 leaves activation until the next login. **Review setup** allows another choice.

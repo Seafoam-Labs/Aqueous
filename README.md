@@ -330,12 +330,16 @@ DMS, Noctalia and application-bundle PKGBUILDs have been retired. See the
 [component packaging guide](docs/packaging-components.md) for ownership,
 explicit shell presets, migrations and release validation.
 
-For development tools that coexist with stable, build `aqueous-core-git` or
-`aqueous-core-intel-git` from `packaging/arch/`. They install suffixed commands,
+Arch source packages and x86_64 release binaries target **x86-64-v3**, shared by
+supported Intel and AMD CPUs. Older CPUs without v3 support cannot run these
+builds. The aarch64 source packages retain their baseline CPU target.
+
+For development tools that coexist with stable, build `aqueous-core-git`
+from `packaging/arch/`. It installs suffixed commands,
 private libraries and separate configuration defaults. See the
 [Git package guide](docs/git-packages.md) for building and running them.
 
-`aqueous-desktop-git` and `aqueous-desktop-intel-git` add the matching login
+`aqueous-desktop-git` adds the matching login
 session, native welcome, private portal and optional shell integrations. Follow
 the [Git desktop installation guide](docs/git-desktop-packages.md) to install a
 complete Git desktop alongside stable Aqueous.

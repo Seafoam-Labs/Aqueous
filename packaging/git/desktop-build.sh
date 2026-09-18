@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
-case ${2:-} in git|intel-git) channel=$2;; *) echo 'Expected build|check|package git|intel-git [COMPONENT]' >&2; exit 2;; esac
+case ${2:-} in git) channel=$2;; *) echo 'Expected build|check|package git [COMPONENT]' >&2; exit 2;; esac
 instance=aqueous-$channel
 : "${srcdir:?}" "${pkgver:?}"
 welcome=$srcdir/$instance-welcome-dist
 portal=$srcdir/$instance-portal-dist
 portal_source=$srcdir/$instance-portal-source
 export ZIG_GLOBAL_CACHE_DIR=$srcdir/$instance-desktop-zig-global
+source "$root/packaging/cpu-target.sh"
 case ${1:-} in
 build)
-    zig build --build-file "$root/welcome/build.zig" -Dcpu=baseline -Doptimize=ReleaseSafe \
+    zig build --build-file "$root/welcome/build.zig" -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe \
         -Dinstance-name="$instance" --prefix "$welcome"
     # Copy the pinned source; never mutate another variant's prepared tree.
     [[ ! -e $portal_source ]] || rm -rf -- "$portal_source"
@@ -27,7 +28,7 @@ build)
     jq -n --arg instance "$instance" '{schema:1,instance:$instance}' > "$portal/build-instance.json"
     ;;
 check)
-    zig build --build-file "$root/welcome/build.zig" test -Dcpu=baseline -Doptimize=ReleaseSafe
+    zig build --build-file "$root/welcome/build.zig" test -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe
     bash "$root/packaging/tests/test-git-desktop.sh" "$welcome" "$portal" "$channel" "$portal_source/LICENSE"
     ;;
 package)

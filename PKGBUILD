@@ -5,7 +5,7 @@ pkgname=(aqueous-core aqueous-session aqueous-welcome xdg-desktop-portal-aqueous
          aqueous-shell-dms aqueous-shell-noctalia aqueous-shell-pearl aqueous)
 pkgbase=aqueous
 pkgver=0.7.0
-pkgrel=2
+pkgrel=3
 # Keep tested binary/library bytes and component manifests stable.
 options=('!strip' '!debug' '!zipman')
 pkgdesc="Aqueous single-process Wayland compositor"
@@ -34,16 +34,26 @@ prepare() {
 }
 
 build() {
+    # x86-64-v3 is shared by supported Intel and AMD CPUs; ARM stays baseline.
+    case ${CARCH:-$(uname -m)} in
+        x86_64)
+            AQUEOUS_ZIG_CPU=x86_64_v3
+            export CFLAGS="${CFLAGS:+$CFLAGS }-march=x86-64-v3 -mtune=generic"
+            export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-march=x86-64-v3 -mtune=generic"
+            ;;
+        aarch64) AQUEOUS_ZIG_CPU=baseline ;;
+        *) printf 'Unsupported package architecture: %s\n' "${CARCH:-$(uname -m)}" >&2; return 1 ;;
+    esac
     ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-welcome-zig-global" \
     ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-welcome-zig-local" \
         zig build --build-file "$srcdir/aqueous/welcome/build.zig" \
-        -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-welcome-dist"
+        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-welcome-dist"
 
     # Canonical configuration helper; Pearl supplies the settings UI.
     ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-config-zig-global" \
     ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-config-zig-local" \
         zig build --build-file "$srcdir/aqueous/settingsApplication/build.zig" \
-        -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-config-dist"
+        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-config-dist"
 
     # Verify zig is new enough (the Aqueous compositor requires >= 0.16.0).
     # We enforce this here instead of via a pacman version constraint because
@@ -79,7 +89,7 @@ build() {
     AQUEOUS_WLROOTS_CACHE_DIR="$srcdir" \
         scripts/build-wlroots-render-hook.sh
     PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig" \
-    zig build -Dcpu=baseline -Doptimize=ReleaseSafe -Dxwayland -Dllvm \
+    zig build -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe -Dxwayland -Dllvm \
         -Dman-pages=true -Dversion-string="$pkgver" \
         --prefix "$srcdir/aqueous-dist" install
 
@@ -92,7 +102,7 @@ build() {
     ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-plugin-zig-global" \
     ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-portal-chooser-cache" \
         zig build --build-file "$srcdir/aqueous/packaging/portal/bridge/build.zig" \
-        -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-portal-chooser-dist"
+        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-portal-chooser-dist"
 
 }
 

@@ -193,7 +193,7 @@ _share/aqueous-protocols/stable/aqueous-shell-v1.schema.json_.
 *aqueousctl-git shell switch* pearl|dms|noctalia [*--json*]
 
 Switch the managed desktop shell immediately and save the choice for future
-logins. Use *aqueousctl-intel-git* in an Intel Git session. The private Git
+logins. The private Git
 *aqueousctl* supports the same command; stable builds do not expose it.
 Requires the matching non-nested Git desktop session, welcome worker, and target
 shell preset. Missing dependencies are reported before stopping the old shell.

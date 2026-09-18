@@ -371,8 +371,7 @@ aqueousctl-git shell switch dms
 aqueousctl-git shell switch noctalia --json
 ```
 
-Use `aqueousctl-intel-git` in an Aqueous Intel Git session. The private
-`aqueousctl` in either Git session supports the same command; stable builds do
+The private `aqueousctl` in a Git session supports the same command; stable builds do
 not expose it. Run it inside the matching, non-nested Git desktop session.
 
 The command immediately switches the managed shell and saves the choice in
@@ -381,8 +380,8 @@ remain running. All Pearl, DMS, and Noctalia configurations and customizations
 are preserved, including settings for inactive shells. The command does not
 seed defaults, reset settings, install packages, or uninstall shells.
 
-Install the matching `aqueous-welcome-git` / `aqueous-welcome-intel-git` worker
-and the target's `aqueous-shell-<shell>-git` / `aqueous-shell-<shell>-intel-git`
+Install the matching `aqueous-welcome-git` worker
+and the target's `aqueous-shell-<shell>-git`
 preset first. Pearl uses `pearl-git`; DMS uses `dms-shell`; Noctalia uses
 `noctalia`. Missing dependencies are reported before stopping the current shell.
 
@@ -394,15 +393,14 @@ service-manager sessions are rejected. `--json` returns an object with `ok`,
 
 If switching prints `Usage: session-runtime.sh selection|active-selection|...`,
 the installed welcome worker is older than the CLI. Rebuild/update
-`aqueous-welcome-git` from the current `aqueous-desktop-git` package base (or the
-corresponding Intel Git packages), alongside the core package. Updating only
+`aqueous-welcome-git` from the current `aqueous-desktop-git` package base,
+alongside the core package. Updating only
 `aqueous-core-git` does not update the separately built desktop worker. Newer
 CLIs check worker compatibility and report the required update before switching.
 
 If the journal reports `Two services allocated for the same bus name
 org.freedesktop.Notifications`, older Aqueous DMS units conflict with upstream
-`dms.service` during systemd unit loading. Update `aqueous-integration-dms-git`
-(or its Intel Git variant). The corrected Aqueous units use `Type=exec` without
+`dms.service` during systemd unit loading. Update `aqueous-integration-dms-git`. The corrected Aqueous units use `Type=exec` without
 `BusName=`; DMS itself continues to provide notifications. `Type=exec` confirms
 process execution rather than waiting for notification-bus readiness; see the
 [systemd service documentation](https://github.com/systemd/systemd/blob/main/man/systemd.service.xml).

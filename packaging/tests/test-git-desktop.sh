@@ -17,7 +17,7 @@ for component in "${components[@]}"; do
     DESTDIR="$base/stable-$component" "$root/packaging/stage-component.sh" "$component"
     files "$base/stable-$component"
 done | sort -u > "$base/stable.files"
-for channel in git intel-git; do
+for channel in git; do
     instance=aqueous-$channel
     if [[ $channel == git ]]; then desktop=Aqueous-Git; app=org.aqueous.Git.Welcome; else desktop=Aqueous-Intel-Git; app=org.aqueous.IntelGit.Welcome; fi
     cp "$base/fixture/bin/aqueous-welcome" "$base/fixture/xdg-desktop-portal-$instance"
@@ -64,6 +64,14 @@ for channel in git intel-git; do
         set -eu
         source "$1"
         _stage() { :; }
+        # Every split component must replace only its own retired Intel package.
+        for package in "${pkgname[@]}"; do
+            (
+                unset replaces
+                "package_$package"
+                [[ ${#replaces[@]} == 1 && ${replaces[0]} == "${package%-git}-intel-git" ]]
+            )
+        done
         # Review sees the placeholder; the final build sees a VCS revision.
         # Neither may tie an independently published core to that version.
         for version in "$pkgver" 0.7.0.r999.gabcdef0; do
@@ -71,7 +79,7 @@ for channel in git intel-git; do
             "package_aqueous-session-$2"
             [[ ${depends[0]} == "aqueous-core-$2>=0.7.0" ]]
             "package_aqueous-desktop-$2"
-            [[ ${provides+x} != x && ${conflicts+x} != x && ${replaces+x} != x && ${install+x} != x ]]
+            [[ ${provides+x} != x && ${conflicts+x} != x && ${install+x} != x ]]
             [[ ${#depends[@]} == 7 && ${depends[0]} == "aqueous-core-$2>=0.7.0" ]]
             for dep in "${depends[@]:1}"; do [[ $dep == *"-$2=$pkgver-$pkgrel" ]]; done
         done
@@ -114,7 +122,6 @@ for channel in git intel-git; do
         if "$runtime" condition dms; then fail 'Unselected DMS starts with Pearl'; fi
     )
 done
-[[ -z $(comm -12 "$base/git.files" "$base/intel-git.files") ]] || fail 'Git desktop variants conflict'
 printf 'PASS: desktop ownership, meta dependencies, login/portal identities, shell selection and session snapshots\n'
 [[ $# != 0 ]] || exit 0
 [[ $# == 4 ]] || fail 'Expected welcome-dist portal-dist channel portal-license'
