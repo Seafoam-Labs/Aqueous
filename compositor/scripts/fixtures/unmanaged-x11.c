@@ -38,7 +38,17 @@ int main(void) {
     while (fgets(line, sizeof(line), stdin)) {
         line[strcspn(line, "\n")] = 0;
         if (!strcmp(line, "quit")) break;
-        if (!strcmp(line, "unmap")) XUnmapWindow(d, popup);
+        if (!strcmp(line, "fullscreen") || !strcmp(line, "unfullscreen")) {
+            XEvent event = {0};
+            event.xclient.type = ClientMessage;
+            event.xclient.window = owner;
+            event.xclient.message_type = XInternAtom(d, "_NET_WM_STATE", False);
+            event.xclient.format = 32;
+            event.xclient.data.l[0] = !strcmp(line, "fullscreen");
+            event.xclient.data.l[1] = XInternAtom(d, "_NET_WM_STATE_FULLSCREEN", False);
+            event.xclient.data.l[3] = 1;
+            XSendEvent(d, root, False, SubstructureRedirectMask | SubstructureNotifyMask, &event);
+        } else if (!strcmp(line, "unmap")) XUnmapWindow(d, popup);
         else if (!strcmp(line, "map")) XMapWindow(d, popup);
         else if (!strcmp(line, "managed") || !strcmp(line, "unmanaged")) {
             XUnmapWindow(d, popup);

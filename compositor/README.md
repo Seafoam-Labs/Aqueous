@@ -3,6 +3,39 @@
 This directory contains the Zig implementation of Aqueous: a wlroots-based
 Wayland compositor with integrated window-management, input, and output policy.
 
+To enable VRR only for fullscreen applications, configure a monitor in
+`~/.config/aqueous/outputs.toml`:
+
+```toml
+[[output]]
+name = "DP-1"
+adaptive_sync = true
+fullscreen_only_adaptive_sync = true
+```
+
+The modifier defaults to false and requires `adaptive_sync = true`. It follows
+mapped fullscreen applications on that monitor's active workspace, including
+Xwayland windows. Maximized windows and hidden/minimized applications do not
+qualify. Focus changes and notifications do not interrupt VRR; overview, session
+lock/inactivity and disabled outputs turn the conditional target off. Mirror
+destinations still require `adaptive_sync = false`.
+
+Profiles and partial output edits preserve the policy. `aqueousctl outputs
+--json` adds `fullscreen_only_adaptive_sync`, `effective_adaptive_sync`,
+`actual_vrr` and `adaptive_sync_error`; its existing `adaptive_sync` field keeps
+its hardware meaning. The native display model also exposes configured policy
+separately. Unsupported or rejected VRR requests retain the preference and the
+last usable hardware state; a failed unchanged request is suppressed until a
+target, configuration or capability change permits another attempt.
+
+`scripts/test-fullscreen-adaptive-sync.py --compositor BIN --ctl CTL --helper
+HELPER --xwayland` exercises policy, persistence, preview Keep/revert and
+rejection recovery with two private headless outputs. Build with
+`-Doutput-retry-testing=true -Dxwayland=true` for its explicit virtual VRR backend
+and Xwayland coverage. These tests
+verify state transitions; actual VRR timing, HDR interaction and flicker need
+validation on physical displays.
+
 Super + left-click drag moves a window between outputs in every non-stacking
 layout (tile, monocle, grid, rows, dwindle, reverse-dwindle, scrolling, game-mode,
 and non-stacking composable regions). Entering another output moves the window

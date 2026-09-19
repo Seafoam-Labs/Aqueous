@@ -104,6 +104,13 @@ with Fixture() as f:
     native=r['display_configuration'];assert native['parsed_sources']['outputs']['outputs'][0]['scale'] is None
     assert native['parsed_sources']['wm']['outputs'][0]['scale']==2
     assert declarations(r)[0]['id']!=policy['id'], 'candidate IDs must be generation-scoped'
+    # Conditional VRR round-trips in ordinary and profile declarations.
+    r=f.validate([edit(first,set=dict(adaptive_sync=True,fullscreen_only_adaptive_sync=True)),
+                  edit(member,set=dict(fullscreen_only_adaptive_sync=False))],s)
+    assert parsed(r)['output'][0]['fullscreen_only_adaptive_sync'] is True
+    assert parsed(r)['display']['profile'][0]['output'][0]['fullscreen_only_adaptive_sync'] is False
+    for bad in ["true",1,None]:
+        f.call('validate',f.request([edit(first,set=dict(fullscreen_only_adaptive_sync=bad))],s),code='invalid_display_value')
     # Original IDs resolve once, despite an earlier deletion shifting tables.
     r=f.validate([edit(first,op='delete'),edit(second,set=dict(primary=True))],s)
     assert parsed(r)['output']==[dict(name='OFFLINE-DP-1',hdr=False,primary=True)]
@@ -225,5 +232,17 @@ for op,changed in [('validate','outputs'),('validate','wm'),('apply','input')]:
             assert not (f.root/'state/reloaded').exists()
         finally:
             if p.poll() is None:p.kill();p.wait()
+with Fixture() as f:
+    f.files['outputs'].write_text('[[output]]\nname = "DP-1"\nadaptive_sync = true\nfullscreen_only_adaptive_sync = true\n')
+    s=f.call('snapshot');node=declarations(s)[0]
+    assert parsed(f.validate([edit(node,set=dict(scale=1.5))],s))['output'][0]['fullscreen_only_adaptive_sync'] is True
+    assert parsed(f.validate([edit(node,set=dict(fullscreen_only_adaptive_sync=False))],s))['output'][0]['fullscreen_only_adaptive_sync'] is False
+    cleared=parsed(f.validate([edit(node,unset=['fullscreen_only_adaptive_sync'])],s))['output'][0]
+    assert 'fullscreen_only_adaptive_sync' not in cleared and cleared['adaptive_sync'] is True
+    change=dict(id='live:DP-1',name='DP-1',x=0,y=0,transform='normal')
+    r=f.call('validate',dict(protocol=1,expected_generation=s['generation'],monitor_changes=[change]))
+    assert parsed(r)['output'][0]['fullscreen_only_adaptive_sync'] is True
+    r=f.call('validate',dict(protocol=1,expected_generation=s['generation'],monitor_changes=[change|dict(fullscreen_only_adaptive_sync=False)]))
+    assert parsed(r)['output'][0]['fullscreen_only_adaptive_sync'] is False
 print('PASS: structured declarations, profiles, IDs, explicit unset, conflicts and source races')
 if SCHEMA:print('PASS: display declaration request/response schemas')

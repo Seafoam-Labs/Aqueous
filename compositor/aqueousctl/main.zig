@@ -1172,6 +1172,14 @@ fn writeOutputsJson(writer: *Io.Writer, state: *const State) !void {
         try writer.print("],\"position\":{{\"x\":{d},\"y\":{d}}},\"transform\":", .{ output.x, output.y });
         try jsonString(writer, transformName(output.transform));
         if (@import("OutputInfo.zig").find(extra, output.name)) |metadata| {
+            inline for (.{ "fullscreen_only_adaptive_sync", "effective_adaptive_sync", "actual_vrr", "adaptive_sync_error" }) |key| {
+                if (metadata.get(key)) |value| {
+                    try writer.writeByte(',');
+                    try jsonString(writer, key);
+                    try writer.writeByte(':');
+                    try std.json.Stringify.value(value, .{}, writer);
+                }
+            }
             inline for (.{ "mirror_of", "mirror_status", "mirror_error" }) |key| {
                 const value = metadata.get(key);
                 try jsonField(writer, key, if (value != null and value.? == .string) value.?.string else null, false);

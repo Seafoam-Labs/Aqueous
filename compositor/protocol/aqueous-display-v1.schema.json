@@ -504,6 +504,16 @@
         },
         "preview_acceptance_only": {
           "type": "boolean"
+        },
+        "effective_adaptive_sync": {
+          "type": "boolean"
+        },
+        "adaptive_sync_error": {
+          "enum": [
+            null,
+            "unsupported",
+            "commit_failed"
+          ]
         }
       },
       "required": [
@@ -603,6 +613,9 @@
         },
         "auto_hdr_boost": {
           "type": "number"
+        },
+        "fullscreen_only_adaptive_sync": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -929,6 +942,9 @@
                         "type": "boolean"
                       },
                       "presentation_rejected": {
+                        "type": "boolean"
+                      },
+                      "effective_adaptive_sync": {
                         "type": "boolean"
                       }
                     },

@@ -45,6 +45,7 @@ pub const Spec = struct {
     x: ?i32 = null,
     y: ?i32 = null,
     adaptive_sync: ?bool = null,
+    fullscreen_only_adaptive_sync: ?bool = null,
     hdr: ?bool = null,
     hdr_level: ?HdrLevelChoice = null,
     /// SDR diffuse white luminance on the HDR output, in cd/m². Mirrors the
@@ -58,7 +59,7 @@ pub const Spec = struct {
     primary: ?bool = null,
 
     pub fn hasDisplayField(spec: *const Spec) bool {
-        return spec.mirror_of != null or spec.enabled != null or spec.mode != null or spec.scale != null or spec.transform != null or spec.x != null or spec.adaptive_sync != null or spec.hdr != null or spec.hdr_level != null or spec.sdr_white_level != null or spec.auto_hdr != null or spec.auto_hdr_boost != null or spec.primary != null;
+        return spec.mirror_of != null or spec.enabled != null or spec.mode != null or spec.scale != null or spec.transform != null or spec.x != null or spec.adaptive_sync != null or spec.fullscreen_only_adaptive_sync != null or spec.hdr != null or spec.hdr_level != null or spec.sdr_white_level != null or spec.auto_hdr != null or spec.auto_hdr_boost != null or spec.primary != null;
     }
 };
 
@@ -280,6 +281,10 @@ fn applySpec(spec: *Spec, key: []const u8, raw_value: []const u8) void {
         spec.y = position[1];
     }
     if (std.mem.eql(u8, key, "adaptive_sync")) spec.adaptive_sync = parseBool(value) orelse {
+        spec.valid = false;
+        return;
+    };
+    if (std.mem.eql(u8, key, "fullscreen_only_adaptive_sync")) spec.fullscreen_only_adaptive_sync = parseBool(raw_value) orelse {
         spec.valid = false;
         return;
     };
@@ -623,7 +628,7 @@ test "mirror declarations inherit and explicitly clear across config sources" {
 }
 
 pub fn knownSpecKey(key: []const u8) bool {
-    inline for (.{ "name", "edid", "mirror_of", "enabled", "mode", "scale", "transform", "position", "adaptive_sync", "hdr", "hdr_level", "sdr_white_level", "auto_hdr", "auto_hdr_boost", "primary" }) |known| if (std.mem.eql(u8, key, known)) return true;
+    inline for (.{ "name", "edid", "mirror_of", "enabled", "mode", "scale", "transform", "position", "adaptive_sync", "fullscreen_only_adaptive_sync", "hdr", "hdr_level", "sdr_white_level", "auto_hdr", "auto_hdr_boost", "primary" }) |known| if (std.mem.eql(u8, key, known)) return true;
     return false;
 }
 pub fn knownPolicyKey(key: []const u8) bool {
@@ -642,4 +647,27 @@ test "diagnostics retain unknown, rejected and overflowed display declarations" 
     const overflow = parse(writer.written());
     try std.testing.expectEqual(@as(usize, 1), overflow.rejected_declarations);
     try std.testing.expectEqual(@as(u8, max_outputs), overflow.output_count);
+}
+
+test "fullscreen adaptive sync modifier inherits, overrides and participates alone" {
+    const legacy = parse("[[output]]\nname = \"*\"\nadaptive_sync = true\nfullscreen_only_adaptive_sync = true\n");
+    const preferred = parse("[[output]]\nname = \"DP-1\"\nfullscreen_only_adaptive_sync = false\n");
+    try std.testing.expectEqual(@as(usize, 0), preferred.unknown_fields);
+    try std.testing.expect(preferred.declarative);
+    try std.testing.expect(preferred.outputs[0].hasDisplayField());
+    try std.testing.expect(preferred.outputs[0].adaptive_sync == null);
+    var storage: [max_outputs * 2]Spec = undefined;
+    const folded = configuredSpecs(&legacy, &preferred, &storage);
+    try std.testing.expectEqual(@as(usize, 2), folded.len);
+    try std.testing.expectEqual(true, folded[0].fullscreen_only_adaptive_sync.?);
+    try std.testing.expectEqual(false, folded[1].fullscreen_only_adaptive_sync.?);
+    const profile = parse("[[display.profile]]\nname = \"game\"\n[[display.profile.output]]\nedid = \"id\"\nfullscreen_only_adaptive_sync = true\n");
+    try std.testing.expectEqual(true, profile.profiles[0].outputs[0].fullscreen_only_adaptive_sync.?);
+    const omitted = parse("[[output]]\nname = \"DP-1\"\nadaptive_sync = true\n");
+    try std.testing.expect(omitted.outputs[0].fullscreen_only_adaptive_sync == null);
+    inline for (.{ "maybe", "1", "\"true\"", "'false'" }) |bad| {
+        const invalid = parse("[[output]]\nname = \"DP-1\"\nfullscreen_only_adaptive_sync = " ++ bad ++ "\n");
+        try std.testing.expectEqual(@as(u8, 0), invalid.output_count);
+        try std.testing.expect(invalid.rejected_declarations > 0);
+    }
 }

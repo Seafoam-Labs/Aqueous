@@ -30,6 +30,7 @@ pub fn writeSpec(json: *std.json.Stringify, spec: config.Spec) !void {
     try field(json, "transform", spec.transform);
     try field(json, "position", if (spec.x) |x| @as(?[2]i32, .{ x, spec.y.? }) else null);
     try field(json, "adaptive_sync", spec.adaptive_sync);
+    try field(json, "fullscreen_only_adaptive_sync", spec.fullscreen_only_adaptive_sync);
     try field(json, "hdr", spec.hdr);
     try field(json, "hdr_level", spec.hdr_level);
     try field(json, "sdr_white_level", spec.sdr_white_level);

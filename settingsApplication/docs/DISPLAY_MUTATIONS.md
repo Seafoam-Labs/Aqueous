@@ -6,6 +6,22 @@ capability permits candidate construction; native backend capabilities and a
 protected preview lease still determine which display changes can be saved.
 It does not enable physical previews, HDR, VRR or unsupported mirroring.
 
+Output and profile-member declarations accept the boolean
+`fullscreen_only_adaptive_sync`. It defaults to false and gates `adaptive_sync`:
+set both to true to request VRR only while a visible fullscreen application is
+on that monitor's active workspace. An omitted modifier inherits; explicit
+false restores unconditional VRR when the master is enabled. Use
+`unset: ["fullscreen_only_adaptive_sync"]` to remove a declaration's override.
+Unrelated edits preserve it. Legacy `monitor_changes` also accepts both VRR
+booleans, preserving either field when omitted.
+
+Native output observations distinguish configured values from
+`effective_adaptive_sync` (the runtime target), `actual_vrr` (backend status),
+and `adaptive_sync_error` (`null`, `unsupported`, or `commit_failed`). Preview
+Keep checks the current effective target; fullscreen changes require fresh
+presentation without extending the confirmation deadline. Revert restores
+the previous policy and reevaluates it against current window visibility.
+
 Snapshots expose `id`, `kind` and `parent_id` on each `display_declarations`
 entry (also under `display_model.declarations`). IDs are opaque and bind the
 snapshot generation, source, selected path, existence, exact source bytes and

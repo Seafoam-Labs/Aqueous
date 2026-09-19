@@ -73,10 +73,12 @@ pub fn write(json: *std.json.Stringify) !void {
         actual.scale = w.scale;
         actual.transform = w.transform;
         actual.hdr_enabled = Output.hdr.active(w);
-        actual.adaptive_sync = w.adaptive_sync_status == .enabled;
+        actual.adaptive_sync = o.actualAdaptiveSync();
         try writeState(json, actual);
         try field(json, "actual_hdr", Output.hdr.active(w));
-        try field(json, "actual_vrr", w.adaptive_sync_status == .enabled);
+        try field(json, "actual_vrr", o.actualAdaptiveSync());
+        try field(json, "effective_adaptive_sync", o.adaptiveSyncTarget(o.current));
+        try field(json, "adaptive_sync_error", o.adaptiveSyncError());
         try field(json, "primary", server.aqueous.output_service.primaryOutput() == o);
         try json.objectField("configured");
         try writeEffective(json, o);
@@ -128,6 +130,7 @@ pub fn writeState(json: *std.json.Stringify, state: Output.State) !void {
         .y = state.y,
         .mirror_of = state.mirror_of.slice(),
         .adaptive_sync = state.adaptive_sync,
+        .fullscreen_only_adaptive_sync = state.fullscreen_only_adaptive_sync,
         .hdr = state.hdr_enabled,
         .hdr_level = @intFromEnum(state.hdr_level),
         .sdr_white_level = state.sdr_white_level,
@@ -142,7 +145,7 @@ fn writeEffective(json: *std.json.Stringify, output: *Output) !void {
     try json.beginObject();
     // Omitted values inherit runtime state. This is the actual resolver input,
     // not fabricated defaults for a head which has not yet been connected.
-    inline for (.{ "enabled", "mode", "scale", "transform", "x", "y", "adaptive_sync", "hdr", "hdr_level", "sdr_white_level", "auto_hdr", "auto_hdr_boost", "mirror_of" }) |key| {
+    inline for (.{ "enabled", "mode", "scale", "transform", "x", "y", "adaptive_sync", "fullscreen_only_adaptive_sync", "hdr", "hdr_level", "sdr_white_level", "auto_hdr", "auto_hdr_boost", "mirror_of" }) |key| {
         var value: @FieldType(Config.Spec, key) = null;
         var declaration: ?usize = null;
         var fold_order: ?usize = null;

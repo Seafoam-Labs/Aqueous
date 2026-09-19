@@ -13,7 +13,7 @@ const Tx = @import("ConfigTransaction.zig");
 const a = std.heap.c_allocator;
 pub const Policy = @import("display_preview_policy.zig");
 const Status = enum { applying, previewing, commit_authorized, kept, waiting_session, reverting, reverted, invalidated, failed };
-const Item = struct { instance: u64, before: Output.State, after: Output.State, completion: Policy.Completion, submitted: bool = false };
+const Item = struct { instance: u64, before: Output.State, after: Output.State, completion: Policy.Completion, submitted: bool = false, adaptive_sync_target: ?bool = null };
 const Lease = struct {
     token: [64]u8,
     candidate_digest: [64]u8,
@@ -59,7 +59,7 @@ pub fn acceptanceOutput(output: *wlr.Output) bool {
 }
 pub fn featureContext(output: *wlr.Output) Policy.Context {
     const selection = if (std.c.getenv("AQUEOUS_DISPLAY_PREVIEW_ACCEPTANCE_FEATURES")) |value| Policy.Selection.parse(std.mem.span(value)) else Policy.Selection.parse(null);
-    return .{
+    var context: Policy.Context = .{
         .backend = backend(output),
         .acceptance_build = @import("build_options").display_preview_acceptance,
         .acceptance_output = acceptanceOutput(output),
@@ -68,6 +68,14 @@ pub fn featureContext(output: *wlr.Output) Policy.Context {
         .vrr_capable = output.adaptive_sync_supported,
         .renderer_mirroring = @import("OutputMirror.zig").supported(),
     };
+    if (comptime @import("build_options").output_retry_testing) {
+        const owner: *Output = @ptrCast(@alignCast(output.data));
+        if (owner.adaptive_sync_test.enabled) {
+            context.backend = .drm;
+            context.vrr_capable = true;
+        }
+    }
+    return context;
 }
 pub fn featureState(state: Output.State) Policy.State {
     return .{ .hdr = state.hdr_enabled, .vrr = state.adaptive_sync, .auto_hdr = state.auto_hdr, .hdr_level = @intFromEnum(state.hdr_level), .sdr_white_level = state.sdr_white_level, .auto_hdr_boost = state.auto_hdr_boost };
@@ -143,7 +151,7 @@ pub fn hardwareMatches(o: *Output, target: Output.State) bool {
         .none => return false,
     };
     if (refresh != 0 and w.refresh != refresh) return false;
-    return (w.adaptive_sync_status == .enabled) == target.adaptive_sync and
+    return o.actualAdaptiveSync() == o.adaptiveSyncTarget(target) and
         Output.hdr.stateMatches(w, target.hdr_enabled, target.hdr_level, target.sdr_white_level);
 }
 // Present may be synchronous inside a backend commit. Record it here; evaluate
@@ -164,7 +172,21 @@ pub fn presented(instance: u64, sequence: u32, success: bool) void {
 }
 pub fn submitting() void {
     const l = if (lease) |*v| v else return;
-    if (l.state != .applying and l.state != .reverting) return;
+    if (l.state != .applying and l.state != .reverting and l.state != .previewing) return;
+    // Fullscreen/workspace changes alter hardware expectations, not the candidate.
+    // Require a new presentation of the effective target without extending Keep.
+    for (l.items[0..l.len]) |*item| if (find(item.instance)) |output| {
+        const target = output.adaptiveSyncTarget(if (l.state == .reverting) output.scheduled else item.after);
+        if (item.adaptive_sync_target == null or item.adaptive_sync_target.? != target) {
+            item.adaptive_sync_target = target;
+            item.submitted = false;
+            if (l.state == .previewing) {
+                l.state = .applying;
+                l.reason = "adaptive_sync_changed";
+            }
+        }
+    };
+    if (l.state == .previewing) return;
     // Do not count frames of the previous configuration while waiting for a
     // window-manager transaction. Arm immediately before publishing this set,
     // so backends presenting synchronously inside commit are covered too.
@@ -259,7 +281,7 @@ pub fn applied() void {
     }
     if (l.state == .applying) {
         l.state = .previewing;
-        l.deadline_ms = now() + 15000;
+        if (!std.mem.eql(u8, l.reason, "adaptive_sync_changed")) l.deadline_ms = now() + 15000;
         l.reason = "confirmation_required";
         l.revision = server.om.display_revision;
     }
@@ -322,7 +344,7 @@ fn testStates(states: []const Manager.Pending) !void {
         if (entry.state.state == .enabled and entry.state.mirror_of.empty()) usable += 1;
         const state = try backend_states.addOne(util.gpa);
         state.* = .{ .output = output, .base = wlr.Output.State.init() };
-        if (!entry.state.applyModeset(output, &state.base)) return error.Unsupported;
+        if (!entry.state.applyModeset(output, &state.base, if (@import("build_options").output_retry_testing and entry.output.adaptive_sync_test.enabled) false else entry.output.adaptiveSyncTarget(entry.state))) return error.Unsupported;
     }
     if (usable == 0) return error.NoUsableOutput;
     var swapchains: wlr.OutputSwapchainManager = undefined;
@@ -394,7 +416,10 @@ fn revert(reason: []const u8, removed_instance: ?u64) void {
         item.submitted = false;
         if (o.scene_output) |scene| scene.damage_ring.addWhole();
     };
-    for (pending[0..len]) |item| item.output.scheduled = item.state;
+    for (pending[0..len]) |item| {
+        item.output.scheduled = item.state;
+        item.output.adaptive_sync_policy.reset();
+    }
     server.om.display_revision += 1;
     server.wm.dirtyWindowing();
 }
@@ -497,6 +522,7 @@ pub fn begin(owner: usize, params: std.json.ObjectMap) !void {
     server.aqueous.output_service.preview_persisted = &configs.preferred;
     for (pending[0..count]) |entry| {
         entry.output.scheduled = entry.state;
+        entry.output.adaptive_sync_policy.reset();
         // Auto HDR is compositor state: require fresh scene pixels even if the
         // underlying DRM state did not need a modeset.
         if (entry.output.scene_output) |scene| scene.damage_ring.addWhole();
@@ -561,7 +587,7 @@ pub fn writeEvidence(json: *std.json.Stringify, token: []const u8) !void {
         if (find(item.instance)) |o| {
             const w = o.wlr_output.?;
             var format: [4]u8 = undefined;
-            try json.write(.{ .hdr = Output.hdr.active(w), .adaptive_sync = @tagName(w.adaptive_sync_status), .render_format = Output.hdr.formatName(w.render_format, &format), .target_matches = hardwareMatches(o, item.after), .baseline_matches = hardwareMatches(o, item.before), .color_matches = Output.hdr.stateMatches(w, item.after.hdr_enabled, item.after.hdr_level, item.after.sdr_white_level), .compositor_auto_hdr = o.current.auto_hdr, .compositor_auto_hdr_boost = o.current.auto_hdr_boost, .submitted = item.submitted, .presented = item.completion.presented, .presentation_rejected = item.completion.rejected });
+            try json.write(.{ .hdr = Output.hdr.active(w), .adaptive_sync = @tagName(w.adaptive_sync_status), .render_format = Output.hdr.formatName(w.render_format, &format), .effective_adaptive_sync = o.adaptiveSyncTarget(item.after), .target_matches = hardwareMatches(o, item.after), .baseline_matches = hardwareMatches(o, item.before), .color_matches = Output.hdr.stateMatches(w, item.after.hdr_enabled, item.after.hdr_level, item.after.sdr_white_level), .compositor_auto_hdr = o.current.auto_hdr, .compositor_auto_hdr_boost = o.current.auto_hdr_boost, .submitted = item.submitted, .presented = item.completion.presented, .presentation_rejected = item.completion.rejected });
         } else try json.write(null);
         try json.endObject();
     }
@@ -589,6 +615,7 @@ pub fn authorize(params: std.json.ObjectMap) !void {
     const id = try Codec.string(params, "operation_id");
     if (!Tx.validOperationId(id)) return error.Invalid;
     if (l.state != .previewing or now() >= l.deadline_ms) return error.LeaseExpired;
+    if (server.wm.state != .idle or server.wm.scheduled.dirty) return error.Busy;
     if (!sessionActive()) return error.SessionInactive;
     if (server.lock_manager.state != .unlocked) return error.SessionLocked;
     if (l.revision != server.om.display_revision) return error.StaleRevision;

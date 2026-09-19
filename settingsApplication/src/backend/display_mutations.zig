@@ -352,7 +352,7 @@ fn known(k: Kind, key: []const u8) bool {
     };
 }
 fn boolean(key: []const u8) bool {
-    for ([_][]const u8{ "enabled", "primary", "hdr", "auto_hdr", "adaptive_sync", "apply_on_start", "apply_on_reload" }) |s| if (std.mem.eql(u8, key, s)) return true;
+    for ([_][]const u8{ "enabled", "primary", "hdr", "auto_hdr", "adaptive_sync", "fullscreen_only_adaptive_sync", "apply_on_start", "apply_on_reload" }) |s| if (std.mem.eql(u8, key, s)) return true;
     return false;
 }
 fn numeric(key: []const u8) bool {

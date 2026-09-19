@@ -992,7 +992,7 @@ fn hasLegacyDisplayPolicy(document: *const config.Document) bool {
     defer document.allocator.free(entries);
     for (tables) |table| {
         if (!table.repeated or !std.mem.eql(u8, table.name, "output")) continue;
-        inline for (.{ "enabled", "mode", "scale", "transform", "position", "adaptive_sync", "hdr", "hdr_level", "sdr_white_level", "auto_hdr", "auto_hdr_boost", "primary" }) |key| {
+        inline for (.{ "enabled", "mode", "scale", "transform", "position", "adaptive_sync", "fullscreen_only_adaptive_sync", "hdr", "hdr_level", "sdr_white_level", "auto_hdr", "auto_hdr_boost", "primary" }) |key| {
             if (tableEntryRaw(entries, table.index, key) != null) return true;
         }
     }
@@ -1743,7 +1743,7 @@ fn applyMonitorChanges(
     for (monitor_changes) |change| {
         if (change != .object) return error.InvalidMonitorChange;
         for (change.object.keys()) |key| {
-            inline for (.{ "id", "name", "x", "y", "transform", "mirror_of", "mode", "scale" }) |allowed| {
+            inline for (.{ "id", "name", "x", "y", "transform", "mirror_of", "mode", "scale", "adaptive_sync", "fullscreen_only_adaptive_sync" }) |allowed| {
                 if (std.mem.eql(u8, key, allowed)) break;
             } else return error.InvalidMonitorChange;
         }
@@ -1765,6 +1765,9 @@ fn applyMonitorChanges(
         const scale = if (change.object.get("scale")) |value| jsonNumber(value) orelse return error.InvalidMonitorScale else null;
         if (scale) |value| if (!std.math.isFinite(value) or value <= 0 or value > 8) return error.InvalidMonitorScale;
 
+        inline for (.{ "adaptive_sync", "fullscreen_only_adaptive_sync" }) |key| {
+            if (change.object.get(key)) |value| if (value != .bool) return error.InvalidMonitorChange;
+        }
         var table_index: ?usize = null;
         if (std.mem.startsWith(u8, id, "output:")) {
             table_index = std.fmt.parseInt(usize, id["output:".len..], 10) catch return error.InvalidMonitorId;
@@ -1788,6 +1791,9 @@ fn applyMonitorChanges(
             }
         } else return error.InvalidMonitorId;
 
+        inline for (.{ "adaptive_sync", "fullscreen_only_adaptive_sync" }) |key| {
+            if (change.object.get(key)) |value| try setTableRaw(document, table_index.?, key, if (value.bool) "true" else "false");
+        }
         if (mirror) |value| try setTableRaw(document, table_index.?, "mirror_of", try jsonStringLiteral(allocator, value));
         const encoded_position = try std.fmt.allocPrint(allocator, "[{d}, {d}]", .{ x, y });
         const encoded_transform = try jsonStringLiteral(allocator, transform);

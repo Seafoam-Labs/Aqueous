@@ -30,10 +30,14 @@ const log = std.log.scoped(.output);
 
 /// The very first modeset is different in that if it fails we exit river.
 first_modeset: bool = true,
+committing_outputs: bool = false,
 display_revision: u64 = 1,
 next_display_instance: u64 = 0,
 
 new_output: wl.Listener(*wlr.Output) = .init(handleNewOutput),
+session: ?*wlr.Session = null,
+session_active: wl.Listener(void) = .init(handleSessionActive),
+session_destroy: wl.Listener(*wlr.Session) = .init(handleSessionDestroy),
 
 output_layout: *wlr.OutputLayout,
 
@@ -71,6 +75,11 @@ pub fn init(om: *OutputManager) !void {
     };
 
     om.outputs.init();
+    om.session = server.session;
+    if (om.session) |session| {
+        session.events.active.add(&om.session_active);
+        session.events.destroy.add(&om.session_destroy);
+    }
 
     server.backend.events.new_output.add(&om.new_output);
     om.wlr_output_manager.events.apply.add(&om.manager_apply);
@@ -79,11 +88,29 @@ pub fn init(om: *OutputManager) !void {
 }
 
 pub fn deinit(om: *OutputManager) void {
+    if (om.session != null) {
+        om.session_active.link.remove();
+        om.session_destroy.link.remove();
+    }
     om.manager_apply.link.remove();
     om.manager_test.link.remove();
     om.power_manager_set_mode.link.remove();
 
     om.output_layout.destroy();
+}
+
+fn handleSessionActive(listener: *wl.Listener(void)) void {
+    const om: *OutputManager = @fieldParentPtr("session_active", listener);
+    var outputs = om.outputs.iterator(.forward);
+    while (outputs.next()) |output| output.adaptive_sync_policy.reset();
+    server.wm.dirtyWindowing();
+}
+
+fn handleSessionDestroy(listener: *wl.Listener(*wlr.Session), _: *wlr.Session) void {
+    const om: *OutputManager = @fieldParentPtr("session_destroy", listener);
+    om.session_active.link.remove();
+    om.session_destroy.link.remove();
+    om.session = null;
 }
 
 fn handleNewOutput(_: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
@@ -192,7 +219,10 @@ pub const Plan = struct { items: [OutputConfig.max_outputs]Pending = undefined, 
 pub fn applySpecs(om: *OutputManager, specs: []const OutputConfig.Spec) ApplyError!ApplyReport {
     if (@import("DisplayPreview.zig").active()) return error.DisplayPreviewBusy;
     const plan = try om.prepareSpecs(specs);
-    for (plan.items[0..plan.len]) |entry| entry.output.scheduled = entry.state;
+    for (plan.items[0..plan.len]) |entry| {
+        entry.output.scheduled = entry.state;
+        entry.output.adaptive_sync_policy.reset();
+    }
     if (plan.len != 0) {
         om.display_revision += 1;
         server.wm.dirtyWindowing();
@@ -345,6 +375,7 @@ fn applySpecToState(spec: *const OutputConfig.Spec, wlr_output: *wlr.Output, sta
         state.position_source = .configuration;
     }
     if (spec.adaptive_sync) |adaptive_sync| state.adaptive_sync = adaptive_sync;
+    if (spec.fullscreen_only_adaptive_sync) |value| state.fullscreen_only_adaptive_sync = value;
     if (spec.hdr) |enabled| {
         if (enabled and !Output.hdr.capable(wlr_output)) return error.HdrUnsupported;
         state.hdr_enabled = enabled;
@@ -454,6 +485,13 @@ fn handleManagerTest(_: *wl.Listener(*wlr.OutputConfigurationV1), config: *wlr.O
         return;
     };
     defer std.c.free(states.ptr);
+    for (states) |*entry| {
+        const output: *Output = @ptrCast(@alignCast(entry.output.data));
+        var policy = output.scheduled;
+        policy.state = if (entry.base.enabled) .enabled else .disabled_soft;
+        policy.adaptive_sync = entry.base.adaptive_sync_enabled;
+        entry.base.setAdaptiveSyncEnabled(output.adaptiveSyncTarget(policy));
+    }
 
     var swapchain_manager: wlr.OutputSwapchainManager = undefined;
     swapchain_manager.init(server.backend);
@@ -498,6 +536,8 @@ fn handleManagerApply(_: *wl.Listener(*wlr.OutputConfigurationV1), config: *wlr.
             const previous = output.scheduled.state;
             var proposed: Output.State = .fromHeadState(&head.state);
             proposed.mirror_of = output.scheduled.mirror_of;
+            proposed.fullscreen_only_adaptive_sync = output.scheduled.fullscreen_only_adaptive_sync;
+            output.adaptive_sync_policy.reset();
             proposed.hdr_enabled = output.scheduled.hdr_enabled;
             proposed.hdr_level = output.scheduled.hdr_level;
             proposed.sdr_white_level = output.scheduled.sdr_white_level;
@@ -637,8 +677,14 @@ pub fn autoLayout(om: *OutputManager) void {
 }
 
 pub fn commitOutputState(om: *OutputManager) void {
+    om.committing_outputs = true;
+    defer om.committing_outputs = false;
     defer server.system_bell.validateTargets();
     const wm = &server.wm;
+    {
+        var it = wm.sent.outputs.iterator(.forward);
+        while (it.next()) |output| output.prepareAdaptiveSync();
+    }
     {
         var it = wm.sent.outputs.iterator(.forward);
         while (it.next()) |output| {
@@ -704,9 +750,6 @@ pub fn commitOutputState(om: *OutputManager) void {
             if (output.current.mode == .none and output.sent.state == .enabled) {
                 break :blk true;
             }
-            if (output.sent.adaptive_sync != (wlr_output.adaptive_sync_status == .enabled)) {
-                break :blk true;
-            }
             if (output.sent.state == .enabled) {
                 if (output.sent.scale != wlr_output.scale) break :blk true;
                 if (output.sent.transform != wlr_output.transform) break :blk true;
@@ -749,7 +792,7 @@ pub fn commitOutputState(om: *OutputManager) void {
                 state.output = wlr_output;
                 state.base = wlr.Output.State.init();
 
-                if (!output.sent.applyModeset(wlr_output, &state.base)) {
+                if (!output.sent.applyModeset(wlr_output, &state.base, if (build_options.output_retry_testing and output.adaptive_sync_test.enabled) false else output.adaptive_sync_commit_target)) {
                     log.err("failed to prepare HDR/color state for output {s}", .{wlr_output.name});
                     om.modesetFailed();
                     return;
@@ -761,7 +804,9 @@ pub fn commitOutputState(om: *OutputManager) void {
         swapchain_manager.init(server.backend);
         defer swapchain_manager.finish();
 
-        if (!swapchain_manager.prepare(states.items)) {
+        if (!swapchain_manager.prepare(states.items) and
+            !(retainAdaptiveSync(states.items) and swapchain_manager.prepare(states.items)))
+        {
             log.err("failed to prepare new output configuration", .{});
             om.modesetFailed();
             return;
@@ -797,7 +842,9 @@ pub fn commitOutputState(om: *OutputManager) void {
             preview.test_fail_commit = false;
             break :blk fail;
         } else false;
-        if (injected_failure or !server.backend.commit(states.items)) {
+        if (injected_failure or (!server.backend.commit(states.items) and
+            !(retainAdaptiveSync(states.items) and server.backend.commit(states.items))))
+        {
             log.err("failed to commit new output configuration", .{});
             om.modesetFailed();
             return;
@@ -809,6 +856,17 @@ pub fn commitOutputState(om: *OutputManager) void {
         om.first_modeset = false;
 
         swapchain_manager.apply();
+    }
+
+    {
+        var it = wm.sent.outputs.iterator(.forward);
+        while (it.next()) |output| {
+            // This path also updates the virtual backend used by diagnostic tests.
+            if (!output.commitAdaptiveSync() and @import("DisplayPreview.zig").active()) {
+                om.modesetFailed();
+                return;
+            }
+        }
     }
 
     if (wm.sent.output_config) |config| {
@@ -977,6 +1035,23 @@ pub fn xwaylandProjectionForX11Point(
         if (projection.x11.contains(x, y)) return projection;
     }
     return if (set.len > 0) set.projection(0) else null;
+}
+
+/// A mode/HDR transaction may also include a conditional VRR transition. Retry
+/// once with the previous VRR state, without discarding the configured policy.
+fn retainAdaptiveSync(states: []wlr.Backend.OutputState) bool {
+    if (@import("DisplayPreview.zig").active()) return false;
+    var changed = false;
+    for (states) |*state| {
+        if (!state.base.committed.adaptive_sync_enabled) continue;
+        const output: *Output = @ptrCast(@alignCast(state.output.data));
+        if (state.base.adaptive_sync_enabled == output.adaptive_sync_before) continue;
+        output.adaptive_sync_policy.failure = .commit_failed;
+        output.adaptive_sync_commit_target = output.adaptive_sync_before;
+        state.base.setAdaptiveSyncEnabled(output.adaptive_sync_before);
+        changed = true;
+    }
+    return changed;
 }
 
 fn modesetFailed(om: *OutputManager) void {

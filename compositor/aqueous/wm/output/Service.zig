@@ -487,6 +487,18 @@ fn handleRetryTest(service: *Service, client: *Client, request: std.json.ObjectM
             @import("../../DisplayPreview.zig").test_partial_commit = true;
         } else if (std.mem.eql(u8, action, "preview_session_inactive")) {
             @import("../../DisplayPreview.zig").test_session_inactive = jsonBool(request.get("inactive")) orelse return service.sendError(client, "missing inactive");
+        } else if (std.mem.eql(u8, action, "vrr_backend")) {
+            if (!wlr_output.isHeadless()) return service.sendError(client, "headless output required");
+            output.adaptive_sync_test.enabled = jsonBool(request.get("enabled")) orelse return service.sendError(client, "missing enabled");
+            output.adaptive_sync_test.actual = false;
+            output.adaptive_sync_policy.reset();
+            server.wm.dirtyWindowing();
+        } else if (std.mem.eql(u8, action, "vrr_fail")) {
+            output.adaptive_sync_test.fail_next = true;
+        } else if (std.mem.eql(u8, action, "vrr_inactive")) {
+            output.adaptive_sync_test.inactive = jsonBool(request.get("inactive")) orelse return service.sendError(client, "missing inactive");
+            output.adaptive_sync_policy.reset();
+            server.wm.dirtyWindowing();
         } else if (std.mem.eql(u8, action, "damage")) {
             if (output.scene_output) |scene_output| scene_output.damage_ring.addWhole();
             wlr_output.scheduleFrame();
@@ -513,6 +525,10 @@ fn handleRetryTest(service: *Service, client: *Client, request: std.json.ObjectM
         std.json.Stringify.value(.{
             .ok = true,
             .mirror_pixels = pixels,
+            .vrr_attempts = output.adaptive_sync_policy.attempts,
+            .effective_adaptive_sync = output.adaptiveSyncTarget(output.current),
+            .actual_vrr = output.actualAdaptiveSync(),
+            .adaptive_sync_error = output.adaptiveSyncError(),
             .mirror_copies = output.mirror.copies,
             .policy_exposed = output.policyExposed(),
             .mirror_status = output.mirror.status(output),
@@ -573,6 +589,10 @@ fn specFromJson(object: std.json.ObjectMap) ?Config.Spec {
         spec.y = jsonInt(position.array.items[1]) orelse return null;
     }
     spec.adaptive_sync = jsonBool(object.get("adaptive_sync"));
+    if (object.get("fullscreen_only_adaptive_sync")) |value| {
+        if (value != .bool) return null;
+        spec.fullscreen_only_adaptive_sync = value.bool;
+    }
     spec.hdr = jsonBool(object.get("hdr"));
     if (object.get("hdr_level")) |value| spec.hdr_level = jsonHdrLevelChoice(value) orelse return null;
     if (object.get("sdr_white_level")) |value| {
@@ -660,6 +680,7 @@ fn persistProfile(_: *Service, name: []const u8, outputs: []const std.json.Value
         if (spec.transform) |v| try writer.print("transform = \"{s}\"\n", .{configTransformName(v)});
         if (spec.x) |x| try writer.print("position = [{d}, {d}]\n", .{ x, spec.y.? });
         if (spec.adaptive_sync) |v| try writer.print("adaptive_sync = {}\n", .{v});
+        if (spec.fullscreen_only_adaptive_sync) |v| try writer.print("fullscreen_only_adaptive_sync = {}\n", .{v});
         if (spec.hdr) |v| try writer.print("hdr = {}\n", .{v});
         if (spec.hdr_level) |v| switch (v) {
             .auto => try writer.writeAll("hdr_level = \"auto\"\n"),
@@ -900,6 +921,10 @@ fn writeOutputs(_: *Service, json: *std.json.Stringify) !void {
         try field(json, "mirror_status", output.mirror.status(output));
         try field(json, "mirror_error", output.mirror.failure);
         try field(json, "adaptive_sync", state.adaptive_sync);
+        try field(json, "fullscreen_only_adaptive_sync", state.fullscreen_only_adaptive_sync);
+        try field(json, "effective_adaptive_sync", output.adaptiveSyncTarget(state));
+        try field(json, "actual_vrr", output.actualAdaptiveSync());
+        try field(json, "adaptive_sync_error", output.adaptiveSyncError());
         try field(json, "hdr", state.hdr_enabled);
         try field(json, "hdr_level", @as(u16, @intFromEnum(state.hdr_level)));
         try field(json, "sdr_white_level", state.sdr_white_level);
@@ -1121,6 +1146,12 @@ fn outputFingerprint() u64 {
         const transform: c_int = @intFromEnum(state.transform);
         hash.update(std.mem.asBytes(&transform));
         hash.update(std.mem.asBytes(&state.adaptive_sync));
+        hash.update(std.mem.asBytes(&state.fullscreen_only_adaptive_sync));
+        const effective_vrr = output.adaptiveSyncTarget(state);
+        const actual_vrr = output.actualAdaptiveSync();
+        hash.update(std.mem.asBytes(&effective_vrr));
+        hash.update(std.mem.asBytes(&actual_vrr));
+        if (output.adaptiveSyncError()) |reason| hash.update(reason);
         hash.update(std.mem.asBytes(&state.hdr_enabled));
         const hdr_level: u16 = @intFromEnum(state.hdr_level);
         hash.update(std.mem.asBytes(&hdr_level));

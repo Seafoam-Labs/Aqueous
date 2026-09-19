@@ -959,6 +959,10 @@ pub fn setWorkspace(window: *Window, workspace: *Workspace) void {
     window.workspace_link.remove();
     workspace.windows.append(window);
     window.workspace = workspace;
+    // Fullscreen geometry and output policy must follow the window's workspace.
+    if (window.wm_requested.fullscreen != null) {
+        window.wm_requested.fullscreen = workspace.output;
+    }
     // Reaping the emptied source workspace and ensuring a trailing empty are
     // deferred to the coalesced workspace cycle so a workspace is never freed
     // synchronously while another in-flight request still references it.

@@ -807,6 +807,8 @@ pub fn build(b: *Build) !void {
         snapshot_test_step.dependOn(&run_scene_buffer_clone_test.step);
 
         const test_step = b.step("test", "Run the tests");
+        const adaptive_sync_test = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("aqueous/adaptive_sync_policy.zig"), .target = target, .optimize = optimize }) });
+        test_step.dependOn(&b.addRunArtifact(adaptive_sync_test).step);
         const activity_test = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("aqueous/input_activity.zig"), .target = target, .optimize = optimize }) });
         test_step.dependOn(&b.addRunArtifact(activity_test).step);
         test_step.dependOn(&run_preview_policy_test.step);

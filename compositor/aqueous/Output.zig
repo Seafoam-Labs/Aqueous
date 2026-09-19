@@ -91,7 +91,9 @@ pub const State = struct {
     },
     scale: f32,
     transform: wl.Output.Transform,
+    /// Configured master preference; hardware state can differ under fullscreen policy.
     adaptive_sync: bool,
+    fullscreen_only_adaptive_sync: bool = false,
     /// Enable the BT.2020/PQ HDR10 output profile.
     hdr_enabled: bool,
     /// Target peak luminance preset for the HDR10 mastering metadata.
@@ -181,7 +183,7 @@ pub const State = struct {
         wlr_state.setTransform(state.transform);
     }
 
-    pub fn applyModeset(state: *const State, wlr_output: *wlr.Output, wlr_state: *wlr.Output.State) bool {
+    pub fn applyModeset(state: *const State, wlr_output: *wlr.Output, wlr_state: *wlr.Output.State, adaptive_sync: bool) bool {
         const enabled = state.state == .enabled;
         wlr_state.setEnabled(enabled);
         if (!enabled) return true;
@@ -191,7 +193,7 @@ pub const State = struct {
             .custom => |mode| wlr_state.setCustomMode(mode.width, mode.height, mode.refresh),
             .none => {},
         }
-        wlr_state.setAdaptiveSyncEnabled(state.adaptive_sync);
+        wlr_state.setAdaptiveSyncEnabled(adaptive_sync);
         return hdr.apply(wlr_output, state.hdr_enabled, state.hdr_level, state.sdr_white_level, wlr_state);
     }
 };
@@ -210,6 +212,18 @@ pub const RetryFault = struct {
     simulate_overlay: bool = false,
     simulate_color_pipeline: bool = false,
 };
+
+/// Requested policy is kept in State; these fields describe one runtime target.
+adaptive_sync_policy: @import("adaptive_sync_policy.zig").State = .{},
+adaptive_sync_commit_target: bool = false,
+adaptive_sync_before: bool = false,
+/// Diagnostic-only virtual backend, never enabled in a production build.
+adaptive_sync_test: if (build_options.output_retry_testing) struct {
+    enabled: bool = false,
+    actual: bool = false,
+    fail_next: bool = false,
+    inactive: bool = false,
+} else void = if (build_options.output_retry_testing) .{} else {},
 
 /// Session-scoped identity, never reused after disconnect.
 display_instance: u64 = 0,
@@ -1633,6 +1647,10 @@ fn migrateWorkspacesTo(output: *Output, dest: *Output) void {
     output.active_workspace = null;
     var it = output.workspaces.safeIterator(.forward);
     while (it.next()) |workspace| {
+        var fullscreen_windows = workspace.windows.iterator(.forward);
+        while (fullscreen_windows.next()) |window| {
+            if (window.wm_requested.fullscreen != null) window.wm_requested.fullscreen = dest;
+        }
         if (workspace.pinned) {
             if (dest.pinnedByName(workspace.name)) |target| {
                 var win_it = workspace.windows.safeIterator(.forward);
@@ -1691,6 +1709,9 @@ fn handleCommit(
     if (!(committed.scale or committed.mode or committed.transform or committed.enabled or
         committed.adaptive_sync_enabled)) return;
     output.overlay_state.invalidateCapabilities();
+    // VRR-only commits do not change layout or require another WM transaction.
+    if (!(committed.scale or committed.mode or committed.transform or committed.enabled)) return;
+    if (!server.om.committing_outputs) output.adaptive_sync_policy.reset();
     server.aqueous.forgetOutput(output.policyId());
     const wlr_output = output.wlr_output orelse return;
     log.debug("output {s}: commit affects layout (scale={} mode={} transform={} enabled={})", .{
@@ -2531,7 +2552,7 @@ fn prepareOverlayCandidate(
         .output_transform = @intCast(@intFromEnum(output.current.transform)),
         .output_width = output.current.dimensions()[0],
         .output_height = output.current.dimensions()[1],
-        .adaptive_sync = output.current.adaptive_sync,
+        .adaptive_sync = output.actualAdaptiveSync(),
         .blocker_generation = output.overlay_state.blocker_generation,
     };
     if (!output.overlay_state.shouldAttempt(assignment, overlayNowMs())) {
@@ -2764,4 +2785,86 @@ fn pinnedByName(output: *Output, name: [:0]const u8) ?*Workspace {
         }
     }
     return null;
+}
+
+pub fn actualAdaptiveSync(output: *const Output) bool {
+    if (comptime build_options.output_retry_testing) if (output.adaptive_sync_test.enabled) return output.adaptive_sync_test.actual;
+    const w = output.wlr_output orelse return false;
+    return w.adaptive_sync_status == .enabled;
+}
+
+pub fn adaptiveSyncTarget(output: *const Output, state: State) bool {
+    var fullscreen = false;
+    if (output.active_workspace) |workspace| {
+        var windows = workspace.windows.iterator(.forward);
+        while (windows.next()) |window| {
+            if (window.state == .mapped and window.wm_requested.fullscreen == output and
+                window.policy_state.isVisible() and !window.rendering_requested.hidden and
+                !window.overview_hidden)
+            {
+                fullscreen = true;
+                break;
+            }
+        }
+    }
+    var active = if (server.session) |session| session.active else true;
+    if (comptime build_options.output_retry_testing) if (output.adaptive_sync_test.inactive) {
+        active = false;
+    };
+    return @import("adaptive_sync_policy.zig").target(state.adaptive_sync, state.fullscreen_only_adaptive_sync, .{
+        .enabled = output.wlr_output != null and state.state == .enabled,
+        .mirror = !state.mirror_of.empty(),
+        .session_active = active,
+        .unlocked = server.lock_manager.state == .unlocked,
+        .overview = server.aqueous.overview != null,
+        .fullscreen = fullscreen,
+    });
+}
+
+pub fn adaptiveSyncError(output: *const Output) ?[]const u8 {
+    return if (output.adaptive_sync_policy.failure) |failure| @tagName(failure) else null;
+}
+
+/// Capture once for the transaction, after live window visibility is finalized.
+pub fn prepareAdaptiveSync(output: *Output) void {
+    if (!std.meta.eql(output.sent, output.current)) output.adaptive_sync_policy.reset();
+    output.adaptive_sync_policy.update(output.adaptiveSyncTarget(output.sent));
+    output.adaptive_sync_before = output.actualAdaptiveSync();
+    const w = output.wlr_output orelse return;
+    var supported = w.adaptive_sync_supported;
+    if (comptime build_options.output_retry_testing) supported = supported or output.adaptive_sync_test.enabled;
+    if (output.adaptive_sync_policy.target and !supported) output.adaptive_sync_policy.failure = .unsupported;
+    output.adaptive_sync_commit_target = if (output.adaptive_sync_policy.failure == null)
+        output.adaptive_sync_policy.target
+    else
+        output.adaptive_sync_before;
+}
+
+/// Change VRR without replacing swapchains, color state or window layout.
+pub fn commitAdaptiveSync(output: *Output) bool {
+    const w = output.wlr_output orelse return true;
+    if (output.sent.state != .enabled or !output.adaptive_sync_policy.shouldCommit(output.actualAdaptiveSync())) return true;
+    if (server.session) |session| if (!session.active) return true;
+    output.adaptive_sync_policy.attempts += 1;
+    const success = blk: {
+        if (comptime build_options.output_retry_testing) if (output.adaptive_sync_test.enabled) {
+            const accepted = !output.adaptive_sync_test.fail_next;
+            output.adaptive_sync_test.fail_next = false;
+            if (accepted) output.adaptive_sync_test.actual = output.adaptive_sync_policy.target;
+            break :blk accepted;
+        };
+        var state = wlr.Output.State.init();
+        defer state.finish();
+        state.setAdaptiveSyncEnabled(output.adaptive_sync_commit_target);
+        break :blk w.commitState(&state);
+    };
+    if (!success) {
+        output.adaptive_sync_policy.failure = .commit_failed;
+        log.warn("output {s}: adaptive sync toggle rejected; retaining hardware state", .{w.name});
+    } else {
+        output.adaptive_sync_policy.reset();
+        output.overlay_state.invalidateCapabilities();
+        server.om.display_revision += 1;
+    }
+    return success;
 }
