@@ -52,6 +52,7 @@ power_manager: *wlr.OutputPowerManagerV1,
 power_manager_set_mode: wl.Listener(*wlr.OutputPowerManagerV1.event.SetMode) = .init(handlePowerManagerSetMode),
 
 gamma_control_manager: *wlr.GammaControlManagerV1,
+warming: *@import("OutputWarming.zig"),
 
 /// All Outputs that have a corresponding wlr_output.
 outputs: wl.list.Head(Output, .link),
@@ -72,10 +73,12 @@ pub fn init(om: *OutputManager) !void {
         .wlr_output_manager = try wlr.OutputManagerV1.create(server.wl_server),
         .power_manager = try wlr.OutputPowerManagerV1.create(server.wl_server),
         .gamma_control_manager = gamma_control_manager,
+        .warming = try @import("OutputWarming.zig").init(util.gpa, server.wl_server, gamma_control_manager),
     };
 
     om.outputs.init();
     om.session = server.session;
+    om.warming.active(if (om.session) |session| session.active else true);
     if (om.session) |session| {
         session.events.active.add(&om.session_active);
         session.events.destroy.add(&om.session_destroy);
@@ -88,6 +91,7 @@ pub fn init(om: *OutputManager) !void {
 }
 
 pub fn deinit(om: *OutputManager) void {
+    om.warming.deinit();
     if (om.session != null) {
         om.session_active.link.remove();
         om.session_destroy.link.remove();
@@ -101,6 +105,7 @@ pub fn deinit(om: *OutputManager) void {
 
 fn handleSessionActive(listener: *wl.Listener(void)) void {
     const om: *OutputManager = @fieldParentPtr("session_active", listener);
+    om.warming.active(if (om.session) |session| session.active else false);
     var outputs = om.outputs.iterator(.forward);
     while (outputs.next()) |output| output.adaptive_sync_policy.reset();
     server.wm.dirtyWindowing();
@@ -110,6 +115,7 @@ fn handleSessionDestroy(listener: *wl.Listener(*wlr.Session), _: *wlr.Session) v
     const om: *OutputManager = @fieldParentPtr("session_destroy", listener);
     om.session_active.link.remove();
     om.session_destroy.link.remove();
+    om.warming.active(false);
     om.session = null;
 }
 
@@ -677,6 +683,20 @@ pub fn autoLayout(om: *OutputManager) void {
 }
 
 pub fn commitOutputState(om: *OutputManager) void {
+    // Revoke before constructing any conflicting modeset/preview/mirror state.
+    var warming_outputs = om.outputs.iterator(.forward);
+    while (warming_outputs.next()) |output| {
+        if (output.wlr_output) |w| {
+            var mirror_source = output.mirror_source_locked;
+            var destinations = om.outputs.iterator(.forward);
+            while (destinations.next()) |destination| {
+                if (destination.sent.state == .enabled and !destination.sent.mirror_of.empty() and
+                    std.mem.eql(u8, destination.sent.mirror_of.slice(), output.policyName())) mirror_source = true;
+            }
+            om.warming.path(w, !output.sent.mirror_of.empty() or mirror_source);
+            if (!std.meta.eql(output.sent, output.current)) om.warming.invalidate(w);
+        }
+    }
     om.committing_outputs = true;
     defer om.committing_outputs = false;
     defer server.system_bell.validateTargets();

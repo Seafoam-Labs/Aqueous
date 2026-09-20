@@ -1,0 +1,84 @@
+{
+  "recorded_utc": "2026-09-20T02:47:45.146368+00:00",
+  "aqueous_base": "7ac4af2f9990ea36192aefc41adf3845b1249015",
+  "pearl_base": "cb4cb780276e4058f8b32455d3e98edf83e9d042",
+  "status": "software_validated_production_unqualified",
+  "protocol": {
+    "name": "aqueous_output_warming_manager_v1",
+    "version": 1,
+    "status_precision": "backend_commit"
+  },
+  "wlroots": {
+    "version": "0.20.2",
+    "archive_sha256": "972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343",
+    "patch_count": 28
+  },
+  "checks": {
+    "clean_wlroots_build_and_dependency_regressions": "passed",
+    "compositor_unit_tests_and_effects_disabled_build": "passed",
+    "private_effects_enabled_build": "passed",
+    "native_protocol_and_renderer_pixels": "passed",
+    "ownership_release_client_crash_restoration": "passed",
+    "commit_fallback_modeset_mirror_source_and_destination": "passed",
+    "pearl_native_saved_policy_status_off_on_crash": "passed",
+    "pearl_unit_and_dst_clock_tests": "passed",
+    "pearl_older_compositor_night_light_suite": "passed",
+    "component_packaging_and_private_build_rejection": "passed",
+    "shell_nix_patch_list_parity": "passed",
+    "nix_parse_build": "not_run_nix_unavailable",
+    "warming_handlers_zig_debug_and_allocator_leaks": "passed",
+    "production_unqualified_snapshots_and_acquisition_denial": "passed"
+  },
+  "local_artifacts": {
+    "dependency_log": "/tmp/aqueous-warming/wlroots-build.log",
+    "compositor_log": "/tmp/aqueous-warming/zig-migration-build.log",
+    "native_runtime": "/tmp/aqueous-warming-runtime-kvp_a9gp",
+    "existing_mirror_regression": "/tmp/aqueous-output-mirror-ly7pqg3p",
+    "pearl_legacy_suite": "/tmp/aqueous-warming/pearl-legacy-integration",
+    "packaging_log": "/tmp/aqueous-warming/packaging-tests.log",
+    "private_compositor_log": "/tmp/aqueous-warming/zig-private-build.log",
+    "native_handlers_log": "/tmp/aqueous-warming/zig-warming-handlers.log",
+    "production_denial": "/tmp/aqueous-warming-runtime-edt_iqp4"
+  },
+  "physical_acceptance": false,
+  "production_qualification": [],
+  "remaining": [
+    "Instrumented physical SDR warming and restoration",
+    "Non-neutral calibration representation/composition/acceptance",
+    "Physical VT, DPMS, hotplug, GPU reset and compositor death qualification",
+    "Per GPU/driver/renderer/mode qualification and production enablement"
+  ],
+  "aqueous_source_sha256": {
+    "compositor/aqueous/OutputWarming.zig": "22c715999734105ab967ba20fea76f81dd0bcdfe9a7d6f9e49dc1be723673053",
+    "compositor/aqueous/Output.zig": "ff42637db41fdf91a52c325daf218835a5666e38d0cffd5ec50dfc732562e24e",
+    "compositor/aqueous/OutputManager.zig": "613ee9669e8bceba513489d418ef70bd027b64d224e0de3a8e27ca456b4127f9",
+    "compositor/aqueous/OutputMirror.zig": "c80a262632bdb06037dc6d57b5a0c2fee372b2b65b0941f08244e4564eb0d4c5",
+    "compositor/aqueous/Server.zig": "d582525de2c2d02ba3f87ed2ad498b36ac0b1d0faf5f713417dc2b7b26dbee2f",
+    "compositor/patches/wlroots/0028-output-color-guard.patch": "3cb2568e189293f6dd1522f52a932da73b4e79f0bf3d5ee079c130b5844f4b17",
+    "compositor/protocol/aqueous-output-warming-v1.xml": "874731a4ccb9d7f347a56903ced163db9222152071f3588246235c4f9626c54e",
+    "compositor/build.zig": "d92ad2002bd541df09654fbccd8dad43e80b570fa8ba4d45eb51b49d360f0647",
+    "compositor/scripts/test-output-warming.py": "79f41e52c66a72218e9a8eb94f439c01812cda986e9d0145f279a6bafa1a7f01"
+  },
+  "pearl_source_sha256": {
+    "build.zig": "353e3528c1fa1b0602d17d4c4765fe587fd5a08b4b7a96482b4142a420b57f94",
+    "bindings/protocols/aqueous-output-warming-v1.xml": "874731a4ccb9d7f347a56903ced163db9222152071f3588246235c4f9626c54e",
+    "src/platform/wayland/warming_control.zig": "b9111f184066029c9f676cb4f9be3c6dc907c1906aac2c7935d152ca51d29778",
+    "src/services/night_light.zig": "d011fee5dc76cc47c72261a1599d20101d0753005ecc14e707656c93edc8c310",
+    "src/services/night_light_policy.zig": "f13fa5b160e232a19c0ded4783a5635b4781ff813b0af471a4bfda345a8ef7f9",
+    "src/settings/editor.zig": "ce03d8d27a22cf6d6e1d0c53357a01ab8cb38d3c3f4f583e45c2bf0a8522f414",
+    "src/settings/preferences_view.zig": "f2d81b19ed68a660d75f3bcef1cb4337cdc59f7a380ba549838007052d6fad44",
+    "src/desktop/panels.zig": "99ee35160cb8ed3ca53a8864b9f7b8694e50d1c1bf1206f6c1ce07be87c22de9",
+    "docs/NIGHT_LIGHT.md": "95bc47a9ff8a663ba244dcc8c7fac99904b69d6e8a9c5ff7e8d2287dd70b0402",
+    "docs/COMPATIBILITY.md": "265911bd4ddf5766a7b8a5cb0740a4bada18c1ad23c24dbfabab31ae01595bbc"
+  },
+  "historical_c_validation": {
+    "recorded_utc": "2026-09-20T02:34:01.097251+00:00",
+    "handlers_asan_ubsan": "passed",
+    "source_sha256": {
+      "compositor/aqueous/output_warming.c": "d39b598c260c61fc1722875d54494c9451753d4add3d70fb1c54983ebd0d18d6",
+      "compositor/aqueous/output_warming.h": "850262c3463124c4ea6610632086d22d7768be85748109201d93966c797c6688"
+    },
+    "scope": "Removed C implementation only; not sanitizer coverage of the native Zig replacement."
+  },
+  "implementation": "native_zig_policy_and_protocol_with_wlroots_c_hooks"
+}

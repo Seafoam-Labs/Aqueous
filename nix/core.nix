@@ -130,6 +130,7 @@ let
       "${src}/compositor/patches/wlroots/0025-drm-color-pipeline.patch"
       "${src}/compositor/patches/wlroots/0026-scene-color-pipeline.patch"
       "${src}/compositor/patches/wlroots/0027-xwayland-size-hints.patch"
+      "${src}/compositor/patches/wlroots/0028-output-color-guard.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending

@@ -51,7 +51,7 @@ reject "$artifacts" manifest core "$base/core" "$base/cohort.json" "$base/bad.js
 rm "$base/core/usr/bin/aqueous-settings"
 jq '.cohort.revision="other"' "$base/session.json" > "$base/other.json"
 reject "$artifacts" compose "$base/mixed" "${pairs[0]}" "$base/session=$base/other.json"
-for flag in output_retry_testing display_preview_acceptance input_activity_testing; do
+for flag in output_retry_testing display_preview_acceptance input_activity_testing warming_testing; do
     jq --arg flag "$flag" '.[$flag]=true' "$base/core/usr/share/aqueous/build-policy.json" > "$build/share/aqueous/build-policy.json"
     reject env DESTDIR="$base/$flag" "$root/packaging/stage-component.sh" core
 done

@@ -104,12 +104,14 @@ pub fn build(b: *Build) !void {
     const display_preview_acceptance = b.option(bool, "display-preview-acceptance", "Enable explicitly selected DRM feature preview acceptance tests; never ship this build") orelse false;
     options.addOption(bool, "display_preview_acceptance", display_preview_acceptance);
     options.addOption([]const u8, "version", full_version);
+    const warming_testing = b.option(bool, "warming-testing", "Enable private headless warming fixture qualification; never ship") orelse false;
+    options.addOption(bool, "warming_testing", warming_testing);
     const input_activity_testing = b.option(bool, "input-activity-testing", "Compile isolated input activity fixture support (never ship)") orelse false;
     options.addOption(bool, "input_activity_testing", input_activity_testing);
     // Generated from the actual build options, never supplied by a packaging caller.
     const policy = b.addWriteFiles().add("build-policy.json", b.fmt(
-        "{{\"schema\":1,\"output_retry_testing\":{},\"display_preview_acceptance\":{},\"input_activity_testing\":{}}}\n",
-        .{ output_retry_testing, display_preview_acceptance, input_activity_testing },
+        "{{\"schema\":1,\"output_retry_testing\":{},\"display_preview_acceptance\":{},\"input_activity_testing\":{},\"warming_testing\":{}}}\n",
+        .{ output_retry_testing, display_preview_acceptance, input_activity_testing, warming_testing },
     ));
     b.getInstallStep().dependOn(&b.addInstallFile(policy, "share/aqueous/build-policy.json").step);
 
@@ -135,6 +137,8 @@ pub fn build(b: *Build) !void {
     scanner.addCustomProtocol(b.path("protocol/aqueous-window-info-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/aqueous-shell-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/aqueous-input-activity-v1.xml"));
+    scanner.addCustomProtocol(b.path("protocol/aqueous-output-warming-v1.xml"));
+    scanner.generate("aqueous_output_warming_manager_v1", 1);
     scanner.generate("aqueous_input_activity_manager_v1", 1);
     scanner.addCustomProtocol(b.path("protocol/aqueous-xkb-bindings-v1.xml"));
     scanner.addCustomProtocol(b.path("protocol/aqueous-layer-shell-v1.xml"));
@@ -385,6 +389,7 @@ pub fn build(b: *Build) !void {
         }) |protocol| {
             b.installFile("protocol/" ++ protocol, "share/aqueous-protocols/stable/" ++ protocol);
         }
+        b.installFile("protocol/aqueous-output-warming-v1.xml", "share/aqueous-protocols/experimental/aqueous-output-warming-v1.xml");
         b.installFile("protocol/aqueous-capture-color-v1.xml", "share/aqueous-protocols/experimental/aqueous-capture-color-v1.xml");
     }
 
@@ -805,6 +810,26 @@ pub fn build(b: *Build) !void {
         const run_scene_buffer_clone_test = b.addRunArtifact(scene_buffer_clone_test);
         const snapshot_test_step = b.step("test-snapshot", "Test scene-buffer snapshot rendering state");
         snapshot_test_step.dependOn(&run_scene_buffer_clone_test.step);
+
+        const warming_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/OutputWarming.zig"),
+                .target = target,
+                .optimize = .Debug,
+                .link_libc = true,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        warming_test.root_module.addImport("wayland", wayland);
+        warming_test.root_module.addImport("wlroots", wlroots);
+        warming_test.root_module.addImport("c", translate_c.mod);
+        warming_test.root_module.addOptions("build_options", options);
+        warming_test.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
+        warming_test.root_module.linkSystemLibrary("wayland-server", .{});
+        warming_test.root_module.linkSystemLibrary("pixman-1", .{});
+        const run_warming_test = b.addRunArtifact(warming_test);
+        b.step("test-output-warming", "Test warming handlers with private Wayland resources and headless commits").dependOn(&run_warming_test.step);
 
         const test_step = b.step("test", "Run the tests");
         const adaptive_sync_test = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("aqueous/adaptive_sync_policy.zig"), .target = target, .optimize = optimize }) });

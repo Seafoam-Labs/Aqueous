@@ -639,6 +639,10 @@ pub fn create(wlr_output: *wlr.Output) !void {
     server.om.next_display_instance += 1;
     output.display_instance = server.om.next_display_instance;
     server.om.display_revision += 1;
+    server.om.warming.add(wlr_output, output.display_instance) catch {
+        // No contract object means no native acquisition or legacy gamma grant.
+        log.err("warming output registration failed for {s}", .{wlr_output.name});
+    };
     wlr_output.events.destroy.add(&output.destroy);
     wlr_output.events.request_state.add(&output.request_state);
     wlr_output.events.frame.add(&output.frame);
@@ -1760,6 +1764,7 @@ fn handleBind(listener: *wl.Listener(*wlr.Output.event.Bind), _: *wlr.Output.eve
 
 fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
     const output: *Output = @fieldParentPtr("destroy", listener);
+    server.om.warming.remove(wlr_output);
     output.discardOverlayCandidate();
     server.om.display_revision += 1;
     @import("DisplayPreview.zig").removed(output.display_instance);
@@ -2433,7 +2438,16 @@ fn buildSceneStateInternal(
     animation_changed_scene: bool,
     allow_overlay: bool,
 ) bool {
-    if (!output.sent.mirror_of.empty()) return output.mirror.build(output, state, swapchain);
+    if (!output.sent.mirror_of.empty()) {
+        // A newly mirrored output may still owe baseline restoration. Mirror
+        // sources are revoked before the transaction is built; its copied SDR
+        // buffer must pass the same prepared-buffer commit guard.
+        var options: c.struct_wlr_scene_output_state_options = std.mem.zeroes(c.struct_wlr_scene_output_state_options);
+        if (!server.om.warming.prepare(output.wlr_output.?, output.scene_output.?, state, &options)) return false;
+        const built = output.mirror.build(output, state, swapchain);
+        server.om.warming.built(output.wlr_output.?, state, built);
+        return built;
+    }
     output.syncWindowVisualState();
     output.effects_swapchain_path = swapchain != null;
     defer output.effects_swapchain_path = false;
@@ -2448,11 +2462,17 @@ fn buildSceneStateInternal(
         scene_options.timer = @ptrCast(&output.render_metric_sample.?.timer);
     }
 
-    if (!c.wlr_scene_output_build_state(
+    if (!server.om.warming.prepare(output.wlr_output.?, output.scene_output.?, state, &scene_options)) {
+        if (collect_metrics) output.discardRenderMetric();
+        return false;
+    }
+    const warming_built = c.wlr_scene_output_build_state(
         @ptrCast(output.scene_output.?),
         @ptrCast(state),
         &scene_options,
-    )) {
+    );
+    server.om.warming.built(output.wlr_output.?, state, warming_built);
+    if (!warming_built) {
         if (collect_metrics) output.discardRenderMetric();
         return false;
     }

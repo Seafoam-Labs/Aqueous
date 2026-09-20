@@ -900,6 +900,10 @@ fn gpuResetRecoverIdle(server: *Server) void {
 }
 
 fn gpuResetRecover(server: *Server) !void {
+    var warming_outputs = server.om.outputs.iterator(.forward);
+    while (warming_outputs.next()) |output| {
+        if (output.wlr_output) |w| server.om.warming.invalidate(w);
+    }
     log.info("recovering from GPU reset", .{});
     const new_renderer = try fx.createRenderer(server.backend);
     errdefer new_renderer.destroy();

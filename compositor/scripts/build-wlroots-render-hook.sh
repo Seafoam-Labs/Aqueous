@@ -33,6 +33,7 @@ patch_files=(
     "$here/patches/wlroots/0025-drm-color-pipeline.patch"
     "$here/patches/wlroots/0026-scene-color-pipeline.patch"
     "$here/patches/wlroots/0027-xwayland-size-hints.patch"
+    "$here/patches/wlroots/0028-output-color-guard.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -213,6 +214,7 @@ for symbol in \
     wlr_surface_has_windows_hdr_image_description \
     wlr_surface_has_windows_scrgb_image_description \
     wlr_backend_is_x11 \
+    wlr_aqueous_set_color_guard \
     wlr_xwayland_create; do
     nm -D --defined-only "$library" | grep " $symbol$" >/dev/null ||
         die "patched wlroots is missing $symbol"

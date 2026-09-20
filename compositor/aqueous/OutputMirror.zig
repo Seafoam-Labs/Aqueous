@@ -125,6 +125,7 @@ pub fn reconcile() void {
             }
         }
         if (needed != output.mirror_source_locked) {
+            server.om.warming.path(physical, needed or !output.sent.mirror_of.empty());
             physical.lockAttachRender(needed);
             physical.lockSoftwareCursors(needed);
             output.mirror_source_locked = needed;

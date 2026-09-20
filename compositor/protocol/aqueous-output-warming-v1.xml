@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="aqueous_output_warming_v1">
+  <copyright>Copyright © 2026 Seafoam Labs. SPDX-License-Identifier: MIT</copyright>
+  <interface name="aqueous_output_warming_manager_v1" version="1">
+    <description summary="experimental output warming">
+      Observation is not authorization. Only an acquired lease can request
+      warming, and every request is checked again at real output submission.
+      No production output path is qualified in the initial implementation.
+      Objects are connection scoped. Destroying this manager leaves its children
+      alive. Security-context clients cannot bind this global.
+    </description>
+    <request name="destroy" type="destructor"/>
+    <request name="get_output">
+      <arg name="id" type="new_id" interface="aqueous_output_warming_output_v1"/>
+      <arg name="output" type="object" interface="wl_output"/>
+    </request>
+  </interface>
+  <interface name="aqueous_output_warming_output_v1" version="1">
+    <description summary="coherent live output state">
+      state followed by done is one snapshot. Tokens are unsigned 64-bit
+      high/low pairs. Identity is session plus instance. Generation never rolls
+      backward; reconnect/removal invalidates the object. Revision orders all
+      state updates. Unknown reasons or encodings must be treated as unavailable.
+      Acquire requires the generation from a completed snapshot.
+    </description>
+    <enum name="reason">
+      <entry name="eligible" value="0"/>
+      <entry name="unqualified" value="1"/>
+      <entry name="hdr" value="2"/>
+      <entry name="calibration_unknown" value="3"/>
+      <entry name="inactive" value="4"/>
+      <entry name="busy" value="5"/>
+      <entry name="stale" value="6"/>
+      <entry name="removed" value="7"/>
+      <entry name="restoring" value="8"/>
+      <entry name="unsupported_path" value="9"/>
+      <entry name="invalid_value" value="10"/>
+      <entry name="commit_failed" value="11"/>
+      <entry name="transition" value="12"/>
+      <entry name="retired" value="13"/>
+    </enum>
+    <request name="destroy" type="destructor"/>
+    <request name="acquire">
+      <arg name="id" type="new_id" interface="aqueous_output_warming_lease_v1"/>
+      <arg name="generation_hi" type="uint"/>
+      <arg name="generation_lo" type="uint"/>
+    </request>
+    <event name="state">
+      <arg name="session_hi" type="uint"/><arg name="session_lo" type="uint"/>
+      <arg name="instance_hi" type="uint"/><arg name="instance_lo" type="uint"/>
+      <arg name="generation_hi" type="uint"/><arg name="generation_lo" type="uint"/>
+      <arg name="revision_hi" type="uint"/><arg name="revision_lo" type="uint"/>
+      <arg name="reason" type="uint" enum="reason"/>
+      <arg name="encoding" type="uint" summary="0 unknown, 1 gamma22 SDR, 2 HDR"/>
+      <arg name="baseline" type="uint" summary="0 unknown, 1 compositor neutral"/>
+      <arg name="qualification" type="uint" summary="0 unqualified, 1 private headless Vulkan fixture"/>
+      <arg name="owner" type="uint" summary="0 free, 1 native, 2 legacy, 3 restoring"/>
+      <arg name="committed_kelvin" type="uint" summary="0 unknown, otherwise last committed value"/>
+      <arg name="pending_kelvin" type="uint" summary="0 none, otherwise newest target"/>
+    </event>
+    <event name="done"/>
+  </interface>
+  <interface name="aqueous_output_warming_lease_v1" version="1">
+    <description summary="exclusive generation-bound warming lease">
+      acquired or denied answers acquisition. Denied and revoked leases are
+      inert but must be destroyed. set and release IDs are nonzero, strictly
+      increasing uint32 values; reuse is a protocol error. Each accepted ID
+      gets one terminal result while the resource exists. New queued values
+      supersede older ones. 2500..6500 K uses algorithm 1: linear RGB gains
+      (1, 1-0.25*t, 1-0.65*t), t=(6500-K)/4000, followed by baseline gamma22
+      encoding. This parameter is not a measured white point. 6500 is neutral.
+      committed means a successful backend commit, not physical color accuracy
+      or presentation. Commit sequence is informational and may wrap.
+      release completes only after baseline commits. Destroy/disconnect requests
+      the same restoration without an acknowledgment. Failures may leave the
+      previous committed value visible; observe output state for restoration.
+    </description>
+    <enum name="result">
+      <entry name="committed" value="0"/>
+      <entry name="rejected" value="1"/>
+      <entry name="failed" value="2"/>
+      <entry name="superseded" value="3"/>
+      <entry name="revoked" value="4"/>
+    </enum>
+    <request name="destroy" type="destructor"/>
+    <request name="set">
+      <arg name="generation_hi" type="uint"/><arg name="generation_lo" type="uint"/>
+      <arg name="request_id" type="uint"/><arg name="kelvin" type="uint"/>
+    </request>
+    <request name="release"><arg name="request_id" type="uint"/></request>
+    <event name="acquired"><arg name="generation_hi" type="uint"/><arg name="generation_lo" type="uint"/></event>
+    <event name="denied"><arg name="reason" type="uint" enum="aqueous_output_warming_output_v1.reason"/></event>
+    <event name="revoked"><arg name="reason" type="uint" enum="aqueous_output_warming_output_v1.reason"/><arg name="generation_hi" type="uint"/><arg name="generation_lo" type="uint"/></event>
+    <event name="result">
+      <arg name="request_id" type="uint"/><arg name="result" type="uint" enum="result"/>
+      <arg name="reason" type="uint" enum="aqueous_output_warming_output_v1.reason"/>
+      <arg name="generation_hi" type="uint"/><arg name="generation_lo" type="uint"/>
+      <arg name="commit_sequence" type="uint"/><arg name="kelvin" type="uint"/>
+    </event>
+  </interface>
+</protocol>

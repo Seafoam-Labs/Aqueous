@@ -1,0 +1,96 @@
+--- a/types/output/output.c
++++ b/types/output/output.c
+@@ -775,7 +775,33 @@
+ 	return success;
+ }
+ 
++static bool (*aqueous_color_commit)(struct wlr_output *, const struct wlr_output_state *, void *);
++static bool (*aqueous_color_gamma)(struct wlr_output *, void *);
++static void (*aqueous_gamma_changed)(struct wlr_output *, void *);
++static void *aqueous_color_data;
++
++void wlr_aqueous_set_color_guard(
++        bool (*commit)(struct wlr_output *, const struct wlr_output_state *, void *),
++        bool (*gamma)(struct wlr_output *, void *),
++        void (*gamma_changed)(struct wlr_output *, void *), void *data) {
++    aqueous_color_commit = commit;
++    aqueous_color_gamma = gamma;
++    aqueous_gamma_changed = gamma_changed;
++    aqueous_color_data = data;
++}
++
++bool wlr_aqueous_gamma_allowed(struct wlr_output *output) {
++    return !aqueous_color_gamma || aqueous_color_gamma(output, aqueous_color_data);
++}
++
++void wlr_aqueous_gamma_changed(struct wlr_output *output) {
++    if (aqueous_gamma_changed) aqueous_gamma_changed(output, aqueous_color_data);
++}
++
+ bool output_prepare_commit(struct wlr_output *output, const struct wlr_output_state *state) {
++    if (aqueous_color_commit && !aqueous_color_commit(output, state, aqueous_color_data)) {
++        return false;
++    }
+ 	if (!output_basic_test(output, state)) {
+ 		wlr_log(WLR_ERROR, "Basic output test failed for %s", output->name);
+ 		return false;
+@@ -842,6 +868,9 @@
+ 	}
+ 
+ 	if (!output_prepare_commit(output, &pending)) {
++		if (new_back_buffer) {
++			wlr_buffer_unlock(pending.buffer);
++		}
+ 		return false;
+ 	}
+ 
+--- a/types/wlr_gamma_control_v1.c
++++ b/types/wlr_gamma_control_v1.c
+@@ -67,7 +67,12 @@
+ 		goto error_fd;
+ 	}
+ 
+-	size_t table_size = gamma_control->ramp_size * 3 * sizeof(uint16_t);
++	if (!wlr_aqueous_gamma_allowed(gamma_control->output)) {
++        wlr_gamma_control_v1_send_failed_and_destroy(gamma_control);
++        goto error_fd;
++    }
++
++    size_t table_size = gamma_control->ramp_size * 3 * sizeof(uint16_t);
+ 
+ 	// Refuse to block when reading
+ 	int fd_flags = fcntl(fd, F_GETFL, 0);
+@@ -151,7 +156,7 @@
+ 	wl_resource_set_implementation(resource, &gamma_control_impl,
+ 		NULL, gamma_control_handle_resource_destroy);
+ 
+-	if (output == NULL) {
++	if (output == NULL || !wlr_aqueous_gamma_allowed(output)) {
+ 		zwlr_gamma_control_v1_send_failed(resource);
+ 		return;
+ 	}
+@@ -187,6 +192,7 @@
+ 		gamma_control_handle_output_destroy;
+ 
+ 	wl_list_insert(&manager->controls, &gamma_control->link);
++	wlr_aqueous_gamma_changed(output);
+ 	zwlr_gamma_control_v1_send_gamma_size(gamma_control->resource, gamma_size);
+ }
+ 
+--- a/include/wlr/types/wlr_output.h
++++ b/include/wlr/types/wlr_output.h
+@@ -711,4 +711,14 @@
+ struct wlr_render_pass *wlr_output_begin_render_pass(struct wlr_output *output,
+ 	struct wlr_output_state *state, struct wlr_buffer_pass_options *render_options);
+ 
++/* Aqueous single-compositor color policy. No output ABI changes. Callbacks
++ * run only for real commits and before legacy gamma acquisition/application.
++ * Clear the policy before destroying its context. Test-only calls never revoke. */
++void wlr_aqueous_set_color_guard(
++    bool (*commit)(struct wlr_output *, const struct wlr_output_state *, void *),
++    bool (*gamma)(struct wlr_output *, void *),
++    void (*gamma_changed)(struct wlr_output *, void *), void *data);
++bool wlr_aqueous_gamma_allowed(struct wlr_output *output);
++void wlr_aqueous_gamma_changed(struct wlr_output *output);
++
+ #endif
