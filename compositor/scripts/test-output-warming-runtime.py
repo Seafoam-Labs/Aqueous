@@ -15,6 +15,8 @@ p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--compositor', type=Path, required=True)
 p.add_argument('--prefix', type=Path, required=True)
 p.add_argument('--renderer', choices=('pixman', 'vulkan'), default='pixman')
+p.add_argument('--inject-commit-failure', action='store_true',
+               help='Exercise commit fallback; requires an output-retry-testing build')
 p.add_argument('--pearl', type=Path)
 p.add_argument('--pearl-source', type=Path)
 args = p.parse_args()
@@ -116,12 +118,13 @@ try:
         wait(lambda:(s:=latest('other','state',0)) and s['owner']==0 and s['committed']==6500,'crash restoration')
         assert pixels('crash-restored')==baseline
         send(other,'acquire');wait(lambda:latest('other','acquired'),'reacquire after restoration')
-        with sockets.socket(sockets.AF_UNIX) as control:
-            control.connect(str(work/'runtime/aqueous/outputd.sock'))
-            control.sendall(json.dumps({'op':'test_output_retry','name':output_name,'action':'arm','stage':'output_commit','count':1,'simulate_color_pipeline':True}).encode()+b'\n')
-            with control.makefile('r') as response: assert json.loads(response.readline())['ok']
+        if args.inject_commit_failure:
+            with sockets.socket(sockets.AF_UNIX) as control:
+                control.connect(str(work/'runtime/aqueous/outputd.sock'))
+                control.sendall(json.dumps({'op':'test_output_retry','name':output_name,'action':'arm','stage':'output_commit','count':1,'simulate_color_pipeline':True}).encode()+b'\n')
+                with control.makefile('r') as response: assert json.loads(response.readline())['ok']
         send(other,'set 3000')
-        wait(lambda:(v:=latest('other','result')) and v['status']==0 and v['kelvin']==3000,'fallback application')
+        wait(lambda:(v:=latest('other','result')) and v['status']==0 and v['kelvin']==3000,'application after reacquisition')
         subprocess.run(['wlr-randr','--output',output_name,'--custom-mode','960x720@60Hz'],env=env,check=True,timeout=10)
         wait(lambda:latest('other','revoked'),'mode-change revocation')
         wait(lambda:(v:=latest('other','state',0)) and v['owner']==0 and v['committed']==6500,'mode-change baseline')
@@ -150,9 +153,11 @@ try:
         wait(lambda:(v:=latest('other','state',1)) and v['reason']==9 and v['committed']==6500 and v['owner']==0,'mirror-destination restoration')
         mirror('')
         wait(lambda:all(latest('other','state',i)['reason']==0 for i in range(2)),'destination unmirror')
-        print('PASS native pixels/status, contention, release/crash, fallback, modeset and mirror transitions',flush=True)
+        print('PASS native pixels/status, contention, release/crash, modeset and mirror transitions',flush=True)
+        if args.inject_commit_failure:
+            print('PASS injected commit fallback',flush=True)
     if args.pearl:
-        assert args.renderer == 'vulkan', 'Pearl native application test needs private Vulkan qualification'
+        assert args.renderer == 'vulkan', 'Pearl native application test needs Vulkan'
         preferences=work/'config/pearl/preferences.json'
         preferences.parent.mkdir(parents=True,exist_ok=True)
         preferences.write_text(json.dumps({'version':1,'night_light':{'enabled':True,'temperature_kelvin':4000,'schedule':'manual','start_minute':1200,'end_minute':420}}))

@@ -1,10 +1,12 @@
 **Screen warming contract**
 
-Aqueous provides experimental `aqueous_output_warming_manager_v1` version 1.
-**No physical output path is qualified for production.** Registry advertisement
-allows observation; it does not authorize warming. Production requests are denied
-with an explicit per-output reason. HDR warming and non-neutral/external
-calibration remain unsupported.
+Aqueous enables experimental `aqueous_output_warming_manager_v1` version 1 in
+all compositor builds. Warming is available on live SDR outputs using the Vulkan
+renderer with output color-transform support, including physical outputs. No
+warming-specific build flag is required. Registry advertisement allows observation;
+acquisition still checks each output's current eligibility. HDR warming, mirrors,
+unsupported renderers and non-neutral/external calibration remain unsupported.
+This is software capability gating, not instrumented physical qualification.
 
 The protocol XML is installed under
 `share/aqueous-protocols/experimental/aqueous-output-warming-v1.xml`. Its wire
@@ -71,9 +73,9 @@ committed value while reporting restoration. Requests time out after two seconds
 timeout reports failure and revokes instead of fabricating success.
 
 Legacy gamma remains advertised, but acquisition/application now uses the same
-eligibility and ownership gate. With no production-qualified path, production
-legacy acquisitions are denied too. This is an intentional compatibility change;
-an existing color service is never terminated or displaced to enable Pearl.
+eligibility and ownership gate. Legacy acquisition is available on eligible SDR
+Vulkan outputs in normal builds. An existing color service is never terminated
+or displaced to enable Pearl.
 Legacy requests retain generic failure and cannot establish more than
 requested/unconfirmed status. Pearl uses the native protocol for writes.
 
@@ -99,10 +101,13 @@ monitors remain unavailable and cannot make an aggregate all-active claim.
 
 **Validation and release**
 
-`-Dwarming-testing=true` admits only virtual headless Vulkan outputs for software
-fixtures. It is recorded in `build-policy.json`; component packaging rejects that
-build. It cannot qualify a physical DRM output and has no environment-variable
-bypass. The current production qualification set is empty.
+Protocol registration and runtime eligibility are independent of build profile,
+backend and the Vulkan-effects option. `-Dwarming-testing` has been removed.
+Vulkan renderer support is required even in builds with Vulkan effects disabled.
+Wire qualification value 1 now describes the supported Vulkan SDR transform path;
+it does not assert a measured white point or physical restoration. Physical
+acceptance remains unmeasured. Packaging still rejects old artifacts marked with
+`warming_testing=true`, along with other private test builds.
 
 Reproduce the checks with a freshly patched dependency and isolated prefixes:
 
@@ -110,10 +115,11 @@ Reproduce the checks with a freshly patched dependency and isolated prefixes:
 compositor/scripts/build-wlroots-render-hook.sh /tmp/warming-wlroots
 python3 compositor/scripts/test-output-warming.py --prefix /tmp/warming-wlroots
 # Build from compositor/ with PKG_CONFIG_PATH and LD_LIBRARY_PATH pointing at
-# that prefix. Use -Dwarming-testing=true -Doutput-retry-testing=true for the
-# private runtime suite, and a separate default build for production denial.
+# that prefix. The runtime suite accepts a normal production build; it creates
+# its own virtual outputs. Use --renderer pixman to check unsupported-path denial.
 python3 compositor/scripts/test-output-warming-runtime.py \
-  --compositor /path/to/private/aqueous --prefix /tmp/warming-wlroots --renderer vulkan
+  --compositor /path/to/aqueous --prefix /tmp/warming-wlroots --renderer vulkan
+# Add --inject-commit-failure only for a -Doutput-retry-testing=true build.
 # Add --pearl /path/to/pearl --pearl-source /path/to/Pearl to exercise the shell.
 ```
 
@@ -124,10 +130,10 @@ allocator to detect manager and buffer leaks; it does not claim ASan/UBSan cover
 for Zig or wlroots. This separate test target requires private Wayland sockets
 and the compositor build dependencies. The runtime
 suite uses a real private Vulkan renderer, native Wayland clients, screenshots,
-commit failure injection, virtual modesets and an isolated Pearl/logind session.
+optional commit failure injection, virtual modesets and an isolated Pearl/logind session.
 The [validation record](screen-warming-validation.json) includes source hashes,
 passed checks and local artifact locations. These are software tests only.
 Record physical measurements, supported baseline
 forms, GPU/driver/renderer/mode/format scope, VT/DPMS/device-loss behavior and
-recovery deadlines before adding any production qualification. The remaining
+recovery deadlines before claiming physical qualification. The remaining
 acceptance requirements are in [the implementation plan](screen-warming-implementation-plan.md).

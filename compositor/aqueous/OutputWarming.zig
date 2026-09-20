@@ -37,7 +37,6 @@ gamma_changed: wl.Listener(*wlr.GammaControlManagerV1.event.SetGamma) = .init(ga
 session: u64,
 resources: usize = 0,
 session_active: bool = true,
-testing: bool,
 
 const Binding = struct {
     link: wl.list.Link = undefined,
@@ -159,10 +158,11 @@ const Output = struct {
     deadline: i64 = 0,
 
     fn qualified(o: *Output) bool {
-        // No production path is qualified. Unit tests mock only the renderer
-        // predicate; private runtime fixtures still require headless Vulkan.
-        return o.manager.testing and o.wlr.isHeadless() and
-            if (o.wlr.renderer) |renderer| (if (@import("builtin").is_test) true else wlr_renderer_is_vk(renderer)) else false;
+        // Eligibility is a runtime capability, independent of build profile or
+        // backend. Unit tests mock only Vulkan's renderer predicate.
+        const renderer = o.wlr.renderer orelse return false;
+        return renderer.features.output_color_transform and
+            (if (@import("builtin").is_test) true else wlr_renderer_is_vk(renderer));
     }
     fn advanceGeneration(o: *Output) void {
         if (o.generation == std.math.maxInt(u64)) o.retired = true else o.generation += 1;
@@ -498,9 +498,6 @@ fn tick(self: *Self) c_int {
     return 0;
 }
 pub fn init(allocator: std.mem.Allocator, display: *wl.Server, gamma: *wlr.GammaControlManagerV1) !*Self {
-    return create(allocator, display, gamma, @import("build_options").warming_testing);
-}
-fn create(allocator: std.mem.Allocator, display: *wl.Server, gamma: *wlr.GammaControlManagerV1, testing: bool) !*Self {
     const self = try allocator.create(Self);
     errdefer allocator.destroy(self);
     var session: u64 = 0;
@@ -509,7 +506,7 @@ fn create(allocator: std.mem.Allocator, display: *wl.Server, gamma: *wlr.GammaCo
     errdefer timer.remove();
     const global = try wl.Global.create(display, Protocol, 1, *Self, self, bind);
     errdefer global.destroy();
-    self.* = .{ .allocator = allocator, .global = global, .gamma = gamma, .timer = timer, .session = session, .testing = testing };
+    self.* = .{ .allocator = allocator, .global = global, .gamma = gamma, .timer = timer, .session = session };
     self.outputs.init();
     self.observers.init();
     self.leases.init();
@@ -657,7 +654,7 @@ test "warming protocol ownership, real commit guards, restoration and lifetimes"
     const scene = try wlr.Scene.create();
     defer scene.tree.node.destroy();
     const scene_output = try scene.createSceneOutput(output);
-    const manager = try create(std.testing.allocator, display, gamma, false);
+    const manager = try init(std.testing.allocator, display, gamma);
     defer manager.deinit();
     try manager.add(output, 1);
     const o = manager.find(output).?;
@@ -665,7 +662,7 @@ test "warming protocol ownership, real commit guards, restoration and lifetimes"
     Fixture.acquireLease(v, 1);
     try expect(events.denials == 1 and o.lease == null);
     try expect(!Fixture.wlr_aqueous_gamma_allowed(output));
-    manager.testing = true;
+    renderer.features.output_color_transform = true;
     Fixture.acquireLease(v, 0);
     try expect(events.denials == 2 and o.lease == null);
     Fixture.acquireLease(v, 1);
@@ -728,6 +725,23 @@ test "warming protocol ownership, real commit guards, restoration and lifetimes"
     _ = tick(manager);
     try expect(events.count(.failed) == 1);
     try Fixture.submit(manager, o, scene_output, false);
+    // Losing renderer support while a request is pending revokes it at scene
+    // preparation, and the real baseline commit still releases the path locks.
+    Fixture.acquireLease(v, o.generation);
+    l = o.lease.?;
+    Fixture.set(l, o.generation, 1, 4500);
+    renderer.features.output_color_transform = false;
+    try Fixture.submit(manager, o, scene_output, false);
+    try expect(o.lease == null and !o.locks and o.committed_kelvin == 6500);
+    try expect(reason(o) == .unqualified and !Fixture.wlr_aqueous_gamma_allowed(output));
+    renderer.features.output_color_transform = true;
+    var hdr: wlr.Output.ImageDescription = undefined;
+    hdr.transfer_function = .st2084_pq;
+    output.image_description = &hdr;
+    try expect(reason(o) == .hdr);
+    Fixture.acquireLease(v, o.generation);
+    try expect(o.lease == null);
+    output.image_description = null;
     scene_output.destroy();
     try expect(o.scene == null);
     o.generation = std.math.maxInt(u64);

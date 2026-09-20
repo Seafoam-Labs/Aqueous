@@ -5,7 +5,8 @@
     <description summary="experimental output warming">
       Observation is not authorization. Only an acquired lease can request
       warming, and every request is checked again at real output submission.
-      No production output path is qualified in the initial implementation.
+      The protocol is available in all builds. Warming requires a supported
+      live SDR renderer path; advertisement alone does not establish eligibility.
       Objects are connection scoped. Destroying this manager leaves its children
       alive. Security-context clients cannot bind this global.
     </description>
@@ -53,7 +54,7 @@
       <arg name="reason" type="uint" enum="reason"/>
       <arg name="encoding" type="uint" summary="0 unknown, 1 gamma22 SDR, 2 HDR"/>
       <arg name="baseline" type="uint" summary="0 unknown, 1 compositor neutral"/>
-      <arg name="qualification" type="uint" summary="0 unqualified, 1 private headless Vulkan fixture"/>
+      <arg name="qualification" type="uint" summary="0 unsupported, 1 Vulkan SDR transform path"/>
       <arg name="owner" type="uint" summary="0 free, 1 native, 2 legacy, 3 restoring"/>
       <arg name="committed_kelvin" type="uint" summary="0 unknown, otherwise last committed value"/>
       <arg name="pending_kelvin" type="uint" summary="0 none, otherwise newest target"/>

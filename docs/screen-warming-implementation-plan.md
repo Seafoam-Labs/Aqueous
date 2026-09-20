@@ -1,8 +1,9 @@
 **Screen warming: implementation plan**
 
-Status: software implementation is present locally, with private headless validation.
-Physical qualification, non-neutral calibration support and production enablement
-remain pending. See [the implemented contract](screen-warming.md) for exact wire
+Status: the native Zig implementation enables the protocol and supported Vulkan
+SDR warming in all builds, with headless software validation. Physical qualification
+and non-neutral calibration support remain pending. The original production gate
+below has been superseded by runtime capability checks at the user's request. See [the implemented contract](screen-warming.md) for exact wire
 semantics, the initial support boundary and reproducible checks. The design below
 retains the acceptance requirements for future production qualification.
 
