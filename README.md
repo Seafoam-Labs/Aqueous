@@ -394,5 +394,6 @@ Aqueous has no
 
 ## License and origin
 
-Aqueous is licensed under GPL-3.0-only. See [ORIGIN.md](compositor/ORIGIN.md)
+Aqueous is licensed under [GPL-3.0-only](LICENSE). Third-party component texts
+are in `compositor/LICENSES/`. See [ORIGIN.md](compositor/ORIGIN.md)
 for upstream provenance and retained River-derived work.

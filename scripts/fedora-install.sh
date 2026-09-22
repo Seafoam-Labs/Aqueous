@@ -213,7 +213,7 @@ Name: aqueous-git
 Version: %{aqueous_version}
 Release: 1.%{aqueous_build_time}%{?dist}
 Summary: Aqueous Wayland compositor built from upstream master
-License: GPL-3.0-only AND MIT AND LicenseRef-PX
+License: GPL-3.0-only AND MIT
 URL: https://github.com/Seafoam-Labs/Aqueous
 Source0: payload.tar.gz
 Source1: files.list

@@ -7,7 +7,7 @@ pkgrel=2
 pkgdesc='Aqueous development compositor, helper and control client (co-installable with stable)'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Seafoam-Labs/Aqueous'
-license=('GPL3' 'MIT' 'custom:PX')
+license=('GPL-3.0-only' 'MIT')
 options=('!strip' '!debug' '!zipman')
 depends=('bash' 'freetype2' 'wayland' 'libxkbcommon' 'libinput' 'pixman' 'libpng'
          'libdrm' 'libevdev' 'libdecor' 'xorg-xwayland' 'pipewire' 'glib2' 'fontconfig'

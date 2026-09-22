@@ -1,7 +1,7 @@
 # Nix packaging
 
 This directory contains the source package and NixOS integration for Aqueous.
-The package includes the compositor, `aqueousctl`, the standalone Quark
+The package includes the compositor, `aqueousctl`, the standalone
 `aqueous-config` canonical configuration helper, the session launchers, configuration defaults, and Aqueous's
 private patched wlroots library. The Arch-specific `aqueous-welcome` application
 is intentionally excluded because its Shelly backends install repository and

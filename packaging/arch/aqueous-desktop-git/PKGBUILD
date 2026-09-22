@@ -9,7 +9,7 @@ pkgrel=2
 pkgdesc='Aqueous Git desktop components and optional shell presets (co-installable with stable)'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Seafoam-Labs/Aqueous'
-license=('GPL3' 'MIT')
+license=('GPL-3.0-only' 'MIT')
 options=('!strip' '!debug' '!zipman')
 makedepends=('git' 'patch' 'zig>=0.16' 'gtk4' 'libinih' 'pipewire' 'wayland' 'wayland-protocols'
              'systemd-libs' 'mesa' 'meson' 'ninja' 'pkgconf' 'jq')

@@ -9,7 +9,7 @@ options=('!strip' '!debug' '!zipman')
 pkgdesc="Aqueous component packages (prebuilt release)"
 arch=('x86_64')
 url="https://github.com/Seafoam-Labs/Aqueous"
-license=('GPL3' 'MIT' 'custom:PX')
+license=('GPL-3.0-only' 'MIT')
 makedepends=('bash' 'jq' 'binutils')
 source=("Aqueous-components-${pkgver}-x86_64.tar.gz::${url}/releases/download/v${pkgver}/Aqueous-components-${pkgver}-x86_64.tar.gz")
 # The release process must replace this before publishing the binary recipe.
