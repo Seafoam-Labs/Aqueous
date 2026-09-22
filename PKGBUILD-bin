@@ -29,6 +29,8 @@ _stage_component() {
 
 package_aqueous-core-bin() {
     pkgdesc="Aqueous core (prebuilt)"
+    # The staged core root carries all four compositor/LICENSES/* texts.
+    license=('GPL-3.0-only' 'MIT' '0BSD' 'CC-BY-SA-4.0')
     depends=("freetype2" "wayland" "libxkbcommon" "libinput" "pixman" "libpng" "libdrm" "libevdev" "libdecor" "xorg-xwayland" "pipewire" "glib2" "fontconfig" "mesa" "systemd-libs" "seatd" "libdisplay-info" "libliftoff" "lcms2" "vulkan-icd-loader" "libxcb" "xcb-util-errors" "xcb-util-wm" "xcb-util-renderutil")
     conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-core' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
     provides=("aqueous-core=$pkgver-$pkgrel")
