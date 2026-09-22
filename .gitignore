@@ -4,6 +4,7 @@ obj/
 riderModule.iml
 /_ReSharper.Caches/
 .junie
+.idea/
 
 # Aqueous compositor (Zig) build artifacts
 compositor/zig-cache/
