@@ -203,7 +203,7 @@ color_pipeline = "auto"
 
 # Reserve additional fixed space after layer-shell exclusive zones are applied.
 [struts]
-top    = 32   # Noctalia bar height; adjust to match your bar
+top    = 32   # Bar height; adjust to match yours
 bottom = 0
 left   = 0
 right  = 0
