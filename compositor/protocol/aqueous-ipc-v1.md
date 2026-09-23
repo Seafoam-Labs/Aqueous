@@ -241,6 +241,9 @@ Optional capabilities `icon_metadata` and `icon_fetch` advertise committed icon
 metadata in the shared shell model and the read-only `window.icon` query.
 Clients must tolerate their absence on older compositors. No IPC version bump
 is required. Metadata follows the [shell state contract](aqueous-shell-v1.md).
+The optional `window_order` capability likewise advertises the nullable
+per-window `layout_index` field in the shared shell model, with scope,
+direction and null policy defined by the same contract.
 
 ```json
 {"ipc":1,"id":"9","session":"6b94a179d09456846b94a179d0945684","op":"window.icon","params":{"id":"window-identifier","revision":"2","size":32,"scale":2}}
