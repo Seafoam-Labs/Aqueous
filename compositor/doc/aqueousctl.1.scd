@@ -47,7 +47,8 @@ aqueousctl - inspect and control Aqueous compositor state
 enumerates mapped windows through ext_foreign_toplevel_list_v1 and uses their
 stable identifiers to request compositor-owned state. With window-info version
 9, windows and inspect also enumerate unmanaged XWayland override-redirect
-surfaces. JSON marks these as managed=false; generated rules use
+surfaces. Version 10 adds a zero-based layout order index to window snapshots.
+JSON marks unmanaged surfaces as managed=false; generated rules use
 scope="override_redirect". Popup rules support opacity, focus=false, output,
 x and y. Shell snapshots/watch include unmanaged_window entities when the
 compositor supports shell manager version 3. Output information is
@@ -74,13 +75,14 @@ aqueous_shell_manager_v1 protocol for live state and typed policy actions.
 
 *windows*
 	Print a tabular list containing the stable identifier, backend, application
-	identity, title, output, workspace, geometry, layout, committed
-	wp_content_type_v1 content type, tag, description, and state.
+	identity, title, output, workspace, geometry, layout, layout order,
+	committed wp_content_type_v1 content type, tag, description, and state.
 
 *windows --json*
 	Print the same snapshot as a JSON array for scripts and diagnostics. The
 	content_type field is null when the client has not committed a content
-	type. Tag and description are null when unset or on XWayland windows;
+	type. layout_index is null when the window is not part of an arranged
+	layout. Tag and description are null when unset or on XWayland windows;
 	explicitly empty metadata is an empty string.
 
 *inspect --rule*

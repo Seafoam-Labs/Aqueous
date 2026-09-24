@@ -188,7 +188,7 @@ pub fn build(b: *Build) !void {
     scanner.generate("wp_color_representation_manager_v1", 1);
 
     scanner.generate("aqueous_window_manager_v1", 10);
-    scanner.generate("aqueous_window_info_manager_v1", 9);
+    scanner.generate("aqueous_window_info_manager_v1", 10);
     scanner.generate("aqueous_shell_manager_v1", 3);
     scanner.generate("aqueous_xkb_bindings_v1", 3);
     scanner.generate("aqueous_layer_shell_v1", 1);

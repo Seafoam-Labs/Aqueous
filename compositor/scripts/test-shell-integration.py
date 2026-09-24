@@ -37,10 +37,13 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
     config.mkdir()
     home = base / 'home'
     home.mkdir()
+    # Writable copy of the fixture config so the test can add keybinds and reload.
+    wm_config = config / 'wm.toml'
+    wm_config.write_text((ROOT / 'scripts/fixtures/overview-wm.toml').read_text())
     env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime), XDG_CONFIG_HOME=str(config),
                HOME=str(home), WLR_BACKENDS='headless', WLR_HEADLESS_OUTPUTS='2',
                WLR_RENDERER='pixman', GDK_BACKEND='wayland',
-               AQUEOUS_CONFIG=str(ROOT / 'scripts/fixtures/overview-wm.toml'))
+               AQUEOUS_CONFIG=str(wm_config))
     for key in list(env):
         if key.startswith('AQUEOUS_') and key != 'AQUEOUS_CONFIG':
             env.pop(key)
@@ -125,6 +128,7 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
 
         caps = ctl('shell', 'capabilities')
         assert caps['schema'] == 1
+        assert caps['window_order']
         if POLICY != 'internal':
             assert not caps['commands'] and not caps['keyboard'] and not caps['overview']
             assert ctl('session', 'exit', ok=False)['status'] == 'unsupported'
@@ -362,6 +366,45 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
         donor_win = wait_for(lambda: next((w for w in records('window') if w['id'] != win['id']), None))
         ctl('window', 'move', '--id', donor_win['id'], '--output', target['name'])
 
+        # layout_index publishes the scrolling order and follows both the
+        # builtin window move and a configured column move.
+        wait_for(lambda: next((w for w in records('window') if w['id'] == donor_win['id'] and w['output'] == target['id']), None))
+
+        def order_pair():
+            pair = {w['id']: w for w in records('window')}
+            assert pair[win['id']]['workspace'] == pair[donor_win['id']]['workspace'], pair
+            return pair[win['id']]['layout_index'], pair[donor_win['id']]['layout_index']
+
+        def activate_ordered(index):
+            identifier = win['id'] if order_pair()[index] == 0 else donor_win['id']
+            ctl('window', 'activate', '--id', identifier, '--seat', seat)
+            wait_for(lambda: next(w for w in records('window') if w['id'] == identifier)['focused'])
+
+        def ordered_pair():
+            pair = order_pair()
+            return pair if None not in pair and sorted(pair) == [0, 1] else None
+
+        first = wait_for(ordered_pair)
+        activate_ordered(0)
+        send(window, 'chord 106 65')
+        # The left window is appended to the right column, reversing the order.
+        wait_for(lambda: order_pair() == (first[1], first[0]))
+        # move_column has no default chord; bind it and reload the configuration.
+        with wm_config.open('a') as bound:
+            bound.write('move_column_left = "Super+Shift+H"\nmove_column_right = "Super+Shift+L"\n')
+        assert ctl('session', 'reload')['status'] == 'applied'
+        # Expel the merged column's top window back into its own left column;
+        # the flattened order is unchanged.
+        activate_ordered(0)
+        send(window, 'chord 105 65')
+        time.sleep(.3)
+        assert order_pair() == (first[1], first[0])
+        # Swapping the two columns reverses the published order in one batch.
+        activate_ordered(0)
+        send(window, 'chord 38 65')
+        wait_for(lambda: order_pair() == first)
+        print('PASS: layout_index follows window and column moves')
+
         def current_window(identifier):
             return next(w for w in records('window') if w['id'] == identifier)
 
@@ -405,6 +448,9 @@ with tempfile.TemporaryDirectory(prefix='aqueous-shell-') as tmp:
         ctl('layout', '--output', target['name'], '--set', 'float')
         ctl('window', 'state', '--id', win['id'], '--minimized', 'true')
         wait_for(lambda: current_window(win['id'])['minimized'])
+        # Floating and minimized windows publish no layout index.
+        wait_for(lambda: current_window(win['id'])['layout_index'] is None
+                 and current_window(donor_win['id'])['layout_index'] is None)
         expect_xdg_focus(mint_token())
 
         inactive = next(w for w in records('workspace') if w['output'] == target['id'] and not w['active'])

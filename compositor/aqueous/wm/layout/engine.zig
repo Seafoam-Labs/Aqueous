@@ -37,6 +37,13 @@ pub fn swap(state: *State, a: types.Handle, b: types.Handle) bool {
         leaf.swap(&state.standalone, a, b);
 }
 
+/// Position of a handle in the active layout order; the composable layout
+/// publishes no order.
+pub fn orderIndex(state: *const State, handle: types.Handle) ?u32 {
+    if (state.active_layout == .composable) return null;
+    return leaf.orderIndex(&state.standalone, handle);
+}
+
 pub fn drop(allocator: std.mem.Allocator, state: *State, dragged: types.Handle, target: types.Handle, zone: types.DropZone) !bool {
     return if (state.active_layout == .composable)
         composable.drop(allocator, &state.composite, dragged, target, zone)
@@ -297,6 +304,96 @@ test "pointer reorder swaps rows without changing window state" {
 
     try std.testing.expect(swap(&state, 1, 2));
     try std.testing.expectEqualSlices(types.Handle, &.{ 2, 1 }, state.standalone.rows.order.items.items);
+}
+
+test "swap exchanges the published order indices" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .tile;
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
+    const placements = try arrange(std.testing.allocator, &state, &snapshot, .{ .x = 0, .y = 0, .width = 100, .height = 80 }, &windows, null, .{});
+    defer std.testing.allocator.free(placements);
+    try std.testing.expectEqual(@as(?u32, 0), orderIndex(&state, 1));
+    try std.testing.expectEqual(@as(?u32, 1), orderIndex(&state, 2));
+    try std.testing.expect(swap(&state, 1, 2));
+    try std.testing.expectEqual(@as(?u32, 1), orderIndex(&state, 1));
+    try std.testing.expectEqual(@as(?u32, 0), orderIndex(&state, 2));
+}
+
+test "scrolling publishes column-major order indices" {
+    const allocator = std.testing.allocator;
+    var state: State = .{};
+    defer state.deinit(allocator);
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .scrolling;
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 300, .height = 100 };
+    var placements = try arrange(allocator, &state, &snapshot, area, &windows, 1, .{});
+    allocator.free(placements);
+    // Each arrival opens its own column: [1], [2], [3].
+    try std.testing.expectEqual(@as(?u32, 0), orderIndex(&state, 1));
+    try std.testing.expectEqual(@as(?u32, 1), orderIndex(&state, 2));
+    try std.testing.expectEqual(@as(?u32, 2), orderIndex(&state, 3));
+    try std.testing.expect(try drop(allocator, &state, 3, 1, .stack_after));
+    placements = try arrange(allocator, &state, &snapshot, area, &windows, 1, .{});
+    defer allocator.free(placements);
+    // Columns [1, 3], [2]: rows within a column count before the next column.
+    try std.testing.expectEqual(@as(?u32, 0), orderIndex(&state, 1));
+    try std.testing.expectEqual(@as(?u32, 1), orderIndex(&state, 3));
+    try std.testing.expectEqual(@as(?u32, 2), orderIndex(&state, 2));
+    try std.testing.expect(scrollingColumnMembers(&state, 1) != null);
+}
+
+test "unordered layouts and unarranged handles have no order index" {
+    const allocator = std.testing.allocator;
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+    var snapshot: config.Snapshot = .{};
+
+    snapshot.default = .floating;
+    var floating_state: State = .{};
+    defer floating_state.deinit(allocator);
+    allocator.free(try arrange(allocator, &floating_state, &snapshot, area, &.{.{ .handle = 1 }}, 1, .{}));
+    try std.testing.expectEqual(@as(?u32, null), orderIndex(&floating_state, 1));
+
+    snapshot.default = .game_mode;
+    var game_state: State = .{};
+    defer game_state.deinit(allocator);
+    allocator.free(try arrange(allocator, &game_state, &snapshot, area, &.{.{ .handle = 1 }}, 1, .{ .fallback = .dwindle }));
+    try std.testing.expectEqual(@as(?u32, null), orderIndex(&game_state, 1));
+
+    snapshot.default = .composable;
+    config.apply(&snapshot,
+        \\[layout.composable.a]
+        \\layout = "tile"
+        \\p1 = [0.0, 0.0]
+        \\p2 = [1.0, 0.0]
+        \\p3 = [1.0, 1.0]
+        \\p4 = [0.0, 1.0]
+    );
+    var composable_state: State = .{};
+    defer composable_state.deinit(allocator);
+    allocator.free(try arrange(allocator, &composable_state, &snapshot, area, &.{.{ .handle = 1 }}, 1, .{}));
+    try std.testing.expectEqual(@as(?u32, null), orderIndex(&composable_state, 1));
+}
+
+test "the last arranged order answers while the workspace is inactive" {
+    const allocator = std.testing.allocator;
+    var state: State = .{};
+    defer state.deinit(allocator);
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .tile;
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
+    allocator.free(try arrange(allocator, &state, &snapshot, area, &windows, 1, .{}));
+    // An inactive workspace is not arranged again; the last order persists.
+    try std.testing.expectEqual(@as(?u32, 0), orderIndex(&state, 1));
+    try std.testing.expectEqual(@as(?u32, 1), orderIndex(&state, 2));
+    // A window that entered after the last arrangement has no index.
+    try std.testing.expectEqual(@as(?u32, null), orderIndex(&state, 3));
+    // A minimized member drops out of the arranged set at the next arrange.
+    allocator.free(try arrange(allocator, &state, &snapshot, area, windows[0..1], 1, .{}));
+    try std.testing.expectEqual(@as(?u32, null), orderIndex(&state, 2));
 }
 
 test "switching away from scrolling returns unclipped placements" {

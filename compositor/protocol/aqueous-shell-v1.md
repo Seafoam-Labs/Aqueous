@@ -57,7 +57,7 @@ handles return an empty string.
 | --- | --- |
 | `output` | `id`, connector `name`, `enabled`, `powered`, `bounds`, `usable_bounds`, `scale`, `transform`, `active_workspace` |
 | `workspace` | `id`, `output`, `name`, `number`, `active`, `urgent` |
-| `window` | `id`, `backend`, `app_id`, `class`, `title`, `workspace`, `output`, `geometry`, `outer_geometry`, presentation/visibility flags and per-window capabilities |
+| `window` | `id`, `backend`, `app_id`, `class`, `title`, `workspace`, `output`, `geometry`, `outer_geometry`, `layout_index`, presentation/visibility flags and per-window capabilities |
 | `seat` | name as `id`, selected `output`, focused `window`, `focus_kind`, active `keyboard` group |
 | `keyboard` | group `id`, `seat`, layout names in `layouts`, zero-based effective `index` |
 | `keyboard_device` | `id`, `name`, `seat`, `group`, `virtual` |
@@ -75,6 +75,22 @@ Pixel data is fetched through the optional socket `window.icon` operation,
 not included in state batches or the Wayland shell interface. Consumers without
 socket icon access can use the theme name and their existing app-icon fallback.
 See [the IPC contract](aqueous-ipc-v1.md).
+
+The optional `window_order` capability advertises a window `layout_index`
+field: the zero-based position of the window in its workspace layout order, or
+`null`. One layout instance exists per output and workspace; values are only
+comparable between windows on the same output and workspace, so consumers
+order by scope first and by index second. For `scrolling` the index is
+column-major: columns left to right, then top to bottom within a column. The
+list engines (`tile`, `rows`, `grid`, `dwindle`, `reverse_dwindle`, `monocle`)
+publish their existing order list. The value is `null` for floating,
+maximized, fullscreen, minimized and unmanaged windows, for `game_mode` and
+`composable` layouts, for a whole-output `floating` layout, for a workspace
+that was never arranged, and for a window that entered a workspace after its
+last arrangement. A workspace that was arranged and then went inactive keeps
+reporting its last arranged order until it is arranged again. A swap or move
+republishes only the windows whose values changed, as an ordinary delta;
+focus changes leave the values alone.
 
 Cleared optional values are `null`. Full entity replacements are sent on change;
 missing optional values must not preserve an earlier value. Backend `xwayland`

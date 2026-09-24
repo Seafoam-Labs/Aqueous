@@ -113,6 +113,34 @@ pub fn swap(state: *State, a: types.Handle, b: types.Handle) bool {
     return changed;
 }
 
+/// Position of a handle in the active layout's order, column-major for
+/// scrolling. Null when the handle is not part of an ordered arrangement.
+pub fn orderIndex(state: *const State, handle: types.Handle) ?u32 {
+    return switch (state.active_layout) {
+        .scrolling => blk: {
+            var index: u32 = 0;
+            for (state.scrolling.columns.items) |column| {
+                for (column.windows.items) |member| {
+                    if (member == handle) break :blk index;
+                    index += 1;
+                }
+            }
+            break :blk null;
+        },
+        .tile => orderIndexOf(state.tile.order.items.items, handle),
+        .monocle => orderIndexOf(state.monocle.order.items.items, handle),
+        .grid => orderIndexOf(state.grid.order.items.items, handle),
+        .rows => orderIndexOf(state.rows.order.items.items, handle),
+        .dwindle => orderIndexOf(state.dwindle.order.items.items, handle),
+        .reverse_dwindle => orderIndexOf(state.reverse_dwindle.order.items.items, handle),
+        .floating, .game_mode, .composable => null,
+    };
+}
+
+fn orderIndexOf(items: []const types.Handle, handle: types.Handle) ?u32 {
+    return if (std.mem.indexOfScalar(types.Handle, items, handle)) |index| @intCast(index) else null;
+}
+
 pub fn drop(allocator: std.mem.Allocator, state: *State, dragged: types.Handle, target: types.Handle, zone: types.DropZone) !bool {
     if (state.active_layout != .scrolling) return swap(state, dragged, target);
     if (!try scrolling.drop(&state.scrolling, allocator, dragged, target, zone)) return false;

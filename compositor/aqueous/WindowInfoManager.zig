@@ -38,7 +38,7 @@ pub fn init(manager: *WindowInfoManager) !void {
         .global = try wl.Global.create(
             server.wl_server,
             aqueous.WindowInfoManagerV1,
-            9,
+            10,
             *WindowInfoManager,
             manager,
             bind,
@@ -481,6 +481,12 @@ fn sendSnapshot(
         .skip_taskbar = snapshot.skip_taskbar,
     });
     info.sendLayout(snapshot.layout.ptr);
+    // Older bindings must not receive the new event opcode.
+    if (manager.getVersion() >= 10) {
+        if (server.aqueous.clientWindowLayoutIndex(@bitCast(window.ref))) |index| {
+            info.sendLayoutIndex(index);
+        }
+    }
     // Content-type reporting was added with manager version 4; older clients
     // bind below that and must not receive the new event opcode.
     const supports_content_type = manager.getVersion() >= 4;

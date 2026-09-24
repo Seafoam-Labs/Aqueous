@@ -17,10 +17,11 @@
     xdg-decoration negotiation state to window snapshots. Version 7 adds
     query and live control of the compositor-owned cursor theme. Version 8 adds
     client-provided toplevel tags, descriptions, and tag rule matchers. Version 9
-    adds independent enumeration of unmanaged XWayland surfaces.
+    adds independent enumeration of unmanaged XWayland surfaces. Version 10 adds
+    a zero-based layout order position to window snapshots.
   </description>
 
-  <interface name="aqueous_window_info_manager_v1" version="9">
+  <interface name="aqueous_window_info_manager_v1" version="10">
     <description summary="window information factory">
       Create a one-shot information snapshot for an Aqueous toplevel.
     </description>
@@ -128,7 +129,7 @@
     </request>
   </interface>
 
-  <interface name="aqueous_window_info_v1" version="8">
+  <interface name="aqueous_window_info_v1" version="10">
     <description summary="one-shot window information snapshot">
       A read-only snapshot of compositor-owned state for one mapped toplevel.
       The state bitfield also reports stacking layer, snap, fixed-position,
@@ -265,6 +266,17 @@
         an explicitly empty description is sent as an empty string.
       </description>
       <arg name="description" type="string"/>
+    </event>
+
+    <event name="layout_index" since="10">
+      <description summary="zero-based position in the window's layout order">
+        Omitted when the window is not part of an arranged layout order, as for
+        floating, maximized, fullscreen and unmanaged windows, the game_mode
+        and composable layouts, and windows that arrived after the last
+        arrangement. Positions count within the layout instance of the window's
+        output and workspace, column-major for the scrolling layout.
+      </description>
+      <arg name="index" type="uint"/>
     </event>
   </interface>
 

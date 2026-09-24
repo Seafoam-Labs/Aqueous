@@ -433,6 +433,18 @@
               }
             }
           ]
+        },
+        "layout_index": {
+          "description": "Zero-based position in the workspace layout order; optional for older compositors.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "minimum": 0
+            }
+          ]
         }
       }
     },
