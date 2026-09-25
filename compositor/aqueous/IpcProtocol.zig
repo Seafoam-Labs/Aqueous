@@ -141,9 +141,13 @@ pub fn command(a: std.mem.Allocator, params: std.json.ObjectMap) !Types.Command 
             }
         },
         .switcher_next, .switcher_previous, .switcher_dismiss => {
-            try only(fields, &.{ "output", "workspace", "seat", "reduced_motion" });
+            try only(fields, &.{ "output", "workspace", "seat", "reduced_motion", "scope" });
             cmd.value = try string(fields, "output");
-            cmd.target = try string(fields, "workspace");
+            if (fields.get("scope")) |scope| {
+                if (scope != .string or !std.mem.eql(u8, scope.string, "all")) return error.Invalid;
+                cmd.scope = .all;
+                if (fields.contains("workspace")) return error.Invalid;
+            } else cmd.target = try string(fields, "workspace");
             cmd.seat = try optionalString(fields, "seat");
             if (fields.get("reduced_motion")) |v| {
                 if (v != .bool) return error.Invalid;
@@ -250,4 +254,32 @@ test "switcher commands retain scope seat and motion across queue cloning" {
     try std.testing.expect(owned.reduced_motion and owned.output_by_id);
     _ = good.object.getPtr("fields").?.object.swapRemove("workspace");
     try std.testing.expectError(error.Invalid, command(a, good.object));
+}
+
+test "global switcher omits workspace and preserves scope through cloning" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const good = try std.json.parseFromSliceLeaky(std.json.Value, a,
+        \\{"action":"switcher.next","fields":{"output":"2","scope":"all","seat":"default","reduced_motion":true}}
+    , .{});
+    const cmd = try command(a, good.object);
+    const owned = try cmd.clone(std.testing.allocator);
+    defer owned.deinit(std.testing.allocator);
+    try std.testing.expect(owned.scope == .all);
+    try std.testing.expectEqualStrings("", owned.target);
+    try std.testing.expectEqualStrings("default", owned.seat);
+    try std.testing.expect(owned.reduced_motion);
+    for ([_][]const u8{
+        \\{"action":"switcher.next","fields":{"output":"2","scope":"all","workspace":"3"}}
+        ,
+        \\{"action":"switcher.next","fields":{"output":"2","scope":"unknown"}}
+        ,
+        \\{"action":"switcher.next","fields":{"output":"2","scope":null}}
+        ,
+        \\{"action":"switcher.next","fields":{"output":"2"}}
+    }) |bad| {
+        const parsed = try std.json.parseFromSliceLeaky(std.json.Value, a, bad, .{});
+        try std.testing.expectError(error.Invalid, command(a, parsed.object));
+    }
 }

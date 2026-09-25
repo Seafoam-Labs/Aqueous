@@ -43,6 +43,7 @@ pub const Command = struct {
     value: []const u8 = "",
     output_by_id: bool = false,
     reduced_motion: bool = false,
+    scope: enum { workspace, all } = .workspace,
 
     pub fn clone(self: Command, allocator: std.mem.Allocator) !Command {
         const target = try allocator.dupe(u8, self.target);
@@ -50,7 +51,7 @@ pub const Command = struct {
         const seat = try allocator.dupe(u8, self.seat);
         errdefer allocator.free(seat);
         const value = try allocator.dupe(u8, self.value);
-        return .{ .action = self.action, .target = target, .seat = seat, .value = value, .output_by_id = self.output_by_id, .reduced_motion = self.reduced_motion };
+        return .{ .action = self.action, .target = target, .seat = seat, .value = value, .output_by_id = self.output_by_id, .reduced_motion = self.reduced_motion, .scope = self.scope };
     }
 
     pub fn deinit(self: Command, allocator: std.mem.Allocator) void {

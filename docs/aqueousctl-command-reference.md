@@ -428,3 +428,25 @@ instance's managed shell services. If one remains after a switch, inspect
 `systemctl --user status aqueous-git-dms.service dms.service --no-pager` and the
 process's service/cgroup ownership before stopping it. Shell switching does not
 kill all processes named `qs`, since other applications can use Quickshell too.
+
+## Window switcher IPC
+
+The shell IPC commands `switcher.next`, `switcher.previous`, and
+`switcher.dismiss` accept `scope: "all"` when the hello capabilities include
+`global_window_switcher_v1`. Send `output` (presentation output ID), optional
+`seat`, and optional `reduced_motion`; omit `workspace`. Without scope, the
+legacy `workspace_switcher_v1` contract requires the output's active workspace.
+Unknown scopes and global requests containing workspace are rejected.
+
+Global selection visits non-minimized, activatable windows on all exposed
+outputs/workspaces. The deck stays on its original output; activation selects
+the window's own output/workspace. Finishing by timeout, Escape, typing, or
+explicit dismiss restores the normal scene and moves the initiating seat's
+cursor into the selected content. Physical pointer motion/click and lifecycle
+cancellation suppress this handoff. The explicit handoff is independent of
+`mouse_follows_focus`. Native `window_switcher_next`/`previous` bindings use
+global scope; bindings remain unassigned by default.
+
+Session state and command results include scope, owning seat, destination
+workspace/output, and a pending flag alongside the existing selection serial
+and position/count. `switcher_output` continues to mean presentation output.

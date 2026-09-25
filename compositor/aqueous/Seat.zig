@@ -362,7 +362,7 @@ pub fn create(name: [*:0]const u8) !void {
 }
 
 pub fn destroy(seat: *Seat) void {
-    if (server.window_switcher.seat == seat) server.window_switcher.dismiss();
+    server.window_switcher.removeSeat(seat);
     seat.toplevel_drag.cancel();
     seat.makeInert();
 
@@ -925,7 +925,7 @@ pub fn manageFinish(seat: *Seat) void {
 
     const output_warp = seat.wm_requested.pointer_warp;
     seat.wm_requested.pointer_warp = null;
-    if (server.aqueous.config.wm.input.mouse_follows_focus) {
+    if (server.aqueous.config.wm.input.mouse_follows_focus and server.window_switcher.seat != seat) {
         if (requested_focus == .window and (follow_focus or output_warp != null)) {
             const ref = requested_focus.window;
             if (seat.policyFocusedHandle() == @as(u64, @bitCast(ref)) and
@@ -943,8 +943,10 @@ pub fn manageFinish(seat: *Seat) void {
 }
 
 fn canFollowFocus(seat: *const Seat) bool {
+    return server.aqueous.config.wm.input.mouse_follows_focus and seat.canWarpPointer();
+}
+pub fn canWarpPointer(seat: *const Seat) bool {
     return server.lock_manager.state == .unlocked and
-        server.aqueous.config.wm.input.mouse_follows_focus and
         seat.drag == .none and seat.op == null and
         !server.aqueous.interactiveDragActive() and
         seat.cursor.mode == .passthrough and
@@ -969,6 +971,10 @@ pub fn finishFocusWarp(seat: *Seat) void {
 }
 
 pub fn focus(seat: *Seat, new_focus: Focus) void {
+    if (server.window_switcher.handoff) |pending| {
+        if (pending.seat == seat and (new_focus != .window or
+            @as(u64, @bitCast(new_focus.window.ref)) != @as(u64, @bitCast(pending.ref)))) server.window_switcher.pointerIntent(seat);
+    }
     if (server.window_switcher.seat == seat) {
         const handle: ?u64 = if (new_focus == .window) @bitCast(new_focus.window.ref) else null;
         if (handle != server.window_switcher.selected) server.window_switcher.dismiss();

@@ -720,6 +720,7 @@ fn renderFinish(wm: *WindowManager) void {
         }
     }
 
+    server.window_switcher.committed();
     server.idle_inhibit_manager.checkActive();
 
     if (@import("build_options").xwayland) @import("XwaylandOverrideRedirect.zig").refreshAll();

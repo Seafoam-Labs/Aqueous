@@ -1241,12 +1241,12 @@ pub fn handleKey(aqueous: *Aqueous, keysym: u32, modifiers: u32, pressed: bool) 
     const switcher = &@import("../main.zig").server.window_switcher;
     if (switcher.output != null and pressed) {
         if (keysym == 0xff1b) {
-            switcher.dismiss();
+            switcher.finish();
             return true;
         }
         const binding = aqueous.keyBindingVerb(keysym, modifiers) orelse "";
         // Modifier transitions alone do not end presentation.
-        if (!(keysym >= 0xffe1 and keysym <= 0xffee) and !std.mem.startsWith(u8, binding, "builtin:window_switcher_")) switcher.dismiss();
+        if (!(keysym >= 0xffe1 and keysym <= 0xffee) and !std.mem.startsWith(u8, binding, "builtin:window_switcher_")) switcher.finish();
     }
     if (aqueous.overview != null) return aqueous.handleOverviewKey(keysym, modifiers, pressed);
     if (!pressed and aqueous.untrap_keysym == keysym) {
@@ -1872,7 +1872,7 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     if (std.mem.eql(u8, action, "lock_screen")) return aqueous.spawn(aqueous.config.actions.lock_screen.slice());
     if (std.mem.eql(u8, action, "window_switcher_next")) return @import("../main.zig").server.window_switcher.builtin(false);
     if (std.mem.eql(u8, action, "window_switcher_previous")) return @import("../main.zig").server.window_switcher.builtin(true);
-    if (std.mem.eql(u8, action, "window_switcher_dismiss")) return @import("../main.zig").server.window_switcher.dismiss();
+    if (std.mem.eql(u8, action, "window_switcher_dismiss")) return @import("../main.zig").server.window_switcher.finish();
     if (std.mem.eql(u8, action, "toggle_overview")) return aqueous.toggleOverview();
     if (std.mem.eql(u8, action, "close_focused")) {
         if (aqueous.api.focusedWindow()) |handle| aqueous.api.closeWindow(handle);
@@ -2263,7 +2263,10 @@ fn validateOverviewSnapshot(aqueous: *Aqueous, snapshot: *const CompositorApi.Po
 
 pub fn forgetOutput(aqueous: *Aqueous, output_id: u64) void {
     const switcher = &@import("../main.zig").server.window_switcher;
-    if (switcher.output) |output| if (output.policyId() == output_id) switcher.dismiss();
+    if (switcher.handoff) |pending| if (pending.output_id == output_id) {
+        switcher.handoff = null;
+    };
+    if (switcher.output) |output| if (output.policyId() == output_id and !(switcher.all and switcher.activating)) switcher.dismiss();
     const state = aqueous.overview orelse return;
     if (state.output_id == output_id) aqueous.cancelOverview();
 }

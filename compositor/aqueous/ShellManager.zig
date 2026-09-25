@@ -123,7 +123,9 @@ fn clientDestroy(_: *protocol, client: *Client) void {
 }
 
 pub fn detach(client: *Client) void {
-    if (server.window_switcher.owner == @as(*anyopaque, @ptrCast(client))) server.window_switcher.dismiss();
+    const switcher = &server.window_switcher;
+    if (switcher.owner == @as(*anyopaque, @ptrCast(client)) or
+        (switcher.handoff != null and switcher.handoff.?.owner == @as(*anyopaque, @ptrCast(client)))) switcher.dismiss();
     client.link.remove();
     server.shell_manager.client_count -= 1;
     clear(&client.previous);
@@ -296,11 +298,12 @@ fn refresh(manager: *ShellManager) !void {
         if (ref.get()) |window| overview_window = windowId(window);
     }
     const switcher = &server.window_switcher;
+    const switcher_meta = try switcher.metadata(a);
     const switcher_window: ?[]const u8 = if (switcher.selected) |handle| blk: {
         const ref: Window.Ref = @bitCast(handle);
         break :blk if (ref.get()) |window| windowId(window) else null;
     } else null;
-    try add(&next, &total, "session", "session", .{ .kind = "session", .id = "session", .locked = server.lock_manager.state != .unlocked, .default_seat = if (seat_count == 1) default_seat else null, .overview_output = try optionalId(a, overview_output), .overview_window = overview_window, .switcher_output = try optionalId(a, if (switcher.output) |output| output.shell_id else null), .switcher_window = switcher_window, .switcher_position = switcher.position, .switcher_total = switcher.total, .switcher_serial = switcher.serial });
+    try add(&next, &total, "session", "session", .{ .kind = "session", .id = "session", .locked = server.lock_manager.state != .unlocked, .default_seat = if (seat_count == 1) default_seat else null, .overview_output = try optionalId(a, overview_output), .overview_window = overview_window, .switcher_output = try optionalId(a, if (switcher.output) |output| output.shell_id else null), .switcher_window = switcher_window, .switcher_position = switcher.position, .switcher_total = switcher.total, .switcher_serial = switcher.serial, .switcher_scope = switcher_meta.scope, .switcher_seat = switcher_meta.seat, .switcher_workspace = switcher_meta.workspace, .switcher_destination_output = switcher_meta.output, .switcher_pending = switcher_meta.pending });
     var changed = next.count() != manager.state.count();
     var it = next.iterator();
     while (it.next()) |entry| {

@@ -29,6 +29,7 @@ backdrop: ?*wlr.SceneRect = null,
 entries: std.ArrayListUnmanaged(Entry) = .empty,
 progress: f64 = 1,
 deck: bool = false,
+deck_workspace: ?u32 = null,
 reduced_motion: bool = false,
 hidden_windows: std.ArrayListUnmanaged(HiddenWindow) = .empty,
 hidden_layer_surfaces: std.ArrayListUnmanaged(HiddenLayerSurface) = .empty,
@@ -311,8 +312,12 @@ pub fn show(
         };
         window.cloneOverviewInto(util.gpa, entry.content, &entry.buffers) catch |err| {
             log.warn("skipping overview window {}: {}", .{ card.handle, err });
-            entry.deinit();
-            continue;
+            if (!deck) {
+                entry.deinit();
+                continue;
+            }
+            // A missing texture must not remove a global cycling stop. The
+            // card outline and application icon remain a usable placeholder.
         };
         entry.refreshIcon(window);
         entry.borders.raiseToTop();
@@ -367,6 +372,7 @@ pub fn hide(overview: *Overview) void {
     overview.output_id = null;
     overview.progress = 1;
     overview.deck = false;
+    overview.deck_workspace = null;
     overview.reduced_motion = false;
     server.wm.dirtyWindowing();
 }
@@ -395,7 +401,10 @@ fn hideOutputScene(overview: *Overview, output: *Output) !void {
         }
     }
 
-    if (overview.deck) return; // Keep bar and non-keyboard HUD usable.
+    if (overview.deck) {
+        overview.deck_workspace = if (output.active_workspace) |ws| ws.id else null;
+        return; // Keep bar and non-keyboard HUD usable.
+    }
     const wlr_output = output.wlr_output orelse return error.OutputUnavailable;
     var layer_surfaces = server.layer_shell.surfaces.iterator();
     while (layer_surfaces.next()) |layer_surface| {
@@ -416,9 +425,10 @@ fn restoreOutputScene(overview: *Overview) void {
     for (overview.hidden_windows.items) |hidden| {
         const window = hidden.ref.get() orelse continue;
         window.overview_hidden = hidden.overview_hidden;
-        window.tree.node.setEnabled(hidden.tree_enabled);
-        window.popup_tree.node.setEnabled(hidden.popup_enabled);
-        window.anim_tree.node.setEnabled(hidden.animation_enabled);
+        const workspace_active = if (window.workspace) |ws| ws.isActive() else false;
+        window.tree.node.setEnabled(hidden.tree_enabled and workspace_active);
+        window.popup_tree.node.setEnabled(hidden.popup_enabled and workspace_active);
+        window.anim_tree.node.setEnabled(hidden.animation_enabled and workspace_active);
     }
     overview.hidden_windows.clearRetainingCapacity();
 
@@ -527,6 +537,15 @@ fn inverseTransform(transform: wl.Output.Transform) wl.Output.Transform {
     };
 }
 
+/// Selection can activate another workspace underneath a stationary deck.
+pub fn syncDeckScene(self: *Overview, output: *Output) !void {
+    if (!self.deck) return;
+    const workspace = if (output.active_workspace) |ws| ws.id else null;
+    if (self.deck_workspace == workspace) return;
+    output.prepareOverview();
+    self.restoreOutputScene();
+    try self.hideOutputScene(output);
+}
 /// Rebuild only three live texture cards, preserving interpolated positions.
 pub fn showDeck(self: *Overview, output: *Output, cards: []model.Card, selected: layout.Handle, reduced: bool, reverse: bool) !void {
     var old: [3]struct { handle: u64, rect: layout.Rect } = undefined;

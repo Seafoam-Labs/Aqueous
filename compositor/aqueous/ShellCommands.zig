@@ -57,11 +57,16 @@ pub fn execute(cmd: Types.Command) Types.Status {
         .switcher_next, .switcher_previous, .switcher_dismiss => {
             const seat = findSeat(seat_name) orelse return if (seat_name.len == 0) .ambiguous_seat else .not_found;
             const output = findOutput(value, cmd.output_by_id) orelse return .not_found;
-            const ws = findWorkspace(target) orelse return .not_found;
-            if (output.active_workspace != ws or !output.policyExposed()) return .unavailable;
+            if (!output.policyExposed()) return .unavailable;
+            const workspace: u32 = if (cmd.scope == .workspace) blk: {
+                const ws = findWorkspace(target) orelse return .not_found;
+                if (output.active_workspace != ws) return .unavailable;
+                break :blk ws.id;
+            } else 0;
             if (action == .switcher_dismiss) {
-                if (server.window_switcher.output == output and server.window_switcher.seat == seat) server.window_switcher.dismiss();
-            } else server.window_switcher.step(output, seat, ws.id, action == .switcher_previous, cmd.reduced_motion) catch return .unavailable;
+                if (server.window_switcher.seat == seat and
+                    (cmd.scope == .all or server.window_switcher.output == output)) server.window_switcher.finish();
+            } else server.window_switcher.step(output, seat, workspace, action == .switcher_previous, cmd.reduced_motion, cmd.scope == .all) catch return .unavailable;
         },
         .session_exit => return .applied,
         .session_reload => {

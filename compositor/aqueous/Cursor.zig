@@ -609,6 +609,7 @@ pub fn canStartXwaylandPointerOperation(cursor: *const Cursor, surface: *wlr.Sur
 
 pub fn processMotionRelative(cursor: *Cursor, event: *const Seat.Event.PointerMotionRelative) void {
     // Physical input supersedes any cursor move deferred by keyboard focus.
+    server.window_switcher.pointerIntent(cursor.seat);
     cursor.seat.cancelFocusWarp();
     cursor.processMotionRelativeInternal(event, true);
 }
@@ -816,6 +817,7 @@ fn updateHovered(cursor: *Cursor, allow_focus_follow: bool) void {
 
 pub fn processMotionAbsolute(cursor: *Cursor, event: *const Seat.Event.PointerMotionAbsolute) void {
     // Physical input supersedes any cursor move deferred by keyboard focus.
+    server.window_switcher.pointerIntent(cursor.seat);
     cursor.seat.cancelFocusWarp();
     if (event.generation != cursor.pointer_mode_generation) return;
 
@@ -839,6 +841,7 @@ pub fn processMotionAbsolute(cursor: *Cursor, event: *const Seat.Event.PointerMo
 }
 
 pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) void {
+    if (event.state == .pressed) server.window_switcher.pointerIntent(cursor.seat);
     if (event.state == .pressed and server.window_switcher.output != null) {
         const hit = server.scene.at(cursor.wlr_cursor.x, cursor.wlr_cursor.y);
         const on_layer = if (hit) |h| h.data == .layer_surface else false;
