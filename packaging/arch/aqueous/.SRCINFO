@@ -1,7 +1,7 @@
 pkgbase = aqueous
 	pkgdesc = Aqueous Wayland compositor (stable, compositor only)
 	pkgver = 0.8.0
-	pkgrel = 2
+	pkgrel = 3
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = x86_64
 	arch = aarch64
@@ -46,6 +46,8 @@ pkgbase = aqueous
 	depends = xcb-util-errors
 	depends = xcb-util-wm
 	depends = xcb-util-renderutil
+	depends = brightnessctl
+	depends = playerctl
 	provides = aqueous=0.8.0
 	conflicts = aqueous-bin
 	conflicts = aqueous-core

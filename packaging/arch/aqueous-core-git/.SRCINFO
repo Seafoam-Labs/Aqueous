@@ -1,7 +1,7 @@
 pkgbase = aqueous-core-git
 	pkgdesc = Aqueous development compositor, helper and control client (co-installable with stable)
 	pkgver = 0.7.0.r0.g0000000
-	pkgrel = 2
+	pkgrel = 3
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = x86_64
 	arch = aarch64
@@ -55,6 +55,8 @@ pkgbase = aqueous-core-git
 	depends = xcb-util-errors
 	depends = xcb-util-wm
 	depends = xcb-util-renderutil
+	depends = brightnessctl
+	depends = playerctl
 	replaces = aqueous-core-intel-git
 	options = !strip
 	options = !debug

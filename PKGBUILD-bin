@@ -3,7 +3,7 @@
 pkgbase=aqueous-bin
 pkgname=(aqueous-core-bin aqueous-session-bin aqueous-welcome-bin xdg-desktop-portal-aqueous-bin aqueous-integration-dms-bin aqueous-integration-noctalia-bin aqueous-integration-pearl-bin aqueous-shell-dms-bin aqueous-shell-noctalia-bin aqueous-shell-pearl-bin aqueous-bin)
 pkgver=0.7.0
-pkgrel=2
+pkgrel=3
 # Keep tested binary/library bytes and component manifests stable.
 options=('!strip' '!debug' '!zipman')
 pkgdesc="Aqueous component packages (prebuilt release)"
@@ -31,7 +31,7 @@ package_aqueous-core-bin() {
     pkgdesc="Aqueous core (prebuilt)"
     # The staged core root carries all four compositor/LICENSES/* texts.
     license=('GPL-3.0-only' 'MIT' '0BSD' 'CC-BY-SA-4.0')
-    depends=("freetype2" "wayland" "libxkbcommon" "libinput" "pixman" "libpng" "libdrm" "libevdev" "libdecor" "xorg-xwayland" "pipewire" "glib2" "fontconfig" "mesa" "systemd-libs" "seatd" "libdisplay-info" "libliftoff" "lcms2" "vulkan-icd-loader" "libxcb" "xcb-util-errors" "xcb-util-wm" "xcb-util-renderutil")
+    depends=("freetype2" "wayland" "libxkbcommon" "libinput" "pixman" "libpng" "libdrm" "libevdev" "libdecor" "xorg-xwayland" "pipewire" "glib2" "fontconfig" "mesa" "systemd-libs" "seatd" "libdisplay-info" "libliftoff" "lcms2" "vulkan-icd-loader" "libxcb" "xcb-util-errors" "xcb-util-wm" "xcb-util-renderutil" "brightnessctl" "playerctl")
     conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-core' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
     provides=("aqueous-core=$pkgver-$pkgrel")
     _stage_component core

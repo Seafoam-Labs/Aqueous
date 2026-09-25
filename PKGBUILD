@@ -5,7 +5,7 @@ pkgname=(aqueous-core aqueous-session aqueous-welcome xdg-desktop-portal-aqueous
          aqueous-shell-dms aqueous-shell-noctalia aqueous-shell-pearl aqueous)
 pkgbase=aqueous
 pkgver=0.7.0
-pkgrel=3
+pkgrel=4
 # Keep tested binary/library bytes and component manifests stable.
 options=('!strip' '!debug' '!zipman')
 pkgdesc="Aqueous single-process Wayland compositor"
@@ -173,7 +173,7 @@ package_aqueous-core() {
     pkgdesc="Aqueous core"
     # core is the only split that stages compositor/LICENSES/*, which holds four texts.
     license=('GPL-3.0-only' 'MIT' '0BSD' 'CC-BY-SA-4.0')
-    depends=("freetype2" "wayland" "libxkbcommon" "libinput" "pixman" "libpng" "libdrm" "libevdev" "libdecor" "xorg-xwayland" "pipewire" "glib2" "fontconfig" "mesa" "systemd-libs" "seatd" "libdisplay-info" "libliftoff" "lcms2" "vulkan-icd-loader" "libxcb" "xcb-util-errors" "xcb-util-wm" "xcb-util-renderutil")
+    depends=("freetype2" "wayland" "libxkbcommon" "libinput" "pixman" "libpng" "libdrm" "libevdev" "libdecor" "xorg-xwayland" "pipewire" "glib2" "fontconfig" "mesa" "systemd-libs" "seatd" "libdisplay-info" "libliftoff" "lcms2" "vulkan-icd-loader" "libxcb" "xcb-util-errors" "xcb-util-wm" "xcb-util-renderutil" "brightnessctl" "playerctl")
     conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-core-bin' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
     _stage_component core
 }

@@ -3,7 +3,7 @@ pkgname=aqueous-core-git
 pkgbase=$pkgname
 _channel=git
 pkgver=0.7.0.r0.g0000000
-pkgrel=2
+pkgrel=3
 pkgdesc='Aqueous development compositor, helper and control client (co-installable with stable)'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Seafoam-Labs/Aqueous'
@@ -13,7 +13,8 @@ options=('!strip' '!debug' '!zipman')
 depends=('bash' 'freetype2' 'wayland' 'libxkbcommon' 'libinput' 'pixman' 'libpng'
          'libdrm' 'libevdev' 'libdecor' 'xorg-xwayland' 'pipewire' 'glib2' 'fontconfig'
          'mesa' 'systemd-libs' 'seatd' 'libdisplay-info' 'libliftoff' 'lcms2'
-         'vulkan-icd-loader' 'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil')
+         'vulkan-icd-loader' 'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil'
+         'brightnessctl' 'playerctl')
 makedepends=('git' 'curl' 'patch' 'scdoc' 'jq' 'python' 'shaderc' 'clang' 'lld' 'llvm'
              'wayland-protocols>=1.49' 'pkgconf' 'meson' 'ninja' 'glslang'
              'vulkan-headers' 'hwdata' 'zig>=0.16')

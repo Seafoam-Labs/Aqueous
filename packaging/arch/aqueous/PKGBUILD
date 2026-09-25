@@ -2,7 +2,7 @@
 # Minimal stable compositor for consumers such as pearl-greeter.
 pkgname=aqueous
 pkgver=0.8.0
-pkgrel=2
+pkgrel=3
 pkgdesc='Aqueous Wayland compositor (stable, compositor only)'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Seafoam-Labs/Aqueous'
@@ -10,7 +10,8 @@ license=('GPL-3.0-only' 'MIT' '0BSD' 'CC-BY-SA-4.0')
 depends=('wayland' 'libxkbcommon' 'libinput' 'pixman' 'libdrm' 'libevdev'
          'libdecor' 'xorg-xwayland' 'pipewire' 'mesa' 'systemd-libs' 'seatd'
          'libdisplay-info' 'libliftoff' 'lcms2' 'vulkan-icd-loader'
-         'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil')
+         'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil'
+         'brightnessctl' 'playerctl')
 makedepends=('git' 'curl' 'patch' 'scdoc' 'python' 'shaderc' 'clang' 'lld' 'llvm'
              'wayland-protocols>=1.49' 'pkgconf' 'meson' 'ninja' 'glslang'
              'vulkan-headers' 'hwdata' 'zig>=0.16')
