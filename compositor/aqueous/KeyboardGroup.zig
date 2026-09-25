@@ -265,6 +265,8 @@ fn boundCapsLock(group: *KeyboardGroup, keycode: u32) bool {
 
 fn handleKey(listener: *wl.Listener(*wlr.Keyboard.event.Key), event: *wlr.Keyboard.event.Key) void {
     const group: *KeyboardGroup = @fieldParentPtr("key", listener);
+    server.window_switcher.input_seat = group.seat;
+    defer server.window_switcher.input_seat = null;
 
     const xkb_state = group.state.xkb_state orelse {
         log.err("no xkb_state available", .{});

@@ -123,6 +123,7 @@ fn clientDestroy(_: *protocol, client: *Client) void {
 }
 
 pub fn detach(client: *Client) void {
+    if (server.window_switcher.owner == @as(*anyopaque, @ptrCast(client))) server.window_switcher.dismiss();
     client.link.remove();
     server.shell_manager.client_count -= 1;
     clear(&client.previous);
@@ -153,6 +154,7 @@ fn publish(manager: *ShellManager) void {
         defer cmd.deinit(util.gpa);
         if (client.socket) |socket| if (!socket.validateSession()) continue;
         const status = Commands.execute(cmd);
+        if (status == .applied and (cmd.action == .switcher_next or cmd.action == .switcher_previous) and server.window_switcher.output != null) server.window_switcher.owner = client;
         if (status != .applied) {
             result(client, client.queued_id, status);
         } else if (cmd.action == .session_exit) {
@@ -246,7 +248,7 @@ fn refresh(manager: *ShellManager) !void {
         const bottom: i32 = if (!info.fullscreen and border.edges.bottom) @intCast(border.width) else 0;
         const outer = .{ .x = @as(i64, info.geometry.x) - left, .y = @as(i64, info.geometry.y) - top, .width = @as(i64, info.geometry.width) + left + right, .height = @as(i64, info.geometry.height) + top + bottom };
         const freeform = window.policy_state.presentation == .floating or server.aqueous.clientWindowUsesFloatingLayout(@bitCast(window.ref));
-        try add(&next, &total, "window", id, .{ .kind = "window", .id = id, .backend = @tagName(info.backend), .app_id = span(info.app_id), .class = span(info.class), .title = span(info.title), .tag = span(info.tag), .description = span(info.description), .icon = if (window.impl == .toplevel) try window.impl.toplevel.icon.metadata(a) else null, .workspace = try optionalId(a, if (ws) |v| v.id else null), .output = try optionalId(a, if (ws) |v| v.output.shell_id else null), .geometry = info.geometry, .outer_geometry = outer, .focused = info.focused, .visible = info.visible, .floating = info.floating, .minimized = info.minimized, .maximized = info.maximized, .fullscreen = info.fullscreen, .skip_taskbar = info.skip_taskbar, .skip_switcher = info.skip_switcher, .always_above = info.always_above, .always_below = info.always_below, .snapped = info.snapped, .fixed_position = info.fixed_position, .layout = info.layout, .can_minimize = freeform, .can_maximize = freeform, .can_activate = window.wm_scheduled.accepts_focus and window.policy_state.focus_allowed });
+        try add(&next, &total, "window", id, .{ .kind = "window", .id = id, .backend = @tagName(info.backend), .app_id = span(info.app_id), .class = span(info.class), .title = span(info.title), .tag = span(info.tag), .description = span(info.description), .icon = if (window.impl == .toplevel) try window.impl.toplevel.icon.metadata(a) else null, .workspace = try optionalId(a, if (ws) |v| v.id else null), .output = try optionalId(a, if (ws) |v| v.output.shell_id else null), .geometry = info.geometry, .outer_geometry = outer, .focused = info.focused, .visible = info.visible, .floating = info.floating, .minimized = info.minimized, .maximized = info.maximized, .fullscreen = info.fullscreen, .skip_taskbar = info.skip_taskbar, .skip_switcher = info.skip_switcher, .always_above = info.always_above, .always_below = info.always_below, .snapped = info.snapped, .fixed_position = info.fixed_position, .layout = info.layout, .switcher_eligible = if (ws) |workspace| @import("WindowSwitcher.zig").eligible(window, workspace) else false, .can_minimize = freeform, .can_maximize = freeform, .can_activate = window.wm_scheduled.accepts_focus and window.policy_state.focus_allowed });
     }
     if (@import("build_options").xwayland) {
         var cursor = @import("XwaylandOverrideRedirect.zig").first;
@@ -293,7 +295,12 @@ fn refresh(manager: *ShellManager) !void {
         const ref: Window.Ref = @bitCast(overview.selected);
         if (ref.get()) |window| overview_window = windowId(window);
     }
-    try add(&next, &total, "session", "session", .{ .kind = "session", .id = "session", .locked = server.lock_manager.state != .unlocked, .default_seat = if (seat_count == 1) default_seat else null, .overview_output = try optionalId(a, overview_output), .overview_window = overview_window });
+    const switcher = &server.window_switcher;
+    const switcher_window: ?[]const u8 = if (switcher.selected) |handle| blk: {
+        const ref: Window.Ref = @bitCast(handle);
+        break :blk if (ref.get()) |window| windowId(window) else null;
+    } else null;
+    try add(&next, &total, "session", "session", .{ .kind = "session", .id = "session", .locked = server.lock_manager.state != .unlocked, .default_seat = if (seat_count == 1) default_seat else null, .overview_output = try optionalId(a, overview_output), .overview_window = overview_window, .switcher_output = try optionalId(a, if (switcher.output) |output| output.shell_id else null), .switcher_window = switcher_window, .switcher_position = switcher.position, .switcher_total = switcher.total, .switcher_serial = switcher.serial });
     var changed = next.count() != manager.state.count();
     var it = next.iterator();
     while (it.next()) |entry| {

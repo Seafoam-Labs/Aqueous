@@ -329,7 +329,7 @@ pub const Client = struct {
                     .max_clients = 16,
                     .max_state_bytes = Codec.max_batch / 2,
                     .max_depth = Codec.max_depth,
-                    .capabilities = .{ .state = true, .commands = commands, .keyboard = commands, .overview = commands, .config_reload = commands, .shortcut_inhibition = true, .unmanaged_windows = true, .icon_metadata = true, .icon_fetch = true, .display_observation_v1 = true, .candidate_impact_v1 = true, .display_preview_v1 = true, .display_preview_commit_v1 = true, .display_preview_hardware = !@import("build_options").display_preview_acceptance, .display_preview_completion_v1 = true, .display_preview_feature_policy_v1 = true, .display_preview_acceptance_build = @import("build_options").display_preview_acceptance },
+                    .capabilities = .{ .state = true, .commands = commands, .keyboard = commands, .overview = commands, .workspace_switcher_v1 = commands, .config_reload = commands, .shortcut_inhibition = true, .unmanaged_windows = true, .icon_metadata = true, .icon_fetch = true, .display_observation_v1 = true, .candidate_impact_v1 = true, .display_preview_v1 = true, .display_preview_commit_v1 = true, .display_preview_hardware = !@import("build_options").display_preview_acceptance, .display_preview_completion_v1 = true, .display_preview_feature_policy_v1 = true, .display_preview_acceptance_build = @import("build_options").display_preview_acceptance },
                 });
             },
             .@"display.candidate", .@"display.snapshot", .@"display.preview.features", .@"display.preview.evidence", .@"display.preview.begin", .@"display.preview.status", .@"display.preview.revert", .@"display.preview.authorize", .@"display.preview.finalize" => {
@@ -496,7 +496,13 @@ pub const Client = struct {
     }
 
     pub fn commandResult(client: *Client, status: Types.Status, sequence: []const u8) !void {
-        if (status == .applied or status == .accepted) return client.reply(.{ .status = @tagName(status), .sequence = sequence, .session = server.shell_manager.session[0..32], .loaded_generation = server.aqueous.config.canonical_generation, .candidate_digest = server.aqueous.config.canonical_digest });
+        const switcher = &server.window_switcher;
+        const selected: ?[]const u8 = if (switcher.selected) |handle| blk: {
+            const ref: Window.Ref = @bitCast(handle);
+            const window = ref.get() orelse break :blk null;
+            break :blk if (window.foreign_toplevel_handle) |h| std.mem.span(h.identifier) else null;
+        } else null;
+        if (status == .applied or status == .accepted) return client.reply(.{ .status = @tagName(status), .sequence = sequence, .session = server.shell_manager.session[0..32], .loaded_generation = server.aqueous.config.canonical_generation, .candidate_digest = server.aqueous.config.canonical_digest, .switcher_window = selected, .switcher_position = switcher.position, .switcher_total = switcher.total, .switcher_serial = switcher.serial });
         try client.reject(client.request_id[0..client.request_len], @tagName(status));
         client.pending = false;
     }

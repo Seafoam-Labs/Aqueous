@@ -534,7 +534,7 @@ pub fn activateWorkspace(_: CompositorApi, output_id: u64, number: u32) bool {
     var outputs = server.om.outputs.iterator(.forward);
     while (outputs.next()) |output| if (output.policyId() == output_id) {
         const workspace = output.policyWorkspaceAt(number) orelse return false;
-        server.aqueous.forgetOutput(output_id);
+        // Output.activateWorkspace cancels presentation only on a real change.
         output.activateWorkspace(workspace);
         return true;
     };
@@ -574,6 +574,7 @@ pub fn showOverview(
         output.policyFullBox(),
         cards,
         selected,
+        false,
     );
     if (output.wlr_output) |wlr_output| wlr_output.scheduleFrame();
     return accepted;

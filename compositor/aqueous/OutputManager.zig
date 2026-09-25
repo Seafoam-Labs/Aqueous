@@ -618,7 +618,11 @@ fn validateConfigCoordinates(config: *wlr.OutputConfigurationV1) bool {
     while (it.next()) |head| {
         if (count == pending.len) return false;
         const output: *Output = @ptrCast(@alignCast(head.state.output.data));
-        var proposed: Output.State = .fromHeadState(&head.state);
+        // Disabled heads do not carry valid mode/scale fields. Preserve their
+        // last state just as handleManagerApply does, while excluding them
+        // from the proposed visible layout.
+        var proposed: Output.State = if (head.state.enabled) .fromHeadState(&head.state) else output.scheduled;
+        if (!head.state.enabled) proposed.state = .disabled_hard;
         proposed.mirror_of = output.scheduled.mirror_of;
         pending[count] = .{ .output = output, .state = proposed };
         count += 1;

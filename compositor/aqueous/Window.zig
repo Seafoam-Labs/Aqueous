@@ -1806,6 +1806,7 @@ fn presentationHint(window: *Window) aqueous.OutputV1.PresentationMode {
 }
 
 pub fn renderFinish(window: *Window) void {
+    defer server.overview.refreshDeck(window);
     const requested = &window.rendering_requested;
 
     // Keep the scene nodes disabled until the render sequence in which the first

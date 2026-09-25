@@ -147,6 +147,7 @@ tearing_control_manager: *wlr.TearingControlManagerV1,
 
 scene: Scene,
 overview: Overview,
+window_switcher: @import("WindowSwitcher.zig"),
 input_manager: InputManager,
 libinput_config: LibinputConfig,
 xkb_config: XkbConfig,
@@ -514,6 +515,7 @@ pub fn init(
 
         .scene = undefined,
         .overview = undefined,
+        .window_switcher = undefined,
         .om = undefined,
         .input_manager = undefined,
         .libinput_config = undefined,
@@ -589,6 +591,7 @@ pub fn init(
     try server.layer_shell.init();
     try server.scene.init();
     try server.overview.init();
+    try server.window_switcher.init();
     try server.om.init();
     try server.input_manager.init();
     try server.libinput_config.init();
@@ -648,6 +651,7 @@ pub fn deinit(server: *Server) void {
     }
 
     server.wl_server.destroyClients();
+    server.window_switcher.deinit();
     server.aqueous.deinit();
     server.overview.deinit();
 

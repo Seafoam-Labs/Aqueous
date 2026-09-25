@@ -54,6 +54,15 @@ pub fn execute(cmd: Types.Command) Types.Status {
     if (server.lock_manager.state != .unlocked) return .locked;
     if (server.aqueous.mode != .internal) return .unsupported;
     switch (action) {
+        .switcher_next, .switcher_previous, .switcher_dismiss => {
+            const seat = findSeat(seat_name) orelse return if (seat_name.len == 0) .ambiguous_seat else .not_found;
+            const output = findOutput(value, cmd.output_by_id) orelse return .not_found;
+            const ws = findWorkspace(target) orelse return .not_found;
+            if (output.active_workspace != ws or !output.policyExposed()) return .unavailable;
+            if (action == .switcher_dismiss) {
+                if (server.window_switcher.output == output and server.window_switcher.seat == seat) server.window_switcher.dismiss();
+            } else server.window_switcher.step(output, seat, ws.id, action == .switcher_previous, cmd.reduced_motion) catch return .unavailable;
+        },
         .session_exit => return .applied,
         .session_reload => {
             if (target.len != 0 or seat_name.len != 0 or value.len != 0) return .invalid;
@@ -66,11 +75,13 @@ pub fn execute(cmd: Types.Command) Types.Status {
                 if (!window.wm_scheduled.accepts_focus or !window.policy_state.focus_allowed) return .unsupported;
                 if (window.workspace) |ws| if (!ws.output.policyExposed()) return .unavailable;
                 server.aqueous.cancelOverview();
+                server.window_switcher.dismiss();
                 if (!server.aqueous.activateShellWindow(@bitCast(window.ref), std.mem.span(seat.wlr_seat.name))) return .unavailable;
             } else {
                 const ws = findWorkspace(target) orelse return .not_found;
                 if (!ws.output.policyExposed()) return .unavailable;
                 server.aqueous.cancelOverview();
+                server.window_switcher.dismiss();
                 seat.policySelectOutput(ws.output);
                 ws.output.activateWorkspace(ws);
             }
@@ -97,6 +108,7 @@ pub fn execute(cmd: Types.Command) Types.Status {
                 if (!enabled and window.policy_state.client_maximize_origin == .none) return .unsupported;
             }
             server.aqueous.cancelOverview();
+            server.window_switcher.dismiss();
             switch (action) {
                 .window_minimized => window.requestMinimized(enabled),
                 .window_maximized => window.requestMaximized(enabled),
@@ -110,6 +122,7 @@ pub fn execute(cmd: Types.Command) Types.Status {
             const ws = if (action == .window_move_workspace) findWorkspace(value) orelse return .not_found else (findOutput(value, cmd.output_by_id) orelse return .not_found).active_workspace orelse return .unavailable;
             if (!ws.output.policyExposed()) return .unavailable;
             server.aqueous.cancelOverview();
+            server.window_switcher.dismiss();
             window.policy_state.overrideWorkspace();
             window.setWorkspace(ws);
         },
@@ -146,11 +159,13 @@ pub fn execute(cmd: Types.Command) Types.Status {
         .overview_show, .overview_hide, .overview_toggle => {
             if (action == .overview_hide or (action == .overview_toggle and server.aqueous.overview != null)) {
                 server.aqueous.cancelOverview();
+                server.window_switcher.dismiss();
             } else {
                 const output = findOutput(value, cmd.output_by_id) orelse return .not_found;
                 if (server.aqueous.overview) |overview| {
                     if (overview.output_id == output.policyId()) return .applied;
                     server.aqueous.cancelOverview();
+                    server.window_switcher.dismiss();
                 }
                 server.aqueous.openOverviewOnOutput(output.policyId());
                 if (server.aqueous.overview == null) return .unavailable;

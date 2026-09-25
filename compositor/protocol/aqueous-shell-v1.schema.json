@@ -433,6 +433,9 @@
               }
             }
           ]
+        },
+        "switcher_eligible": {
+          "type": "boolean"
         }
       }
     },
@@ -594,6 +597,30 @@
             "string",
             "null"
           ]
+        },
+        "switcher_output": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "switcher_window": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "switcher_position": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "switcher_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "switcher_serial": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },

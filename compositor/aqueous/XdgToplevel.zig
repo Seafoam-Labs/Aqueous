@@ -386,6 +386,7 @@ fn handleAckConfigure(
 fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
     const toplevel: *XdgToplevel = @fieldParentPtr("commit", listener);
     const window = toplevel.window;
+    defer server.overview.refreshDeck(window);
 
     if (toplevel.decoration_removed_seq) |seq| {
         const current = toplevel.wlr_toplevel.base.surface.current.seq;

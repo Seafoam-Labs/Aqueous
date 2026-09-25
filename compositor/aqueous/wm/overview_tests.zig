@@ -3,4 +3,5 @@
 
 test {
     _ = @import("overview/tests.zig");
+    _ = @import("switcher/model.zig");
 }

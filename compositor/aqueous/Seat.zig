@@ -362,6 +362,7 @@ pub fn create(name: [*:0]const u8) !void {
 }
 
 pub fn destroy(seat: *Seat) void {
+    if (server.window_switcher.seat == seat) server.window_switcher.dismiss();
     seat.toplevel_drag.cancel();
     seat.makeInert();
 
@@ -968,6 +969,10 @@ pub fn finishFocusWarp(seat: *Seat) void {
 }
 
 pub fn focus(seat: *Seat, new_focus: Focus) void {
+    if (server.window_switcher.seat == seat) {
+        const handle: ?u64 = if (new_focus == .window) @bitCast(new_focus.window.ref) else null;
+        if (handle != server.window_switcher.selected) server.window_switcher.dismiss();
+    }
     defer server.shell_manager.dirty();
     const target_surface = new_focus.surface();
 

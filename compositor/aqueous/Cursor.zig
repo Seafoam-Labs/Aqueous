@@ -453,7 +453,7 @@ pub fn warpForPolicy(cursor: *Cursor, x: i32, y: i32) void {
 /// Apply an application request only after validating its complete destination.
 /// This path must not unlock constraints or synthesize physical input.
 pub fn warpForClient(cursor: *Cursor, surface: *wlr.Surface, sx: f64, sy: f64) void {
-    if (server.lock_manager.state != .unlocked or server.aqueous.overview != null or
+    if (server.lock_manager.state != .unlocked or server.aqueous.overview != null or server.window_switcher.output != null or
         cursor.seat.op != null or cursor.seat.drag != .none or
         server.aqueous.interactiveDragActive() or
         cursor.seat.wlr_seat.drag != null or cursor.seat.wlr_seat.pointerHasGrab() or
@@ -839,6 +839,14 @@ pub fn processMotionAbsolute(cursor: *Cursor, event: *const Seat.Event.PointerMo
 }
 
 pub fn processButton(cursor: *Cursor, event: *const Seat.Event.PointerButton) void {
+    if (event.state == .pressed and server.window_switcher.output != null) {
+        const hit = server.scene.at(cursor.wlr_cursor.x, cursor.wlr_cursor.y);
+        const on_layer = if (hit) |h| h.data == .layer_surface else false;
+        if (!on_layer) {
+            server.window_switcher.dismiss();
+            cursor.updateState();
+        }
+    }
     // Physical input supersedes any cursor move deferred by keyboard focus.
     cursor.seat.cancelFocusWarp();
     if (event.state == .pressed) {

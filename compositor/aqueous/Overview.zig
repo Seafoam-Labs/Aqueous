@@ -28,6 +28,8 @@ output_id: ?u64 = null,
 backdrop: ?*wlr.SceneRect = null,
 entries: std.ArrayListUnmanaged(Entry) = .empty,
 progress: f64 = 1,
+deck: bool = false,
+reduced_motion: bool = false,
 hidden_windows: std.ArrayListUnmanaged(HiddenWindow) = .empty,
 hidden_layer_surfaces: std.ArrayListUnmanaged(HiddenLayerSurface) = .empty,
 
@@ -110,6 +112,8 @@ const Entry = struct {
     handle: layout.Handle,
     tree: *wlr.SceneTree,
     buffers: std.ArrayListUnmanaged(Window.OverviewBuffer) = .empty,
+    content: *wlr.SceneTree,
+    source_rect: layout.Rect,
     borders: Borders,
     icon: ?*wlr.SceneBuffer = null,
     icon_placeholder: ?*wlr.SceneRect = null,
@@ -178,7 +182,7 @@ const Entry = struct {
     }
 
     fn updateBuffers(entry: *Entry) void {
-        const source = entry.start_rect;
+        const source = entry.source_rect;
         const current = entry.current_rect;
         if (source.width <= 0 or source.height <= 0 or current.width <= 0 or current.height <= 0) {
             for (entry.buffers.items) |record| record.buffer.node.setEnabled(false);
@@ -254,8 +258,10 @@ pub fn show(
     output_box: wlr.Box,
     cards: []model.Card,
     selected: *layout.Handle,
+    deck: bool,
 ) !usize {
     overview.hide();
+    overview.deck = deck;
     errdefer overview.hide();
     try overview.entries.ensureTotalCapacity(util.gpa, cards.len);
 
@@ -284,6 +290,10 @@ pub fn show(
         const ref: Window.Ref = @bitCast(card.handle);
         const window = ref.get() orelse continue;
         const entry_tree = overview.tree.createSceneTree() catch return error.OutOfMemory;
+        const content = entry_tree.createSceneTree() catch {
+            entry_tree.node.destroy();
+            return error.OutOfMemory;
+        };
         var entry: Entry = .{
             .handle = card.handle,
             .tree = entry_tree,
@@ -291,13 +301,15 @@ pub fn show(
                 entry_tree.node.destroy();
                 return error.OutOfMemory;
             },
+            .content = content,
+            .source_rect = card.source,
             .start_rect = card.source,
             .target_rect = card.target,
             .current_rect = if (fx.anim_enabled) card.source else card.target,
             .clip_rect = output_rect,
             .icon_scale = output.current.scale,
         };
-        window.cloneOverviewInto(util.gpa, entry_tree, &entry.buffers) catch |err| {
+        window.cloneOverviewInto(util.gpa, entry.content, &entry.buffers) catch |err| {
             log.warn("skipping overview window {}: {}", .{ card.handle, err });
             entry.deinit();
             continue;
@@ -315,7 +327,7 @@ pub fn show(
     overview.output_id = output.policyId();
     overview.progress = if (fx.anim_enabled) 0 else 1;
     overview.setSelected(selected.*);
-    overview.tree.node.raiseToTop();
+    if (deck) overview.tree.node.placeBelow(&server.scene.layers.top.node) else overview.tree.node.raiseToTop();
     try overview.hideOutputScene(output);
     overview.tree.node.setEnabled(true);
     server.wm.dirtyWindowing();
@@ -354,6 +366,8 @@ pub fn hide(overview: *Overview) void {
     overview.backdrop = null;
     overview.output_id = null;
     overview.progress = 1;
+    overview.deck = false;
+    overview.reduced_motion = false;
     server.wm.dirtyWindowing();
 }
 
@@ -381,6 +395,7 @@ fn hideOutputScene(overview: *Overview, output: *Output) !void {
         }
     }
 
+    if (overview.deck) return; // Keep bar and non-keyboard HUD usable.
     const wlr_output = output.wlr_output orelse return error.OutputUnavailable;
     var layer_surfaces = server.layer_shell.surfaces.iterator();
     while (layer_surfaces.next()) |layer_surface| {
@@ -419,12 +434,12 @@ pub fn step(overview: *Overview, output: *Output, dt_s: f64) bool {
     if (comptime !fx.anim_enabled) return false;
     if (!overview.animatingOn(output.policyId()) or dt_s <= 0) return false;
     const t = 1.0 - @exp(-animation_rate * dt_s);
-    overview.progress += (1.0 - overview.progress) * t;
+    if (overview.deck) overview.progress = @min(1, overview.progress + dt_s / 0.240) else overview.progress += (1.0 - overview.progress) * t;
     if (1.0 - overview.progress < 0.002) overview.progress = 1;
 
-    for (overview.entries.items) |*entry| entry.update(overview.progress);
+    for (overview.entries.items) |*entry| entry.update(if (overview.deck) 1 - std.math.pow(f64, 1 - overview.progress, 3) else overview.progress);
     if (overview.backdrop) |backdrop| {
-        const color: [4]f32 = .{ 0, 0, 0, @floatCast(backdrop_opacity * @as(f32, @floatCast(overview.progress))) };
+        const color: [4]f32 = .{ 0, 0, 0, if (overview.deck) 0.42 else @floatCast(backdrop_opacity * @as(f32, @floatCast(overview.progress))) };
         backdrop.setColor(&color);
     }
     return true;
@@ -436,7 +451,7 @@ pub fn activeOn(overview: *const Overview, output_id: u64) bool {
 
 pub fn animatingOn(overview: *const Overview, output_id: u64) bool {
     if (comptime !fx.anim_enabled) return false;
-    return overview.activeOn(output_id) and overview.progress < 1;
+    return overview.activeOn(output_id) and overview.progress < 1 and !overview.reduced_motion;
 }
 
 pub fn active(overview: *const Overview) bool {
@@ -510,4 +525,66 @@ fn inverseTransform(transform: wl.Output.Transform) wl.Output.Transform {
         .@"270" => .@"90",
         else => transform,
     };
+}
+
+/// Rebuild only three live texture cards, preserving interpolated positions.
+pub fn showDeck(self: *Overview, output: *Output, cards: []model.Card, selected: layout.Handle, reduced: bool, reverse: bool) !void {
+    var old: [3]struct { handle: u64, rect: layout.Rect } = undefined;
+    var count: usize = 0;
+    if (self.deck and self.output_id == output.policyId()) for (self.entries.items) |entry| {
+        if (count == old.len) break;
+        old[count] = .{ .handle = entry.handle, .rect = entry.current_rect };
+        count += 1;
+    };
+    output.prepareOverview();
+    var chosen = selected;
+    const accepted = try self.show(output, output.policyFullBox(), cards, &chosen, true);
+    if (accepted == 0 or chosen != selected) {
+        self.hide();
+        return error.Unavailable;
+    }
+    self.reduced_motion = reduced or !fx.anim_enabled;
+    self.progress = if (self.reduced_motion) 1 else 0;
+    for (self.entries.items) |*entry| {
+        entry.start_rect = entry.target_rect;
+        // New front enters from the next slot on initial presentation.
+        if (entry.handle == selected) entry.start_rect.x += @divTrunc(output.policyFullBox().width, 6) * (if (reverse) @as(i32, -1) else 1);
+        for (old[0..count]) |prior| if (prior.handle == entry.handle) {
+            entry.start_rect = prior.rect;
+            break;
+        };
+        entry.update(self.progress);
+    }
+    // Back-to-front tree order; card zero is selected.
+    var i = self.entries.items.len;
+    while (i > 0) {
+        i -= 1;
+        self.entries.items[i].tree.node.raiseToTop();
+    }
+    for (self.entries.items) |entry| {
+        inline for (.{ "left", "right", "top", "bottom" }) |name| @field(entry.borders, name).setColor(&.{ 0.82, 0.74, 1, 1 });
+    }
+    if (self.backdrop) |backdrop| backdrop.setColor(&.{ 0, 0, 0, 0.42 });
+    if (output.wlr_output) |wlr_output| wlr_output.scheduleFrame();
+}
+pub fn refreshDeck(self: *Overview, window: *Window) void {
+    if (!self.deck) return;
+    for (self.entries.items) |*entry| {
+        if (entry.handle != @as(u64, @bitCast(window.ref))) continue;
+        const content = entry.tree.createSceneTree() catch return;
+        var records: std.ArrayListUnmanaged(Window.OverviewBuffer) = .empty;
+        window.cloneOverviewInto(util.gpa, content, &records) catch {
+            content.node.destroy();
+            records.deinit(util.gpa);
+            return;
+        };
+        entry.content.node.destroy();
+        entry.buffers.deinit(util.gpa);
+        entry.content = content;
+        entry.buffers = records;
+        entry.source_rect = server.aqueous.api.windowGeometry(entry.handle) orelse entry.source_rect;
+        entry.updateBuffers();
+        entry.borders.raiseToTop();
+        if (entry.icon) |icon| icon.node.raiseToTop();
+    }
 }

@@ -85,6 +85,7 @@ fn handleLock(listener: *wl.Listener(*wlr.SessionLockV1), lock: *wlr.SessionLock
 
     if (manager.state == .unlocked) {
         server.aqueous.cancelOverview();
+        server.window_switcher.dismiss();
         server.aqueous.cancelSnapPreview();
         server.system_bell.cancel();
         manager.state = .waiting_for_lock_surfaces;

@@ -282,6 +282,7 @@ fn handleDissociate(listener: *wl.Listener(void)) void {
 fn handleCommit(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
     const xwindow: *XwaylandWindow = @fieldParentPtr("commit", listener);
     const window = xwindow.window;
+    defer server.overview.refreshDeck(window);
     if (window.state == .mapped) {
         const surface = xwindow.xsurface.surface.?;
         if (surface.current.width > 0 and surface.current.height > 0) {

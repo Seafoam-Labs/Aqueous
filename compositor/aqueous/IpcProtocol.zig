@@ -90,7 +90,8 @@ pub fn command(a: std.mem.Allocator, params: std.json.ObjectMap) !Types.Command 
         .{ "keyboard.set", Types.Action.keyboard_set },             .{ "keyboard.next", Types.Action.keyboard_next },
         .{ "overview.show", Types.Action.overview_show },           .{ "overview.hide", Types.Action.overview_hide },
         .{ "overview.toggle", Types.Action.overview_toggle },       .{ "session.exit", Types.Action.session_exit },
-        .{ "session.reload", Types.Action.session_reload },
+        .{ "session.reload", Types.Action.session_reload },         .{ "switcher.next", Types.Action.switcher_next },
+        .{ "switcher.previous", Types.Action.switcher_previous },   .{ "switcher.dismiss", Types.Action.switcher_dismiss },
     };
     const selected: Types.Action = blk: {
         inline for (mappings) |mapping| if (std.mem.eql(u8, action, mapping[0])) break :blk mapping[1];
@@ -137,6 +138,16 @@ pub fn command(a: std.mem.Allocator, params: std.json.ObjectMap) !Types.Command 
                 const index = fields.get("index") orelse return error.Invalid;
                 if (index != .integer or index.integer < 0 or index.integer > std.math.maxInt(u32)) return error.Invalid;
                 cmd.value = try std.fmt.allocPrint(a, "{d}", .{index.integer});
+            }
+        },
+        .switcher_next, .switcher_previous, .switcher_dismiss => {
+            try only(fields, &.{ "output", "workspace", "seat", "reduced_motion" });
+            cmd.value = try string(fields, "output");
+            cmd.target = try string(fields, "workspace");
+            cmd.seat = try optionalString(fields, "seat");
+            if (fields.get("reduced_motion")) |v| {
+                if (v != .bool) return error.Invalid;
+                cmd.reduced_motion = v.bool;
             }
         },
         .overview_show, .overview_toggle => {
@@ -220,4 +231,23 @@ test "icon query rejects invalid revisions, oversized requests and ambiguous fie
     const request = try iconRequest(parsed.value.object);
     try std.testing.expectEqual(@as(u32, 2), request.scale);
     try std.testing.expectEqual(@as(u64, 123), request.revision);
+}
+
+test "switcher commands retain scope seat and motion across queue cloning" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const good = try std.json.parseFromSliceLeaky(std.json.Value, a,
+        \\{"action":"switcher.previous","fields":{"output":"2","workspace":"3","seat":"default","reduced_motion":true}}
+    , .{});
+    const cmd = try command(a, good.object);
+    const owned = try cmd.clone(std.testing.allocator);
+    defer owned.deinit(std.testing.allocator);
+    try std.testing.expectEqual(Types.Action.switcher_previous, owned.action);
+    try std.testing.expectEqualStrings("3", owned.target);
+    try std.testing.expectEqualStrings("2", owned.value);
+    try std.testing.expectEqualStrings("default", owned.seat);
+    try std.testing.expect(owned.reduced_motion and owned.output_by_id);
+    _ = good.object.getPtr("fields").?.object.swapRemove("workspace");
+    try std.testing.expectError(error.Invalid, command(a, good.object));
 }

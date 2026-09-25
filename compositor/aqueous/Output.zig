@@ -2220,6 +2220,14 @@ fn handleFrame(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) voi
         return;
     }
     output.scene_output.?.sendFrameDone(&now);
+    // Clones carry textures rather than scene-surface frame callbacks. Keep only
+    // the three presented clients live, without an idle thumbnail polling loop.
+    if (server.overview.deck and server.overview.activeOn(output.policyId())) {
+        for (server.overview.entries.items) |entry| {
+            const ref: Window.Ref = @bitCast(entry.handle);
+            if (ref.get()) |window| if (window.state == .mapped) window.sendFrameDone();
+        }
+    }
 
     // renderAndCommit early-returns when the scene reports no pending changes, so
     // re-arm the frame loop ourselves while any window on this output is still

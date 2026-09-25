@@ -294,3 +294,45 @@ false for compatibility. Opting in includes the `unmanaged_window` entities
 described in [the shell contract](aqueous-shell-v1.md). Their IDs are separate
 from managed window command targets. An omitted parameter on a subsequent
 snapshot restores the managed-only selection.
+
+## Workspace switcher extension
+
+Optional hello capability `workspace_switcher_v1` advertises a compositor-owned,
+immediate-focus workspace switcher. This is an additive IPC v1 extension.
+
+| Command | Fields |
+| --- | --- |
+| `switcher.next` | `output`, `workspace`, optional `seat`, optional boolean `reduced_motion` |
+| `switcher.previous` | Same as next |
+| `switcher.dismiss` | Same scope fields; motion is ignored |
+
+Output and workspace are opaque snapshot IDs. The workspace must still be active
+on that output at execution. A missing seat is accepted only for an unambiguous
+seat. Commands never move windows or activate another workspace. Empty and
+single-window scopes are successful no-ops. Normal status/sequence/request-ID
+receipts apply; successful replies also include `switcher_window` (nullable),
+`switcher_position`, `switcher_total`, and `switcher_serial`. The state stream
+publishes the same fields plus nullable `switcher_output` on the session entity.
+Position is one-based while visible and zero when dismissed. Serial increments
+once per accepted step through a multi-window ring. Committed state and ordinary
+seat/window focus remain authoritative; request write completion is not focus.
+
+A workspace ring retains its order across focus changes and presentation expiry.
+It excludes minimized, `skip_switcher`, non-activatable and modal-blocked parent
+windows; optional window metadata `switcher_eligible` publishes that eligibility.
+New members append and removed/moved/excluded members leave. Three scene cards
+are sufficient regardless of ring size. Actual client geometry is unchanged.
+
+Presentation expires after 1500 ms without a step. Escape dismisses and is
+consumed; other ordinary key presses dismiss and continue to the focused client.
+Pointer input restores ordinary presentation before delivery except for layer
+surfaces, which remain usable above the stack. Lock, output/seat destruction,
+workspace change, unrelated focus change and destruction of a displayed window
+also dismiss. The initiating command connection owns IPC-started presentation;
+its disconnection clears the scene. Native bindings have compositor ownership.
+
+The native actions `window_switcher_next`, `window_switcher_previous` and
+`window_switcher_dismiss` are initially unbound, preserving existing shortcuts.
+IPC clients can request reduced motion per step. Native bindings use the
+compositor's animation build setting. This extension does not introduce new
+Wayland shell command enumeration values.

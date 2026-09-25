@@ -615,6 +615,123 @@
                 "fields"
               ],
               "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "switcher.next"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "output": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    },
+                    "workspace": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "seat": {
+                      "type": "string"
+                    },
+                    "reduced_motion": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "output",
+                    "workspace"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "switcher.previous"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "output": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    },
+                    "workspace": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "seat": {
+                      "type": "string"
+                    },
+                    "reduced_motion": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "output",
+                    "workspace"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "const": "switcher.dismiss"
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "output": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    },
+                    "workspace": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "seat": {
+                      "type": "string"
+                    },
+                    "reduced_motion": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "output",
+                    "workspace"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "action",
+                "fields"
+              ],
+              "additionalProperties": false
             }
           ]
         },
@@ -685,6 +802,9 @@
                       "type": "boolean"
                     },
                     "shortcut_inhibition": {
+                      "type": "boolean"
+                    },
+                    "workspace_switcher_v1": {
                       "type": "boolean"
                     }
                   },
