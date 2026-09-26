@@ -166,7 +166,8 @@ The global default is `[scaling].buffer_policy = "native"` in `wm.toml`.
 does not automatically enable it for Chromium, Electron, GTK, VSCodium, or
 Shelly. Existing popups follow their owning window when the policy or output
 scale changes, and newly created popups receive the preference before their
-first configure.
+first configure. `scripts/aqueous-scalebench.py` measures the live-session
+cost of the global policy against `native`.
 
 ### Window purpose tags
 

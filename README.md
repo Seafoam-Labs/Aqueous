@@ -151,7 +151,10 @@ buffer_scale_policy = "integer-ceil"
 
 This compatibility mode increases the client's pixel count and GPU/memory
 cost. Aqueous ships no application-specific opt-ins; use `aqueousctl inspect
---rule` to obtain the exact, case-sensitive app ID before adding one.
+--rule` to obtain the exact, case-sensitive app ID before adding one. On a
+live session, [scripts/aqueous-scalebench.py](scripts/aqueous-scalebench.py)
+A/B-measures the cost of the global policy: mpv render wall time, Qt Quick
+GPU load via MangoHud, and battery power while discharging.
 
 See the [layout guide](docs/layout.md), [rules reference](docs/rules.md), and
 [compositor interaction guide](docs/compositor-interactions.md) for the full
