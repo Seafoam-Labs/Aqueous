@@ -48,6 +48,7 @@ pkgbase = aqueous-desktop
 	makedepends = scdoc
 	makedepends = wayland-protocols>=1.49
 	makedepends = pkgconf
+	makedepends = xorg-xwayland
 	makedepends = meson
 	makedepends = ninja
 	makedepends = glslang

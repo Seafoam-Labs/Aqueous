@@ -13,7 +13,7 @@ arch=('x86_64' 'aarch64')
 url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL-3.0-only' 'MIT')
 makedepends=('jq' 'gtk4' 'freetype2' 'wayland' 'libxkbcommon' 'libinput' 'pixman' 'libpng' 'libdrm' 'libevdev' 'libdecor' 'libinih' 'pipewire' 'mesa' 'systemd-libs' 'seatd' 'libdisplay-info' 'libliftoff' 'lcms2' 'vulkan-icd-loader' 'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil' 'python' 'shaderc' 'clang' 'lld' 'llvm'
-             'git' 'curl' 'patch' 'scdoc' 'wayland-protocols>=1.49' 'pkgconf'
+             'git' 'curl' 'patch' 'scdoc' 'wayland-protocols>=1.49' 'pkgconf' 'xorg-xwayland'
              'meson' 'ninja' 'glslang' 'vulkan-headers' 'hwdata' 'zig>=0.16')
 # Helper integration checks exercise org.gnome.desktop.interface via gsettings.
 checkdepends=('libarchive' 'jq' 'python' 'ripgrep' 'qt6-declarative' 'gsettings-desktop-schemas')
