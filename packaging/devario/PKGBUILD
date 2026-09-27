@@ -1,0 +1,24 @@
+# Maintainer: Devario maintainers
+pkgname=devario-desktop
+pkgver=0.9.1
+pkgrel=1
+pkgdesc='Devario desktop with stable Aqueous and Pearl'
+arch=('any')
+url='https://github.com/Seafoam-Labs/Aqueous'
+license=('GPL-3.0-only')
+# Publish the stable component packages in the build/install repository first.
+# The Pearl preset supplies its integration service and the stable Pearl shell.
+depends=("aqueous-core=$pkgver-1"
+         "aqueous-session=$pkgver-1"
+         "xdg-desktop-portal-aqueous=$pkgver-1"
+         "aqueous-integration-pearl=$pkgver-1"
+         "aqueous-shell-pearl=$pkgver-1"
+         'pearl')
+conflicts=('aqueous-desktop' 'devario-aqueous-desktop')
+backup=('etc/xdg/aqueous/session.toml')
+source=('session.toml')
+sha256sums=('2cecdd6b68deaedc81997669b26ddfb705c458c8de9d8fdd465aaae35eba845b')
+
+package() {
+    install -Dm644 "$srcdir/session.toml" "$pkgdir/etc/xdg/aqueous/session.toml"
+}

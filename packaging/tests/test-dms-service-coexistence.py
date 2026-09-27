@@ -13,7 +13,7 @@ repo = Path(__file__).resolve().parents[2]
 with tempfile.TemporaryDirectory(prefix="aqueous-dms-units-") as directory:
     base = Path(directory)
     env = dict(os.environ, AQUEOUS_PORTAL_CHOOSER_BINARY="/usr/bin/true",
-               AQUEOUS_WELCOME_BINARY="/usr/bin/true", PREFIX="/usr", SYSCONFDIR="/etc")
+               AQUEOUS_WELCOME_BINARY="/usr/bin/true", AQUEOUS_PICKER_BINARY="/usr/bin/true", PREFIX="/usr", SYSCONFDIR="/etc")
     sources = []
     for channel in ("git", "intel-git"):
         stage = base / channel

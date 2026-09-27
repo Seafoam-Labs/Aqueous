@@ -27,6 +27,24 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addOptions("build_options", options);
     b.installArtifact(exe);
 
+    // Shared GTK dependencies, independent executable and runtime package.
+    const picker = b.addExecutable(.{
+        .name = "aqueous-portal-picker",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/portal_picker.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+    });
+    inline for (.{ "gtk4", "gdk4", "glib2", "gio2", "gobject2" }) |name|
+        picker.root_module.addImport(name, gobject.module(name));
+    picker.root_module.linkSystemLibrary("gtk4", .{});
+    picker.root_module.addOptions("build_options", options);
+    const install_picker = b.addInstallArtifact(picker, .{});
+    b.getInstallStep().dependOn(&install_picker.step);
+    b.step("picker", "Build and install only the standalone portal picker").dependOn(&install_picker.step);
+
     const run = b.addRunArtifact(exe);
     run.step.dependOn(b.getInstallStep());
     if (b.args) |args| run.addArgs(args);

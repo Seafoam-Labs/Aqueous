@@ -105,6 +105,7 @@ let
     dontInstall = true;
   };
   portal = stage "portal" ''
+    export AQUEOUS_PICKER_BINARY=${welcomeBuild}/bin/aqueous-portal-picker
     export AQUEOUS_PORTAL_BINARY=${portalBuild}/usr/lib/aqueous/xdg-desktop-portal-aqueous
     export AQUEOUS_PORTAL_LICENSE=${portalBuild}/LICENSE
   '';

@@ -82,6 +82,7 @@
     },
     "portal": {
       "owns": [
+        "usr/bin/aqueous-portal-picker",
         "usr/lib/aqueous/xdg-desktop-portal-aqueous",
         "usr/lib/systemd/user/xdg-desktop-portal-aqueous.service",
         "usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.aqueous.service",
@@ -89,6 +90,7 @@
         "usr/share/licenses/xdg-desktop-portal-aqueous/LICENSE"
       ],
       "required": [
+        "usr/bin/aqueous-portal-picker",
         "usr/lib/aqueous/xdg-desktop-portal-aqueous",
         "usr/share/xdg-desktop-portal/portals/aqueous.portal"
       ],

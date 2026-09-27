@@ -315,6 +315,7 @@ install_into() {
         AQUEOUS_COMPOSITOR_DIST="$dist/aqueous-dist" \
         AQUEOUS_CONFIG_BINARY="$dist/aqueous-config-dist/bin/aqueous-config" \
         AQUEOUS_WELCOME_BINARY="$dist/aqueous-welcome-dist/bin/aqueous-welcome" \
+        AQUEOUS_PICKER_BINARY="$dist/aqueous-welcome-dist/bin/aqueous-portal-picker" \
         AQUEOUS_PORTAL_BINARY="$dist/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" \
         AQUEOUS_PORTAL_LICENSE="$dist/aqueous-portal-dist/usr/share/licenses/aqueous/xdg-desktop-portal-wlr/LICENSE" \
         AQUEOUS_PORTAL_CHOOSER_BINARY="$dist/aqueous-portal-chooser-dist/bin/aqueous-dms-portal-chooser" \

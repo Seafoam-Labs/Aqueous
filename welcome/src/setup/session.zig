@@ -204,7 +204,7 @@ pub fn action(ctx: *Context, name: []const u8) !void {
     if (eq(u8, name, "chooser")) {
         if (eq(u8, shell, "dms") and instance.suffix.len == 0) return exec(ctx, &.{try ctx.path(&.{ std.fs.path.dirname(std.fs.path.dirname(ctx.executable).?).?, "lib/aqueous/aqueous-dms-portal-chooser" })});
         if (eq(u8, shell, "noctalia")) return exec(ctx, &.{ "noctalia", "dmenu", "-p", "Select a source to share:" });
-        return exec(ctx, &.{ ctx.executable, "--choose" });
+        return exec(ctx, &.{"aqueous-portal-picker" ++ instance.suffix});
     }
     const lock = eq(u8, name, "lock");
     if (!lock and !eq(u8, name, "launcher")) return ctx.fail("Unknown action: {s}", .{name});

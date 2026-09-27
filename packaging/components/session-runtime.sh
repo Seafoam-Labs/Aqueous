@@ -109,7 +109,7 @@ action() {
             case $shell in
                 dms) exec "${AQUEOUS_DMS_CHOOSER:-$(dirname -- "${BASH_SOURCE[0]}")/aqueous-dms-portal-chooser}";;
                 noctalia) exec noctalia dmenu -p 'Select a source to share:';;
-                *) exec aqueous-welcome --choose;;
+                *) exec aqueous-portal-picker;;
             esac;;
     esac
     case $shell:$1 in

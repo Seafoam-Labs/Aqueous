@@ -64,6 +64,7 @@ pkgname = aqueous-welcome-git
 
 pkgname = xdg-desktop-portal-aqueous-git
 	pkgdesc = Aqueous Git screen capture portal
+	depends = gtk4
 	depends = libinih
 	depends = pipewire
 	depends = wayland

@@ -6,7 +6,7 @@ work=pathlib.Path(tempfile.mkdtemp(prefix='aqueous-welcome-smoke-'))
 print('Isolated artifacts:',work,flush=True)
 for name in ('run','home','config','state','cache'):(work/name).mkdir(mode=0o700)
 (work/'wm.toml').write_text('[layout]\ndefault="tile"\n')
-env=dict(os.environ, HOME=str(work/'home'), XDG_CONFIG_HOME=str(work/'config'), XDG_STATE_HOME=str(work/'state'), XDG_RUNTIME_DIR=str(work/'run'), XDG_CACHE_HOME=str(work/'cache'), XDG_CURRENT_DESKTOP='Aqueous',XDG_SESSION_TYPE='wayland', WLR_BACKENDS='headless',WLR_HEADLESS_OUTPUTS='1',WLR_RENDERER='pixman', LIBGL_ALWAYS_SOFTWARE='1', AQUEOUS_CONFIG=str(work/'wm.toml'),AQUEOUS_WELCOME_TEST_CLOSE_MS='1800', GSK_RENDERER='cairo',GTK_A11Y='none',GTK_USE_PORTAL='0', AQUEOUS_WELCOME_TEST_CHOOSE_INDEX='1')
+env=dict(os.environ, HOME=str(work/'home'), XDG_CONFIG_HOME=str(work/'config'), XDG_STATE_HOME=str(work/'state'), XDG_RUNTIME_DIR=str(work/'run'), XDG_CACHE_HOME=str(work/'cache'), XDG_CURRENT_DESKTOP='Aqueous',XDG_SESSION_TYPE='wayland', WLR_BACKENDS='headless',WLR_HEADLESS_OUTPUTS='1',WLR_RENDERER='pixman', LIBGL_ALWAYS_SOFTWARE='1', AQUEOUS_CONFIG=str(work/'wm.toml'),AQUEOUS_WELCOME_TEST_CLOSE_MS='1800', GSK_RENDERER='cairo',GTK_A11Y='none',GTK_USE_PORTAL='0')
 for name in ('DISPLAY','WAYLAND_DISPLAY','LD_PRELOAD','AQUEOUS_SOCKET','DBUS_SESSION_BUS_ADDRESS'):env.pop(name,None)
 for name in ('INPUT','LAYOUT','OUTPUTS','RULES'):env['AQUEOUS_'+name]=str(work/('missing-'+name))
 fixtures=work/'bin';fixtures.mkdir()
@@ -94,7 +94,7 @@ try:
    if time.monotonic()>until:raise RuntimeError('compositor start timeout')
    time.sleep(.05)
   if not broadway:env['WAYLAND_DISPLAY']=next(p.name for p in (work/'run').glob('wayland-*') if not p.name.endswith('.lock'))
-  for args,source in [([],None),(['--choose'],'Monitor: HEADLESS-1\nWindow: Test\n')]:
+  for args,source in [([],None)]:
    proc=subprocess.Popen([str(welcome),*args],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
    processes.append(proc)
    if source:
@@ -108,7 +108,6 @@ try:
    result=subprocess.CompletedProcess(proc.args,proc.returncode,out,err)
    print('MODE',args,'EXIT',result.returncode,'STDOUT',result.stdout,'STDERR',result.stderr)
    assert result.returncode==0
-   if args:assert result.stdout=='Window: Test\n'
   env.pop('AQUEOUS_WELCOME_TEST_CLOSE_MS',None)
   env['AQUEOUS_WELCOME_TEST_ACTIVATE']='1'
   for shell in ('pearl','dms','noctalia','none'):

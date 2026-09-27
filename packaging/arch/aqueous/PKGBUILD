@@ -1,8 +1,8 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
 # Minimal stable compositor for consumers such as pearl-greeter.
 pkgname=aqueous
-pkgver=0.8.0
-pkgrel=3
+pkgver=0.9.0
+pkgrel=1
 pkgdesc='Aqueous Wayland compositor (stable, compositor only)'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Seafoam-Labs/Aqueous'

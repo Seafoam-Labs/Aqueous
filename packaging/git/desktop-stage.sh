@@ -25,7 +25,7 @@ copy() { install -Dm"${3:-644}" -- "$1" "$destination$2"; }
 transform() {
     sed -E -e 's/aqueous/@INSTANCE@/g' -e 's/Aqueous/@DESKTOP@/g' \
         -e "s/org\.@INSTANCE@\.Welcome/$app/g" \
-        -e "s/@INSTANCE@-(init|wm|welcome|shell-action)\b/aqueous-\1-$channel/g" \
+        -e "s/@INSTANCE@-(init|wm|welcome|shell-action|portal-picker)\b/aqueous-\1-$channel/g" \
         -e "s/@INSTANCE@ctl/aqueousctl-$channel/g" \
         -e "s/@INSTANCE@/$instance/g" -e "s/@DESKTOP@/$desktop/g" \
         -e "/^#!/!s|/usr/|$prefix/|g" -e "s|/etc/|$sysconf/|g" \
@@ -46,7 +46,7 @@ session)
     done < <(find "$work/session" -type f -print0 | sort -z)
     # Each Git session uses the native picker for DMS/Pearl/None. Avoid global
     # DMS plugin discovery paths owned by the stable and legacy integrations.
-    sed -i -E 's@dms\) exec .*;;@dms) exec aqueous-welcome-'"$channel"' --choose;;@' "$destination$private/session-runtime.sh"
+    sed -i -E 's@dms\) exec .*;;@dms) exec aqueous-portal-picker-'"$channel"';;@' "$destination$private/session-runtime.sh"
     # Git Pearl ships suffixed binaries; retain "pearl" as the selection ID.
     sed -i -e 's/^pearl_binary=pearl$/pearl_binary=pearl-git/' \
         -e 's/^pearl_control=pearlctl$/pearl_control=pearlctl-git/' "$destination$private/session-runtime.sh"
@@ -76,6 +76,9 @@ EOF
     transform < "$root/packaging/aqueous-welcome-autostart.desktop" | write "$sysconf/xdg/autostart/$app.desktop"
     ;;
 portal)
+    picker_build=${AQUEOUS_WELCOME_DIST:?Set AQUEOUS_WELCOME_DIST}
+    jq -e --arg instance "$instance" '. == {schema:1,instance:$instance,test_hooks:false}' "$picker_build/share/aqueous/build-instance.json" >/dev/null || aq_die 'Wrong picker build identity or test hooks enabled'
+    copy "$picker_build/bin/aqueous-portal-picker" "$prefix/bin/aqueous-portal-picker-$channel" 755
     build=${AQUEOUS_PORTAL_DIST:?Set AQUEOUS_PORTAL_DIST}
     jq -e --arg instance "$instance" '. == {schema:1,instance:$instance}' "$build/build-instance.json" >/dev/null || aq_die 'Wrong portal build identity'
     copy "$build/xdg-desktop-portal-$instance" "$private/xdg-desktop-portal-$instance" 755

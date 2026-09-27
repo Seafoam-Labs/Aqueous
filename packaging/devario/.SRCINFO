@@ -1,0 +1,20 @@
+pkgbase = devario-desktop
+	pkgdesc = Devario desktop with stable Aqueous and Pearl
+	pkgver = 0.9.1
+	pkgrel = 1
+	url = https://github.com/Seafoam-Labs/Aqueous
+	arch = any
+	license = GPL-3.0-only
+	depends = aqueous-core=0.9.1-1
+	depends = aqueous-session=0.9.1-1
+	depends = xdg-desktop-portal-aqueous=0.9.1-1
+	depends = aqueous-integration-pearl=0.9.1-1
+	depends = aqueous-shell-pearl=0.9.1-1
+	depends = pearl
+	conflicts = aqueous-desktop
+	conflicts = devario-aqueous-desktop
+	backup = etc/xdg/aqueous/session.toml
+	source = session.toml
+	sha256sums = 2cecdd6b68deaedc81997669b26ddfb705c458c8de9d8fdd465aaae35eba845b
+
+pkgname = devario-desktop

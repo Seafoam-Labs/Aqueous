@@ -1,9 +1,10 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
-# Component archives are introduced by the next release; do not reuse old bundles.
+# Release template: publish v0.9.1 component archives before using this recipe.
+# packaging/release-components.sh supplies the archive and checksum-pinned recipe.
 pkgbase=aqueous-bin
 pkgname=(aqueous-core-bin aqueous-session-bin aqueous-welcome-bin xdg-desktop-portal-aqueous-bin aqueous-integration-dms-bin aqueous-integration-noctalia-bin aqueous-integration-pearl-bin aqueous-shell-dms-bin aqueous-shell-noctalia-bin aqueous-shell-pearl-bin aqueous-bin)
-pkgver=0.7.0
-pkgrel=3
+pkgver=0.9.1
+pkgrel=1
 # Keep tested binary/library bytes and component manifests stable.
 options=('!strip' '!debug' '!zipman')
 pkgdesc="Aqueous component packages (prebuilt release)"
@@ -56,7 +57,7 @@ package_aqueous-welcome-bin() {
 
 package_xdg-desktop-portal-aqueous-bin() {
     pkgdesc="Aqueous portal (prebuilt)"
-    depends=("libinih" "pipewire" "wayland" "systemd-libs" "xdg-desktop-portal")
+    depends=("gtk4" "libinih" "pipewire" "wayland" "systemd-libs" "xdg-desktop-portal")
     conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'xdg-desktop-portal-aqueous' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
     provides=("xdg-desktop-portal-aqueous=$pkgver-$pkgrel")
     _stage_component portal

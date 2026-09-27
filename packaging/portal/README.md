@@ -21,7 +21,8 @@ the remaining portal interfaces.
 Arch packages use `aqueous-shell-action chooser`, which follows the active
 session selected in Welcome to Aqueous. DMS uses the existing Zig bridge and
 `aqueousPortal` plugin; Noctalia uses `noctalia dmenu`. Pearl and Nothing use
-`aqueous-welcome --choose`, a standalone GTK picker. All use `chooser_type=dmenu`
+`aqueous-portal-picker`, a standalone GTK picker shipped by the portal package.
+It reads the source list from stdin and has no Welcome/setup dependency. All use `chooser_type=dmenu`
 and return the selected original source line, with no output on cancellation.
 
 Installing another shell does not change an active session. Welcome writes the

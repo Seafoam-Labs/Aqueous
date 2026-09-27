@@ -2,13 +2,14 @@
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
 pkgname=(aqueous-core aqueous-session aqueous-welcome xdg-desktop-portal-aqueous
          aqueous-integration-dms aqueous-integration-noctalia aqueous-integration-pearl
-         aqueous-shell-dms aqueous-shell-noctalia aqueous-shell-pearl aqueous)
-pkgbase=aqueous
+         aqueous-shell-dms aqueous-shell-noctalia aqueous-shell-pearl aqueous-desktop)
+pkgbase=aqueous-desktop
+# Publish v0.9.1 with the corrected packaging test before building this recipe.
 pkgver=0.9.1
 pkgrel=1
 # Keep tested binary/library bytes and component manifests stable.
 options=('!strip' '!debug' '!zipman')
-pkgdesc="Aqueous single-process Wayland compositor"
+pkgdesc="Complete stable Aqueous desktop (shell selected through welcome)"
 arch=('x86_64' 'aarch64')
 url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL-3.0-only' 'MIT')
@@ -19,11 +20,13 @@ makedepends=('jq' 'gtk4' 'freetype2' 'wayland' 'libxkbcommon' 'libinput' 'pixman
 checkdepends=('libarchive' 'jq' 'python' 'ripgrep' 'qt6-declarative' 'gsettings-desktop-schemas')
 source=(
     "aqueous::git+${url}.git#tag=v${pkgver}"
+    "aqueous-desktop.install"
     "wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz"
     "xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz"
 )
 sha256sums=(
     'SKIP'
+    'b0bb05159be3b3a75dc2b8a38fadfb35a4145cd99ae8c40ecd53e3939eeb6eae'
     '972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343'
     '3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400'
 )
@@ -121,6 +124,7 @@ check() {
     # install tree before package() copies it into the package image.
     local required=(
         bin/aqueous
+        bin/aqueous-activity-launch
         bin/aqueousctl
         lib/aqueous/libwlroots-0.20.so
         share/man/man1/aqueousctl.1
@@ -175,7 +179,9 @@ package_aqueous-core() {
     # core is the only split that stages compositor/LICENSES/*, which holds four texts.
     license=('GPL-3.0-only' 'MIT' '0BSD' 'CC-BY-SA-4.0')
     depends=("freetype2" "wayland" "libxkbcommon" "libinput" "pixman" "libpng" "libdrm" "libevdev" "libdecor" "xorg-xwayland" "pipewire" "glib2" "fontconfig" "mesa" "systemd-libs" "seatd" "libdisplay-info" "libliftoff" "lcms2" "vulkan-icd-loader" "libxcb" "xcb-util-errors" "xcb-util-wm" "xcb-util-renderutil" "brightnessctl" "playerctl")
-    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-core-bin' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    # Owns the same compositor files as the minimal stable aqueous package.
+    provides=("aqueous=$pkgver")
+    conflicts=('aqueous' 'aqueous-bin' 'aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-core-bin')
     _stage_component core
 }
 
@@ -243,10 +249,10 @@ package_aqueous-shell-pearl() {
     : # Dependency-only preset.
 }
 
-package_aqueous() {
-    pkgdesc="Aqueous aqueous"
+package_aqueous-desktop() {
+    pkgdesc="Complete stable Aqueous desktop (shell selected through welcome)"
     depends=("aqueous-core=$pkgver-$pkgrel" "aqueous-session=$pkgver-$pkgrel" "aqueous-welcome=$pkgver-$pkgrel" "xdg-desktop-portal-aqueous=$pkgver-$pkgrel" "aqueous-integration-dms=$pkgver-$pkgrel" "aqueous-integration-noctalia=$pkgver-$pkgrel" "aqueous-integration-pearl=$pkgver-$pkgrel")
     conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-bin')
-    install=aqueous.install
+    install=aqueous-desktop.install
     : # Dependency-only preset.
 }

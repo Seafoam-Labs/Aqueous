@@ -40,7 +40,7 @@ symlink targets. Composition rejects overlapping files and mismatched cohorts.
 | Core | Native graphics/input/seat libraries used by the compositor and private wlroots; XWayland; PipeWire; Fontconfig and GLib for helper observations/toolkit support |
 | Session | Bash, jq, coreutils, UWSM, systemd, D-Bus, terminal and screenshot/clipboard commands used by shipped defaults |
 | Welcome | Session runtime, GTK4, Shelly and sudo for explicitly reviewed setup |
-| Portal | Wayland, PipeWire, inih, systemd and the portal framework; transitive native GBM/DRM libraries |
+| Portal | GTK4 for its standalone source picker; Wayland, PipeWire, inih, systemd and the portal framework; transitive native GBM/DRM libraries |
 | DMS integration | Session and portal; libc chooser executable, QML bridges and DMS discovery links |
 | Noctalia/Pearl integration | Session; conditional units and shell-specific defaults |
 
@@ -58,9 +58,9 @@ Legacy seat integration is unchanged. Hardware login acceptance remains separate
 Session owns `session-runtime.sh`; welcome runs setup in a native worker process and delegates selection to the shell runtime when installed. Removing
 welcome leaves selection, conditions and shell actions available. A missing shell
 or adapter causes a shell-free runtime snapshot and a diagnostic without rewriting
-`session.toml` or selecting another installed shell. The optional welcome UI can
-provide recovery and a generic portal picker; without it, those UI actions report
-that their executable is unavailable. DMS and Noctalia retain their own pickers.
+`session.toml` or selecting another installed shell. The optional welcome UI provides setup and recovery. The portal package owns
+the standalone `aqueous-portal-picker`, so Pearl screen-sharing selection works
+without Welcome. DMS and Noctalia retain their own pickers.
 
 ## Staging and verification
 

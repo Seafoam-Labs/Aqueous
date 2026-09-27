@@ -10,7 +10,7 @@ reject() { if "$@" > "$base/rejected.log" 2>&1; then fail "Unexpected success: $
 assert_no() { [[ ! -e $1 && ! -L $1 ]] || fail "Unexpected path: $1"; }
 artifacts=$root/packaging/component-artifacts.sh
 build=$base/build
-for path in bin/aqueous bin/aqueous-activity-launch bin/aqueousctl bin/aqueous-config bin/aqueous-welcome bin/aqueous-dms-portal-chooser \
+for path in bin/aqueous bin/aqueous-activity-launch bin/aqueousctl bin/aqueous-config bin/aqueous-welcome bin/aqueous-portal-picker bin/aqueous-dms-portal-chooser \
     lib/aqueous/libwlroots-0.20.so share/man/man1/aqueous.1 share/man/man1/aqueousctl.1 \
     share/aqueous-protocols/experimental/aqueous-capture-color-v1.xml share/pkgconfig/aqueous-protocols.pc; do
     install -d "$build/$(dirname "$path")"
@@ -20,6 +20,7 @@ done
 install -d "$build/share/aqueous"
 printf '%s\n' '{"schema":1,"output_retry_testing":false,"display_preview_acceptance":false}' > "$build/share/aqueous/build-policy.json"
 export AQUEOUS_COMPOSITOR_DIST=$build AQUEOUS_CONFIG_BINARY=$build/bin/aqueous-config
+export AQUEOUS_PICKER_BINARY=$build/bin/aqueous-portal-picker
 export AQUEOUS_WELCOME_BINARY=$build/bin/aqueous-welcome AQUEOUS_PORTAL_BINARY=$build/bin/aqueous
 export AQUEOUS_PORTAL_LICENSE=$build/bin/aqueous AQUEOUS_PORTAL_CHOOSER_BINARY=$build/bin/aqueous-dms-portal-chooser
 printf '%s\n' '{"revision":"fixture","version":"test","architecture":"x86_64","variant":"fixture"}' > "$base/cohort.json"
@@ -102,6 +103,18 @@ reject "$runtime" selection
 assert_no "$base/executed"
 printf " # comment\nversion = 1\nshell = 'none' # comment\n" > "$XDG_CONFIG_HOME/aqueous/session.toml"
 [[ $("$runtime" selection) == none ]]
+# Pearl screen-sharing routing works without the Welcome executable.
+mkdir -p "$base/picker-config/aqueous" "$base/picker-run"
+printf 'version=1\nshell="pearl"\n' > "$base/picker-config/aqueous/session.toml"
+printf '#!/bin/sh\ncat\n' > "$base/spies/aqueous-portal-picker"
+printf '#!/bin/sh\nexit 97\n' > "$base/spies/aqueous-welcome"
+chmod +x "$base/spies/aqueous-portal-picker" "$base/spies/aqueous-welcome"
+printf 'Monitor: fixture\n' | XDG_CONFIG_HOME="$base/picker-config" XDG_RUNTIME_DIR="$base/picker-run" \
+    "$runtime" action chooser > "$base/picker-selected"
+grep -qx 'Monitor: fixture' "$base/picker-selected"
+assert_no "$base/portal/usr/bin/aqueous-welcome"
+[[ -x $base/portal/usr/bin/aqueous-portal-picker ]]
+
 # Safe archive extraction cannot write through an archive-owned symlink.
 mkdir "$base/archive" "$base/archive-escape"
 ln -s "$base/archive-escape" "$base/archive/usr"

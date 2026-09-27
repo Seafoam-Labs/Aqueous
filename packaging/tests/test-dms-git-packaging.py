@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 
 
 repo = Path(__file__).resolve().parents[2]
-variants = ("PKGBUILD",)
+variants = ("PKGBUILD", "packaging/arch/aqueous-desktop/PKGBUILD")
 
 with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
     work = Path(temporary)
@@ -21,6 +21,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
     # package() only copies these artifacts; building them is a separate check.
     for name in (
         "aqueous-dist/bin/aqueous",
+        "aqueous-dist/bin/aqueous-activity-launch",
         "aqueous-dist/bin/aqueousctl",
         "aqueous-dist/lib/aqueous/libwlroots-0.20.so",
         "aqueous-dist/share/man/man1/aqueous.1",
@@ -29,6 +30,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         "aqueous-dist/share/pkgconfig/aqueous-protocols.pc",
         "aqueous-config-dist/bin/aqueous-config",
         "aqueous-welcome-dist/bin/aqueous-welcome",
+        "aqueous-welcome-dist/bin/aqueous-portal-picker",
         "aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous",
         "aqueous-portal-chooser-dist/bin/aqueous-dms-portal-chooser",
         "xdg-desktop-portal-wlr-0.8.4/LICENSE",
@@ -77,6 +79,8 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         assert not (stage / "usr/bin/aqueous-settings").exists()
         assert not (stage / "usr/share/applications/org.aqueous.Settings.desktop").exists()
         assert (stage / "usr/bin/aqueous-welcome").exists()
+        assert (stage / "usr/bin/aqueous-portal-picker").exists()
+        assert not (Path(str(stage) + "-welcome") / "usr/bin/aqueous-portal-picker").exists()
         assert not (stage / "usr/lib/aqueous/welcome-setup.py").exists()
         assert (stage / "etc/xdg/autostart/org.aqueous.Welcome.desktop").exists()
 

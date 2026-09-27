@@ -86,7 +86,8 @@ suffixed canonical helper. For Pearl, that means `pearl-git` plus
 `aqueous-shell-pearl-git`. Setup verifies that both are installed before saving
 the selection. Git uses `pearl-git`; stable Aqueous uses `pearl`.
 
-Git screen sharing uses welcome's native picker for DMS, Pearl and Nothing, and
+Git screen sharing uses the portal package's `aqueous-portal-picker-git` for
+DMS, Pearl and Nothing, and
 Noctalia's picker when Noctalia is selected. The Git DMS integration does not
 install or enable the stable DMS portal/appearance plugins. Existing shell and
 application preferences are shared with their normal installations and retained;

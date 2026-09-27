@@ -155,6 +155,7 @@ jobs:
           export AQUEOUS_COMPOSITOR_DIST="$GITHUB_WORKSPACE/publish/aqueous-compositor"
           export AQUEOUS_CONFIG_BINARY="$GITHUB_WORKSPACE/publish/aqueous-config/bin/aqueous-config"
           export AQUEOUS_WELCOME_BINARY="$GITHUB_WORKSPACE/publish/aqueous-welcome/bin/aqueous-welcome"
+          export AQUEOUS_PICKER_BINARY="$GITHUB_WORKSPACE/publish/aqueous-welcome/bin/aqueous-portal-picker"
           export AQUEOUS_PORTAL_BINARY="$GITHUB_WORKSPACE/publish/aqueous-portal/usr/lib/aqueous/xdg-desktop-portal-aqueous"
           export AQUEOUS_PORTAL_LICENSE=/tmp/xdg-desktop-portal-wlr-0.8.4/LICENSE
           export AQUEOUS_PORTAL_CHOOSER_BINARY="$GITHUB_WORKSPACE/publish/aqueous-chooser/bin/aqueous-dms-portal-chooser"

@@ -10,7 +10,9 @@ components=(session welcome portal integration-dms integration-noctalia integrat
 mkdir -p "$base/fixture/bin" "$base/fixture/share/aqueous"
 printf '#!/bin/sh\nexit 0\n' > "$base/fixture/bin/aqueous-welcome"
 chmod +x "$base/fixture/bin/aqueous-welcome"
+cp "$base/fixture/bin/aqueous-welcome" "$base/fixture/bin/aqueous-portal-picker"
 printf 'fixture license\n' > "$base/LICENSE"
+export AQUEOUS_PICKER_BINARY=$base/fixture/bin/aqueous-portal-picker
 export AQUEOUS_WELCOME_BINARY=$base/fixture/bin/aqueous-welcome AQUEOUS_PORTAL_BINARY=$base/fixture/bin/aqueous-welcome
 export AQUEOUS_PORTAL_CHOOSER_BINARY=$base/fixture/bin/aqueous-welcome AQUEOUS_PORTAL_LICENSE=$base/LICENSE
 for component in "${components[@]}"; do
@@ -35,6 +37,10 @@ for channel in git; do
     session=$base/$channel-session
     runtime=$session/usr/lib/$instance/session-runtime.sh
     bash -n "$runtime"
+    test -x "$base/$channel-portal/usr/bin/aqueous-portal-picker-$channel"
+    test ! -e "$base/$channel-welcome/usr/bin/aqueous-portal-picker-$channel"
+    grep -q "exec aqueous-portal-picker-$channel" "$runtime"
+    ! grep -q -- "--choose" "$runtime"
     for command in wm init shell-action; do sh -n "$session/usr/bin/aqueous-$command-$channel"; done
     grep -q "Exec=uwsm start -- aqueous-wm-$channel" "$session/usr/share/wayland-sessions/$instance.desktop"
     grep -q "DesktopNames=$desktop" "$session/usr/share/wayland-sessions/$instance.desktop"

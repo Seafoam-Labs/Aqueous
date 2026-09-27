@@ -7,6 +7,9 @@ prefix=${PREFIX:-/usr}
 sysconfdir=${SYSCONFDIR:-/etc}
 binary=${AQUEOUS_WELCOME_BINARY:-$root/welcome/zig-out/bin/aqueous-welcome}
 install -Dm755 "$binary" "$destination$prefix/bin/aqueous-welcome"
+# Legacy combined staging also needs the independently executable portal UI.
+picker=${AQUEOUS_PICKER_BINARY:-$(dirname -- "$binary")/aqueous-portal-picker}
+install -Dm755 "$picker" "$destination$prefix/bin/aqueous-portal-picker"
 install -Dm644 "$root/packaging/aqueous-welcome.desktop" "$destination$prefix/share/applications/org.aqueous.Welcome.desktop"
 install -Dm644 "$root/packaging/aqueous-welcome-autostart.desktop" "$destination$sysconfdir/xdg/autostart/org.aqueous.Welcome.desktop"
 install -Dm644 "$root/packaging/noctalia/config.toml" "$destination$prefix/share/aqueous/noctalia/config.toml"

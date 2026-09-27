@@ -54,7 +54,7 @@ package_aqueous-welcome-git() {
 package_xdg-desktop-portal-aqueous-git() {
     replaces=('xdg-desktop-portal-aqueous-intel-git')
     pkgdesc='Aqueous Git screen capture portal'
-    depends=('libinih' 'pipewire' 'wayland' 'systemd-libs' 'mesa' 'xdg-desktop-portal')
+    depends=('gtk4' 'libinih' 'pipewire' 'wayland' 'systemd-libs' 'mesa' 'xdg-desktop-portal')
     _stage portal
 }
 package_aqueous-integration-dms-git() {

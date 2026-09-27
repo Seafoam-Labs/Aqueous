@@ -160,3 +160,24 @@ Package identities are explicit data (backend and name), never shell fragments.
 The GTK frontend passes selected identities to the worker as argv elements.
 Shell source installation is currently Arch-specific; NixOS and Fedora retain
 their existing setup paths.
+
+## Standalone screen-sharing picker
+
+The build also produces `aqueous-portal-picker` from `src/portal_picker.zig`.
+It is installed by the portal package, independently of Welcome, and implements
+the source-list-on-stdin / selected-original-line-on-stdout chooser protocol.
+Cancel, Escape or closing the window returns no selection. It does not load the
+setup worker, choose a desktop shell or install packages.
+
+Build only this executable with `zig build picker -Doptimize=ReleaseSafe`.
+`aqueous-welcome --choose` has been retired; callers use the standalone command.
+Git packages install `aqueous-portal-picker-git` with their own GTK identity.
+
+For a GTK integration test using a private Broadway display:
+
+```sh
+zig build picker -Doptimize=ReleaseSafe -Dtest-hooks=true --prefix /tmp/aqueous-picker-test
+python3 tests/test-picker.py /tmp/aqueous-picker-test/bin/aqueous-portal-picker
+```
+
+Test hooks are disabled in production builds.

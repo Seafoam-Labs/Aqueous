@@ -94,6 +94,7 @@ welcome)
     relocate "$root/packaging/aqueous-welcome-autostart.desktop" | write "$sysconfdir/xdg/autostart/org.aqueous.Welcome.desktop"
     ;;
 portal)
+    copy "${AQUEOUS_PICKER_BINARY:-$root/welcome/zig-out/bin/aqueous-portal-picker}" "$prefix/bin/aqueous-portal-picker" 755
     copy "${AQUEOUS_PORTAL_BINARY:-$root/dist/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous}" "$prefix/lib/aqueous/xdg-desktop-portal-aqueous" 755
     while IFS='|' read -r source path; do relocate "$root/packaging/portal/$source" | write "$prefix/$path"; done <<'EOF'
 aqueous.portal|share/xdg-desktop-portal/portals/aqueous.portal

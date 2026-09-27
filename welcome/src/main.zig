@@ -33,10 +33,7 @@ const State = struct {
     request_id: []const u8 = "",
     choices: std.ArrayList(Choice) = .empty,
     helper: [:0]const u8,
-    chooser: bool = false,
-    source_lines: std.ArrayList([:0]const u8) = .empty,
     message: ?[:0]const u8 = null,
-    selected_source: ?*gtk.DropDown = null,
 
     fn text(self: *State, value: []const u8) void {
         self.history.appendSlice(a, value) catch return;
@@ -370,20 +367,8 @@ fn close(_: *gtk.Window, self: *State) callconv(.c) c_int {
     }
     return 0;
 }
-fn choose(_: *gtk.Button, self: *State) callconv(.c) void {
-    const index = self.selected_source.?.getSelected();
-    if (index < self.source_lines.items.len) glib.print("%s\n", self.source_lines.items[index].ptr);
-    self.window.?.destroy();
-}
 fn smokeClose(data: ?*anyopaque) callconv(.c) c_int {
     const self: *State = @ptrCast(@alignCast(data.?));
-    if (options.test_hooks) if (self.chooser) {
-        if (glib.getenv("AQUEOUS_WELCOME_TEST_CHOOSE_INDEX")) |index| {
-            self.selected_source.?.setSelected(std.fmt.parseInt(c_uint, std.mem.span(index), 10) catch 0);
-            choose(undefined, self);
-            return 0;
-        }
-    };
     self.window.?.close();
     return 0;
 }
@@ -394,75 +379,61 @@ fn activate(_: *gio.Application, self: *State) callconv(.c) void {
     }
     const window = gtk.ApplicationWindow.new(self.app).as(gtk.Window);
     self.window = window;
-    window.setTitle(if (self.chooser) "Select a source to share" else "Welcome to Aqueous");
+    window.setTitle("Welcome to Aqueous");
     window.setDefaultSize(760, 700);
     const outer = gtk.Box.new(.vertical, 16);
     margins(outer.as(gtk.Widget), 24);
     window.setChild(outer.as(gtk.Widget));
-    if (self.chooser) {
-        outer.append(labelText("Select a source to share").as(gtk.Widget));
-        var strings: std.ArrayList(?[*:0]const u8) = .empty;
-        defer strings.deinit(a);
-        for (self.source_lines.items) |line| strings.append(a, line.ptr) catch return;
-        strings.append(a, null) catch return;
-        const dropdown = gtk.DropDown.newFromStrings(@ptrCast(strings.items.ptr));
-        self.selected_source = dropdown;
-        outer.append(dropdown.as(gtk.Widget));
-        const button = gtk.Button.newWithLabel("Share selected source");
-        _ = gtk.Button.signals.clicked.connect(button, *State, choose, self, .{});
-        outer.append(button.as(gtk.Widget));
-    } else {
-        const title = labelText("Make Aqueous yours");
-        title.as(gtk.Widget).addCssClass("title-1");
-        outer.append(title.as(gtk.Widget));
-        outer.append(labelText("Choose one desktop. Shelly installs the packages and all optional dependencies. When setup finishes, you can close Welcome and start your desktop.").as(gtk.Widget));
-        const scroll = gtk.ScrolledWindow.new();
-        scroll.as(gtk.Widget).setVexpand(1);
-        self.page = gtk.Box.new(.vertical, 12);
-        scroll.setChild(self.page.as(gtk.Widget));
-        outer.append(scroll.as(gtk.Widget));
-        const titles = [_][*:0]const u8{ "Pearl — native GTK desktop for Aqueous", "DMS — Dank Material Shell", "Noctalia — desktop shell", "Nothing — use Aqueous without a desktop shell" };
-        for (titles, 0..) |title_text, i| {
-            self.shells[i] = gtk.CheckButton.newWithLabel(title_text);
-            if (i != 0) self.shells[i].setGroup(self.shells[0]);
-            self.page.append(self.shells[i].as(gtk.Widget));
-        }
-        const expander = gtk.Expander.new("Optional applications");
-        const apps = gtk.Box.new(.vertical, 8);
-        expander.setChild(apps.as(gtk.Widget));
-        for (0..registry.application_count) |i| {
-            const application = registry.applicationAt(i).?;
-            const text = std.fmt.allocPrintSentinel(a, "{s} — {s}", .{ application.name, application.description }, 0) catch return;
-            defer a.free(text);
-            self.apps[i] = gtk.CheckButton.newWithLabel(text);
-            apps.append(self.apps[i].as(gtk.Widget));
-        }
-        self.page.append(expander.as(gtk.Widget));
-        self.status = labelText(if (self.message) |msg| msg else "Choose Nothing to use Aqueous without a desktop shell.");
-        outer.append(self.status.as(gtk.Widget));
-        const log_expander = gtk.Expander.new("Setup details");
-        const log_scroll = gtk.ScrolledWindow.new();
-        log_scroll.setMinContentHeight(120);
-        log_scroll.setMaxContentHeight(180);
-        self.log_label = labelText("");
-        self.log_label.setSelectable(1);
-        log_scroll.setChild(self.log_label.as(gtk.Widget));
-        log_expander.setChild(log_scroll.as(gtk.Widget));
-        outer.append(log_expander.as(gtk.Widget));
-        self.progress = gtk.ProgressBar.new();
-        outer.append(self.progress.as(gtk.Widget));
-        const row = gtk.Box.new(.horizontal, 12);
-        self.next = gtk.Button.newWithLabel("Review and set up");
-        self.cancel = gtk.Button.newWithLabel("Cancel setup");
-        self.cancel.as(gtk.Widget).setSensitive(0);
-        self.next.as(gtk.Widget).addCssClass("suggested-action");
-        _ = gtk.Button.signals.clicked.connect(self.next, *State, start, self, .{});
-        _ = gtk.Button.signals.clicked.connect(self.cancel, *State, cancel, self, .{});
-        _ = gtk.Window.signals.close_request.connect(window, *State, close, self, .{});
-        row.append(self.cancel.as(gtk.Widget));
-        row.append(self.next.as(gtk.Widget));
-        outer.append(row.as(gtk.Widget));
+    const title = labelText("Make Aqueous yours");
+    title.as(gtk.Widget).addCssClass("title-1");
+    outer.append(title.as(gtk.Widget));
+    outer.append(labelText("Choose one desktop. Shelly installs the packages and all optional dependencies. When setup finishes, you can close Welcome and start your desktop.").as(gtk.Widget));
+    const scroll = gtk.ScrolledWindow.new();
+    scroll.as(gtk.Widget).setVexpand(1);
+    self.page = gtk.Box.new(.vertical, 12);
+    scroll.setChild(self.page.as(gtk.Widget));
+    outer.append(scroll.as(gtk.Widget));
+    const titles = [_][*:0]const u8{ "Pearl — native GTK desktop for Aqueous", "DMS — Dank Material Shell", "Noctalia — desktop shell", "Nothing — use Aqueous without a desktop shell" };
+    for (titles, 0..) |title_text, i| {
+        self.shells[i] = gtk.CheckButton.newWithLabel(title_text);
+        if (i != 0) self.shells[i].setGroup(self.shells[0]);
+        self.page.append(self.shells[i].as(gtk.Widget));
     }
+    const expander = gtk.Expander.new("Optional applications");
+    const apps = gtk.Box.new(.vertical, 8);
+    expander.setChild(apps.as(gtk.Widget));
+    for (0..registry.application_count) |i| {
+        const application = registry.applicationAt(i).?;
+        const text = std.fmt.allocPrintSentinel(a, "{s} — {s}", .{ application.name, application.description }, 0) catch return;
+        defer a.free(text);
+        self.apps[i] = gtk.CheckButton.newWithLabel(text);
+        apps.append(self.apps[i].as(gtk.Widget));
+    }
+    self.page.append(expander.as(gtk.Widget));
+    self.status = labelText(if (self.message) |msg| msg else "Choose Nothing to use Aqueous without a desktop shell.");
+    outer.append(self.status.as(gtk.Widget));
+    const log_expander = gtk.Expander.new("Setup details");
+    const log_scroll = gtk.ScrolledWindow.new();
+    log_scroll.setMinContentHeight(120);
+    log_scroll.setMaxContentHeight(180);
+    self.log_label = labelText("");
+    self.log_label.setSelectable(1);
+    log_scroll.setChild(self.log_label.as(gtk.Widget));
+    log_expander.setChild(log_scroll.as(gtk.Widget));
+    outer.append(log_expander.as(gtk.Widget));
+    self.progress = gtk.ProgressBar.new();
+    outer.append(self.progress.as(gtk.Widget));
+    const row = gtk.Box.new(.horizontal, 12);
+    self.next = gtk.Button.newWithLabel("Review and set up");
+    self.cancel = gtk.Button.newWithLabel("Cancel setup");
+    self.cancel.as(gtk.Widget).setSensitive(0);
+    self.next.as(gtk.Widget).addCssClass("suggested-action");
+    _ = gtk.Button.signals.clicked.connect(self.next, *State, start, self, .{});
+    _ = gtk.Button.signals.clicked.connect(self.cancel, *State, cancel, self, .{});
+    _ = gtk.Window.signals.close_request.connect(window, *State, close, self, .{});
+    row.append(self.cancel.as(gtk.Widget));
+    row.append(self.next.as(gtk.Widget));
+    outer.append(row.as(gtk.Widget));
     window.present();
     var auto_setup = false;
     if (options.test_hooks) if (glib.getenv("AQUEOUS_WELCOME_TEST_SETUP")) |selected| {
@@ -473,7 +444,7 @@ fn activate(_: *gio.Application, self: *State) callconv(.c) void {
             self.begin(.setup);
         };
     };
-    if (!auto_setup and !self.chooser and self.message == null) self.begin(.inspect);
+    if (!auto_setup and self.message == null) self.begin(.inspect);
     if (options.test_hooks) if (glib.getenv("AQUEOUS_WELCOME_TEST_CLOSE_MS")) |ms| {
         _ = glib.timeoutAdd(std.fmt.parseInt(c_uint, std.mem.span(ms), 10) catch 500, smokeClose, self);
     };
@@ -486,48 +457,29 @@ pub fn main(init: std.process.Init) !void {
     if (args.len > 1 and std.mem.eql(u8, args[1], "--worker"))
         std.process.exit(@import("setup.zig").run(init, executable, args[2..]));
     var first = false;
-    var chooser = false;
     var message: ?[:0]const u8 = null;
     for (args[1..], 1..) |arg, i| {
         if (std.mem.eql(u8, arg, "--first-run")) first = true;
-        if (std.mem.eql(u8, arg, "--choose")) chooser = true;
+        if (std.mem.eql(u8, arg, "--choose")) {
+            std.debug.print("Use aqueous-portal-picker" ++ @import("instance.zig").suffix ++ " for source selection.\n", .{});
+            return error.PickerMoved;
+        }
         if (std.mem.eql(u8, arg, "--message") and i + 1 < args.len) message = args[i + 1];
         if (std.mem.eql(u8, arg, "--help")) {
-            glib.print("aqueous-welcome [--first-run | --choose | --message TEXT]\n");
+            glib.print("aqueous-welcome [--first-run | --message TEXT]\n");
             return;
         }
     }
     if (first and (!first_run.isAqueousDesktop(init.environ_map) or first_run.isComplete(a, init.io, init.environ_map))) return;
     const helper_path = try a.dupeZ(u8, executable);
     defer a.free(helper_path);
-    const app = gtk.Application.new(@import("instance.zig").app_id, .{ .non_unique = chooser });
+    const app = gtk.Application.new(@import("instance.zig").app_id, .{});
     defer app.unref();
-    var self: State = .{ .app = app, .helper = helper_path, .chooser = chooser, .message = message };
+    var self: State = .{ .app = app, .helper = helper_path, .message = message };
     defer {
         self.pending.deinit(a);
         self.history.deinit(a);
         self.choices.deinit(a);
-        for (self.source_lines.items) |s| a.free(s);
-        self.source_lines.deinit(a);
-    }
-    if (chooser) {
-        var buffer: std.ArrayList(u8) = .empty;
-        defer buffer.deinit(a);
-        var chunk: [4096]u8 = undefined;
-        while (true) {
-            const n = std.Io.File.stdin().readStreaming(init.io, &.{&chunk}) catch |err| switch (err) {
-                error.EndOfStream => break,
-                else => return err,
-            };
-            if (n == 0) break;
-            try buffer.appendSlice(a, chunk[0..n]);
-            if (buffer.items.len > 1024 * 1024) return error.SourceListTooLarge;
-        }
-        var lines = std.mem.splitScalar(u8, buffer.items, '\n');
-        while (lines.next()) |line| if (line.len != 0) {
-            try self.source_lines.append(a, try a.dupeZ(u8, line));
-        };
-        if (self.source_lines.items.len == 0) return;
     }
     _ = gio.Application.signals.activate.connect(app.as(gio.Application), *State, activate, &self, .{});
     const result = app.as(gio.Application).run(0, null);
