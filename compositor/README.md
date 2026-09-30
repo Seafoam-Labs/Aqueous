@@ -160,6 +160,35 @@ row padding, and HDR color conversion. Verify full-output and region captures
 with grabit on an HDR display, including after toggling HDR and with a rotated
 or scaled output; these live GPU cases are not covered by the conversion test.
 
+HDR-to-SDR gamma encoding uses a shared 5 KiB lookup table, initialized once
+with `pthread_once` before processing pixels. It records the original float
+encoder's output thresholds and uses a coarse index followed by threshold
+correction, preserving quantization near black and at rounding boundaries.
+There are no `powf` or `lroundf` calls in the pixel loop. The per-frame PQ decode
+table and gamut matrix still use the current output description and SDR white.
+Initialization assumes the normal floating-point environment; build this color
+conversion without unsafe fast-math transformations.
+
+The dependency build runs encoder boundary/dense/random tests, concurrent
+initialization checks, and byte-for-byte pixel comparisons with the original
+conversion. To also check every binary32 input in [0, 1] and benchmark just the
+conversion, run from `compositor/`:
+
+```sh
+CFLAGS=-O2 AQUEOUS_CAPTURE_EXHAUSTIVE=1 AQUEOUS_CAPTURE_BENCHMARK=4k \
+  scripts/build-wlroots-render-hook.sh /tmp/aqueous-wlroots-gamma
+```
+
+With an existing patched source tree and installed library, the same checks
+can be run using `bash scripts/test-screencopy-sdr.sh SOURCE PREFIX`. Set
+`AQUEOUS_CAPTURE_EXHAUSTIVE=1` for the exhaustive check and
+`AQUEOUS_CAPTURE_BENCHMARK=1080p` or `4k` for timing. The conversion benchmark
+compares against the original implementation in the same executable, checks
+identical pixels, and reports median/p95 from 20 samples after three warmups.
+It covers gradients, near-black, saturated and random pixels; readback,
+allocation and PQ/table initialization are excluded and initialization is
+timed separately. `CC` and `CFLAGS` select compiler and CPU target for this test.
+
 Ext image-copy-capture output sessions additionally advertise native 10-bit SHM
 alongside XRGB8888. The client selects a format by attaching its buffer. Native
 capture retains all ten bits; XRGB8888 uses the SDR conversion above. Scene and

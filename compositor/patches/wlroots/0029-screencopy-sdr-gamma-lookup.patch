@@ -1,0 +1,144 @@
+--- a/include/types/screencopy_sdr.h
++++ b/include/types/screencopy_sdr.h
+@@ -6,6 +6,18 @@
+ #include <drm_fourcc.h>
+ #include <wlr/render/color.h>
+ #include <wlr/types/wlr_output.h>
++
++struct screencopy_sdr_gamma {
++	// First binary32 input which rounds to each output code. Entry zero is 0.
++	float threshold[256];
++	// Output code at the lower edge of each linear-light bucket. Threshold
++	// correction below preserves the original quantization within a bucket.
++	uint8_t coarse[4096];
++};
++
++// Shared by legacy screencopy and ext-image-copy capture. Initialized once,
++// before entering any pixel loop; subsequent reads are immutable.
++const struct screencopy_sdr_gamma *screencopy_sdr_gamma_get(void);
+ 
+ static inline bool screencopy_is_10bit(uint32_t format) {
+ 	switch (format) {
+@@ -28,6 +40,7 @@
+ 	bool pq;
+ 	float linear[1024];
+ 	float matrix[9];
++	const struct screencopy_sdr_gamma *gamma;
+ };
+ 
+ static inline void screencopy_sdr_conversion_init(struct screencopy_sdr_conversion *conv,
+@@ -37,6 +50,7 @@
+ 	if (!conv->pq) {
+ 		return;
+ 	}
++	conv->gamma = screencopy_sdr_gamma_get();
+ 
+ 	struct wlr_color_primaries source, destination;
+ 	wlr_color_primaries_from_named(&source, desc->primaries);
+@@ -55,10 +69,24 @@
+ 	}
+ }
+ 
+-static inline uint8_t screencopy_sdr_encode(float value) {
++static inline uint8_t screencopy_sdr_encode(
++		const struct screencopy_sdr_gamma *gamma, float value) {
+ 	// Match the compositor's default SDR gamma. Highlights and colors outside
+ 	// the SDR gamut clip; the legacy protocol cannot describe HDR content.
+-	return (uint8_t)lroundf(powf(fminf(fmaxf(value, 0.0f), 1.0f), 1.0f / 2.2f) * 255.0f);
++	// The original fmaxf(value, 0) also maps NaN to black.
++	if (!(value > 0.0f)) {
++		return 0;
++	}
++	if (value >= 1.0f) {
++		return 255;
++	}
++	// Multiplication by this power of two is exact for inputs in (0, 1).
++	unsigned bucket = (unsigned)(value * 4096.0f);
++	unsigned code = gamma->coarse[bucket];
++	while (code < 255 && value >= gamma->threshold[code + 1]) {
++		code++;
++	}
++	return code;
+ }
+ 
+ static inline void screencopy_sdr_convert(const struct screencopy_sdr_conversion *conv,
+@@ -78,7 +106,8 @@
+ 				float rgb[3] = {conv->linear[r], conv->linear[g], conv->linear[b]};
+ 				for (size_t c = 0; c < 3; c++) {
+ 					const float *m = &conv->matrix[c * 3];
+-					d[2 - c] = screencopy_sdr_encode(m[0] * rgb[0] + m[1] * rgb[1] + m[2] * rgb[2]);
++					d[2 - c] = screencopy_sdr_encode(conv->gamma,
++						m[0] * rgb[0] + m[1] * rgb[1] + m[2] * rgb[2]);
+ 				}
+ 			} else {
+ 				d[2] = (r * 255 + 511) / 1023;
+--- a/types/meson.build
++++ b/types/meson.build
+@@ -1,4 +1,5 @@
+ wlr_files += files(
++	'screencopy_sdr.c',
+ 	'data_device/wlr_data_device.c',
+ 	'data_device/wlr_data_offer.c',
+ 	'data_device/wlr_data_source.c',
+@@ -113,6 +114,8 @@
+ 	'wlr_xdg_toplevel_tag_v1.c',
+ )
+ 
++wlr_deps += dependency('threads')
++
+ if features.get('drm-backend')
+ 	wlr_files += files(
+ 		'wlr_drm_lease_v1.c',
+--- /dev/null
++++ b/types/screencopy_sdr.c
+@@ -0,0 +1,50 @@
++#include <float.h>
++#include <pthread.h>
++#include <string.h>
++#include "types/screencopy_sdr.h"
++
++_Static_assert(sizeof(float) == sizeof(uint32_t) && FLT_RADIX == 2 &&
++	FLT_MANT_DIG == 24 && FLT_MAX_EXP == 128, "capture gamma requires binary32");
++
++static struct screencopy_sdr_gamma gamma_table;
++static pthread_once_t gamma_once = PTHREAD_ONCE_INIT;
++
++static float float_from_bits(uint32_t bits) {
++	float value;
++	memcpy(&value, &bits, sizeof(value));
++	return value;
++}
++
++static void gamma_init(void) {
++	// Positive binary32 bit patterns are ordered by value. Find the first
++	// input producing each code using the original encoder, including its
++	// rounded float exponent, powf, multiply and halfway-away rounding.
++	// Analytic inverse-gamma thresholds alone differ at rounding boundaries.
++	for (unsigned code = 1; code < 256; code++) {
++		uint32_t lo = 0, hi = 0x3f800000; // [0, 1]
++		while (lo < hi) {
++			uint32_t mid = lo + (hi - lo) / 2;
++			float value = float_from_bits(mid);
++			long encoded = lroundf(powf(value, 1.0f / 2.2f) * 255.0f);
++			if (encoded < (long)code) {
++				lo = mid + 1;
++			} else {
++				hi = mid;
++			}
++		}
++		gamma_table.threshold[code] = float_from_bits(lo);
++	}
++	unsigned code = 0;
++	for (unsigned bucket = 0; bucket < 4096; bucket++) {
++		float lower = (float)bucket / 4096.0f;
++		while (code < 255 && lower >= gamma_table.threshold[code + 1]) {
++			code++;
++		}
++		gamma_table.coarse[bucket] = code;
++	}
++}
++
++const struct screencopy_sdr_gamma *screencopy_sdr_gamma_get(void) {
++	pthread_once(&gamma_once, gamma_init);
++	return &gamma_table;
++}

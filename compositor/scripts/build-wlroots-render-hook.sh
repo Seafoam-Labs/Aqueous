@@ -34,6 +34,7 @@ patch_files=(
     "$here/patches/wlroots/0026-scene-color-pipeline.patch"
     "$here/patches/wlroots/0027-xwayland-size-hints.patch"
     "$here/patches/wlroots/0028-output-color-guard.patch"
+    "$here/patches/wlroots/0029-screencopy-sdr-gamma-lookup.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -158,12 +159,8 @@ cc -std=c11 -Wall -Wextra -Werror -I"$source_dir/include" \
 "$build_root/pointer-enter-serial" || die "pointer enter serial validation failed"
 
 # Exercise the exact conversion helper shipped in the patched screencopy path.
-cc -std=c11 -Wall -Wextra -Werror -O2 -DWLR_USE_UNSTABLE \
-    -I"$source_dir/include" \
-    "$here/scripts/fixtures/screencopy-sdr.c" -o "$build_root/screencopy-sdr" \
-    $(PKG_CONFIG_PATH="$prefix/lib/pkgconfig" pkg-config --cflags --libs wlroots-0.20) -lm
-LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-    "$build_root/screencopy-sdr" || die "10-bit SDR screencopy conversion failed"
+bash "$here/scripts/test-screencopy-sdr.sh" "$source_dir" "$prefix" ||
+    die "10-bit SDR screencopy conversion failed"
 
 library="$prefix/lib/libwlroots-0.20.so"
 [ -f "$library" ] || die "patched wlroots library was not installed"

@@ -44,6 +44,11 @@ static struct zwp_linux_dmabuf_v1 *dmabufs;
 #endif
 enum { WIDTH = CAPTURE_WIDTH, HEIGHT = CAPTURE_HEIGHT };
 static double commit_ms;
+
+static int compare_duration(const void *a, const void *b) {
+	double x = *(const double *)a, y = *(const double *)b;
+	return (x > y) - (x < y);
+}
 static struct wl_display *server, *client;
 static struct wlr_drm_format_set render_formats;
 static struct wlr_output output;
@@ -642,19 +647,25 @@ int main(int argc, char **argv) {
 	assert(sf.tf == AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_GAMMA22 && sf.white == 800000);
 	assert(sf.mastering_max == 0 && sf.max_cll == 0);
 	assert(sf.pixels[0] == 0 && sf.pixels[594 * 4] >= 253 && sf.pixels[1023 * 4] == 255);
+	uint8_t gray_at_200 = sf.pixels[512 * 4];
 	padding_unchanged(&nf); padding_unchanged(&sf); save_capture(&nf, &sf);
 	frame_finish(&nf); frame_finish(&sf);
 	puts("PASS: simultaneous native 10-bit and SDR capture, metadata ordering, padding");
 	if (getenv("AQUEOUS_CAPTURE_BENCHMARK")) {
-		double total = 0, max = 0;
-		for (int i = 0; i < 3; i++) {
+		enum { warmup = 3, samples = 20 };
+		double durations[samples];
+		for (int i = -warmup; i < samples; i++) {
 			frame_init(&nf, &native, WL_SHM_FORMAT_XBGR2101010, true);
 			frame_init(&sf, &sdr, WL_SHM_FORMAT_XRGB8888, true); commit_buffer(b, NULL, false);
-			assert(nf.ready && sf.ready); total += commit_ms; if (commit_ms > max) max = commit_ms;
+			assert(nf.ready && sf.ready);
+			if (i >= 0) durations[i] = commit_ms;
+			padding_unchanged(&nf); padding_unchanged(&sf);
 			frame_finish(&nf); frame_finish(&sf);
 		}
-		printf("BENCH: %dx%d native+SDR synchronous capture, mean %.3f ms, max %.3f ms (3 samples); conversion temporary %zu bytes\n",
-			WIDTH, HEIGHT, total / 3, max, (size_t)WIDTH * HEIGHT * 4);
+		qsort(durations, samples, sizeof(double), compare_duration);
+		printf("BENCH: %dx%d native+SDR synchronous capture, median %.3f ms, p95 %.3f ms, max %.3f ms (%d samples, %d warmups); conversion temporary %zu bytes\n",
+			WIDTH, HEIGHT, (durations[9] + durations[10]) / 2, durations[18], durations[19],
+			samples, warmup, (size_t)WIDTH * HEIGHT * 4);
 	}
 
 	size_t before = reads;
@@ -672,6 +683,13 @@ int main(int argc, char **argv) {
 	empty_damage_next = true; commit_buffer(b, NULL, false);
 	assert(nf.ready && nf.white == 4000000 && nf.mastering_max == 4000000 && nf.max_cll == 4000000);
 	frame_finish(&nf);
+	frame_init(&sf, &sdr, WL_SHM_FORMAT_XRGB8888, true); commit_buffer(b, NULL, false);
+	// Gamma thresholds are shared, but PQ decoding must still reflect the
+	// current output's SDR white. Doubling white halves linear brightness.
+	assert(sf.ready && sf.tf == AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_GAMMA22);
+	int gray_at_400 = lround(gray_at_200 * pow(0.5, 1.0 / 2.2));
+	for (unsigned c = 0; c < 3; c++) assert(abs(sf.pixels[512 * 4 + c] - gray_at_400) <= 2);
+	padding_unchanged(&sf); frame_finish(&sf);
 	frame_init(&nf, &native, WL_SHM_FORMAT_XBGR2101010, false);
 	b->format = DRM_FORMAT_XRGB8888; commit_buffer(b, NULL, true);
 	assert(native.count == 1 && has_format(&native, WL_SHM_FORMAT_XRGB8888));
