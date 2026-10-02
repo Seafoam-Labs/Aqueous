@@ -404,6 +404,23 @@ fn writeSchemaField(json: *std.json.Stringify, files: *const config.ConfigFiles,
     var resolved = resolveFieldRaw(&file_item.document, schema_field);
     var configured_raw = if (resolved) |item| item.value else null;
     var inherited = false;
+    if (isSingleWindowField(schema_field)) {
+        // Match the compositor's ordered wm.toml -> layout.toml overlays,
+        // including globals encountered after a per-layout assignment.
+        resolved = null;
+        for ([_]schema.FileId{ .wm, .layout }) |file_id| {
+            const document = &files.items[@intFromEnum(file_id)].document;
+            const aliases: []const []const u8 = if (std.mem.eql(u8, schema_field.section, "layout.options.reverse-dwindle"))
+                &.{ "layout", "layout.options.reverse_dwindle" }
+            else
+                &.{"layout"};
+            if (document.getRawAliases(schema_field.section, aliases, schema_field.key)) |item| {
+                resolved = .{ .section = item.section, .value = item.value };
+                inherited = file_id == .wm or (std.mem.eql(u8, item.section, "layout") and !std.mem.eql(u8, schema_field.section, "layout"));
+            }
+        }
+        configured_raw = if (resolved) |item| item.value else null;
+    }
     if (configured_raw == null and schema_field.file == .outputs) {
         resolved = resolveFieldRaw(&files.items[@intFromEnum(schema.FileId.wm)].document, schema_field);
         configured_raw = if (resolved) |item| item.value else null;
@@ -2011,6 +2028,7 @@ fn validateBellPath(value: []const u8) !void {
 
 fn validateRange(schema_field: *const schema.Field, value: f64) !void {
     if (!std.math.isFinite(value)) return error.InvalidNumber;
+    if (std.mem.eql(u8, schema_field.key, "single_window_aspect_ratio") and value <= 0) return error.ValueTooSmall;
     if (schema_field.min) |minimum| if (value < minimum) return error.ValueTooSmall;
     if (schema_field.max) |maximum| if (value > maximum) return error.ValueTooLarge;
 }
@@ -2056,6 +2074,11 @@ const FieldRaw = struct {
     section: []const u8,
     value: []const u8,
 };
+
+fn isSingleWindowField(schema_field: *const schema.Field) bool {
+    return schema_field.file == .layout and (std.mem.eql(u8, schema_field.key, "center_single_window") or
+        std.mem.eql(u8, schema_field.key, "single_window_aspect_ratio"));
+}
 
 fn resolveFieldRaw(document: *const config.Document, schema_field: *const schema.Field) ?FieldRaw {
     if (schema_field.section_aliases.len > 0) {
@@ -2579,4 +2602,50 @@ test "unmanaged window rule edits validate scope and supported effects" {
     try validateWindowRules(&document);
     try setTableRaw(&document, 1, "floating", "false");
     try std.testing.expectError(error.UnsupportedOverrideRedirectRule, validateWindowRules(&document));
+}
+
+test "single window schema projects inheritance and validates positive aspect ratios" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    var files: config.ConfigFiles = .{ .allocator = allocator, .items = undefined };
+    for (&files.items) |*item| item.* = .{ .name = "", .path = try allocator.dupe(u8, ""), .document = try config.Document.init(allocator, "") };
+    const wm = &files.items[@intFromEnum(schema.FileId.wm)].document;
+    const layout = &files.items[@intFromEnum(schema.FileId.layout)].document;
+    try wm.setRaw("layout", "center_single_window", "true");
+    try wm.setRaw("layout", "single_window_aspect_ratio", "2.0");
+    try layout.setRaw("layout", "single_window_aspect_ratio", "2.5");
+    for ([_][]const u8{ "tile", "grid", "rows", "dwindle", "reverse-dwindle" }) |id| {
+        const field_id = try std.fmt.allocPrint(allocator, "layout.options.{s}.center_single_window", .{id});
+        const spec = schema.find(field_id).?;
+        const inherited = try singleWindowTestField(allocator, &files, spec);
+        try std.testing.expect(inherited.object.get("value").?.bool);
+        try std.testing.expect(inherited.object.get("inherited").?.bool);
+        try layout.setRaw(spec.section, spec.key, "false");
+        const overridden = try singleWindowTestField(allocator, &files, spec);
+        try std.testing.expect(!overridden.object.get("value").?.bool);
+        try std.testing.expect(!overridden.object.get("inherited").?.bool);
+    }
+    // A later global sidecar value replaces even a wm per-layout value.
+    try wm.setRaw("layout.options.tile", "single_window_aspect_ratio", "1.5");
+    const ratio = schema.find("layout.options.tile.single_window_aspect_ratio").?;
+    const projected = try singleWindowTestField(allocator, &files, ratio);
+    try std.testing.expectEqual(@as(f64, 2.5), projected.object.get("value").?.float);
+    try std.testing.expect(projected.object.get("inherited").?.bool);
+    const encoded = try encodeTomlValue(allocator, ratio, .{ .float = 16.0 / 9.0 });
+    try setFieldRaw(layout, ratio, encoded);
+    try validateKnownFields(&files);
+    const roundtrip = try singleWindowTestField(allocator, &files, ratio);
+    try std.testing.expectEqual(@as(f64, 16.0 / 9.0), roundtrip.object.get("value").?.float);
+    try std.testing.expect(!roundtrip.object.get("inherited").?.bool);
+    for ([_]f64{ 0, -1 }) |invalid| try std.testing.expectError(error.ValueTooSmall, encodeTomlValue(allocator, ratio, .{ .float = invalid }));
+    for ([_]f64{ std.math.nan(f64), std.math.inf(f64) }) |invalid| try std.testing.expectError(error.InvalidNumber, encodeTomlValue(allocator, ratio, .{ .float = invalid }));
+}
+
+fn singleWindowTestField(allocator: Allocator, files: *const config.ConfigFiles, spec: *const schema.Field) !Json {
+    var writer: std.Io.Writer.Allocating = .init(allocator);
+    defer writer.deinit();
+    var json: std.json.Stringify = .{ .writer = &writer.writer };
+    try writeSchemaField(&json, files, spec);
+    return std.json.parseFromSliceLeaky(Json, allocator, writer.written(), .{});
 }

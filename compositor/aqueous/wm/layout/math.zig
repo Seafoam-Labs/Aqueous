@@ -6,6 +6,17 @@ const types = @import("types.zig");
 
 pub const AxisCell = struct { offset: i32, size: i32 };
 
+/// Cap a lone tile's width while retaining its full available height. Clamp
+/// before converting to integer pixels, including for very large finite ratios.
+pub fn centerSingleWindow(area: types.Rect, aspect_ratio: f64) types.Rect {
+    if (area.width <= 0 or area.height <= 0 or !std.math.isFinite(aspect_ratio) or aspect_ratio <= 0) return area;
+    const width: i32 = @intFromFloat(@max(1, @min(
+        @as(f64, @floatFromInt(area.width)),
+        @round(@as(f64, @floatFromInt(area.height)) * aspect_ratio),
+    )));
+    return .{ .x = area.x + @divTrunc(area.width - width, 2), .y = area.y, .width = width, .height = area.height };
+}
+
 pub fn shrink(rect: types.Rect, margin: i32) types.Rect {
     if (margin <= 0) return rect;
     return .{
@@ -80,4 +91,17 @@ test "split axis assigns remainder to final cell" {
         .{ .offset = 34, .size = 30 },
         .{ .offset = 68, .size = 32 },
     }, cells);
+}
+
+test "single window width cap respects local bounds and extreme ratios" {
+    const area: types.Rect = .{ .x = -2000, .y = 31, .width = 3441, .height = 1000 };
+    try std.testing.expectEqual(types.Rect{ .x = -1169, .y = 31, .width = 1778, .height = 1000 }, centerSingleWindow(area, 16.0 / 9.0));
+    const portrait: types.Rect = .{ .x = 72, .y = -900, .width = 600, .height = 1000 };
+    try std.testing.expectEqual(portrait, centerSingleWindow(portrait, 16.0 / 9.0));
+    try std.testing.expectEqual(area, centerSingleWindow(area, std.math.floatMax(f64)));
+    try std.testing.expectEqual(@as(i32, 1), centerSingleWindow(area, 1e-300).width);
+    try std.testing.expectEqual(types.Rect.empty, centerSingleWindow(.empty, 1));
+    for ([_]f64{ 0, -1, std.math.nan(f64), std.math.inf(f64) }) |ratio| {
+        try std.testing.expectEqual(area, centerSingleWindow(area, ratio));
+    }
 }

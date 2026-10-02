@@ -431,6 +431,11 @@ fn applyOptions(snapshot: *Snapshot, id: LayoutId, key: []const u8, value: []con
 }
 
 fn applyCommon(options: *types.Options, key: []const u8, value: []const u8) void {
+    if (std.mem.eql(u8, key, "center_single_window")) options.center_single_window = parseBool(unquote(value)) orelse options.center_single_window;
+    if (std.mem.eql(u8, key, "single_window_aspect_ratio")) {
+        const ratio = std.fmt.parseFloat(f64, unquote(value)) catch return;
+        if (std.math.isFinite(ratio) and ratio > 0) options.single_window_aspect_ratio = ratio;
+    }
     if (std.mem.eql(u8, key, "gaps_outer")) options.gaps_outer = parseNonNegative(value) orelse options.gaps_outer;
     if (std.mem.eql(u8, key, "gaps_inner")) options.gaps_inner = parseNonNegative(value) orelse options.gaps_inner;
     if (std.mem.eql(u8, key, "master_count")) {
@@ -826,4 +831,32 @@ test "scrolling right insertion defaults off and reloads preserve valid values" 
         \\open_new_windows_to_right = false
     );
     try std.testing.expect(!snapshot.scrolling_open_new_windows_to_right);
+}
+
+test "single window defaults overlays aliases and invalid values" {
+    var snapshot: Snapshot = .{};
+    try std.testing.expect(!snapshot.layoutOptions(.tile).center_single_window);
+    try std.testing.expectEqual(@as(f64, 16.0 / 9.0), snapshot.layoutOptions(.tile).single_window_aspect_ratio);
+    apply(&snapshot,
+        \\[layout]
+        \\center_single_window = true
+        \\single_window_aspect_ratio = 2.0
+        \\[layout.options.grid]
+        \\center_single_window = false
+        \\[layout.options.reverse_dwindle]
+        \\single_window_aspect_ratio = 1.5
+    );
+    try std.testing.expect(snapshot.layoutOptions(.tile).center_single_window);
+    try std.testing.expect(!snapshot.layoutOptions(.grid).center_single_window);
+    try std.testing.expectEqual(@as(f64, 1.5), snapshot.layoutOptions(.reverse_dwindle).single_window_aspect_ratio);
+    for ([_][]const u8{ "0", "-1", "nan", "inf", "nope" }) |value| {
+        const source = try std.fmt.allocPrint(std.testing.allocator, "[layout.options.tile]\nsingle_window_aspect_ratio = {s}\ncenter_single_window = invalid\n", .{value});
+        defer std.testing.allocator.free(source);
+        apply(&snapshot, source);
+        try std.testing.expectEqual(@as(f64, 2), snapshot.layoutOptions(.tile).single_window_aspect_ratio);
+        try std.testing.expect(snapshot.layoutOptions(.tile).center_single_window);
+    }
+    apply(&snapshot, "[layout.options.tile]\ncenter_single_window = false\nsingle_window_aspect_ratio = 0.75\n");
+    try std.testing.expect(!snapshot.layoutOptions(.tile).center_single_window);
+    try std.testing.expectEqual(@as(f64, 0.75), snapshot.layoutOptions(.tile).single_window_aspect_ratio);
 }

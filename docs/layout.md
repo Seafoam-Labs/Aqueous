@@ -58,6 +58,42 @@ The compositor monitors configuration on its Wayland event loop. Changes are
 loaded as a new validated snapshot and trigger a manage cycle; the configured
 reload binding can also request an immediate reload.
 
+## Centering a single tiled window
+
+Enable automatic centering in `tile`, `grid`, `rows`, `dwindle`, and
+`reverse-dwindle` with:
+
+```toml
+[layout]
+center_single_window = true
+single_window_aspect_ratio = 1.7777777777777777 # approximately 16:9
+
+# Optional per-layout override:
+[layout.options.grid]
+center_single_window = false
+```
+
+Centering defaults to off. When exactly one eligible tiled window remains in
+an output/workspace, it retains the usable height after struts and outer gaps,
+and its width is capped at that height multiplied by the aspect ratio. The
+window is centered horizontally; narrower or portrait outputs retain their
+available width. Ratios must be finite and greater than zero. Existing border
+and client sizing behavior still applies, so the ratio is a layout width cap
+rather than a guarantee about a client's buffer dimensions.
+
+Opening a second tiled window restores the chosen layout's normal arrangement.
+Closing, minimizing, floating, or moving it away centers the remaining tile
+automatically. Floating windows, dialogs, minimized windows, fullscreen windows,
+and maximized windows do not participate in the tiled count. Fullscreen and
+maximized windows retain their usual placement. In composable layouts, each
+supported child centers within its own region and counts its own members.
+
+The settings are hot-reloaded and can also be edited in Pearl's Layouts page
+with a matching `aqueous-config` helper. Per-layout values inherit the global
+setting when omitted. The usual ordered `wm.toml` then `layout.toml` overlay
+rules apply. Scrolling, monocle, stacking, and game-mode retain their existing
+sizing policies.
+
 ## Stacking snap layouts
 
 Named snap layouts apply only when the workspace's effective layout is

@@ -900,3 +900,100 @@ test "published order follows layout moves without focus ordering" {
         try std.testing.expectEqual(null, orderIndex(&state, 1));
     }
 }
+
+test "single tile centering follows zero one two one transitions in every supported layout" {
+    const allocator = std.testing.allocator;
+    const area: types.Rect = .{ .x = -2200, .y = 40, .width = 2017, .height = 817 };
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
+    for ([_]config.LayoutId{ .tile, .grid, .rows, .dwindle, .reverse_dwindle }) |id| {
+        var snapshot: config.Snapshot = .{};
+        snapshot.default = id;
+        const options = &snapshot.options[@intFromEnum(id)];
+        options.gaps_outer = 8;
+        options.center_single_window = true;
+        options.single_window_aspect_ratio = 1.5;
+        options.border.width = 2;
+        var state: State = .{};
+        defer state.deinit(allocator);
+        for ([_]usize{ 0, 1, 2, 1 }) |count| {
+            const result = try arrange(allocator, &state, &snapshot, area, windows[0..count], 1, .{});
+            defer allocator.free(result);
+            try std.testing.expectEqual(count, result.len);
+            if (count == 1) {
+                try std.testing.expectEqual(types.Rect{ .x = -1793, .y = 48, .width = 1202, .height = 801 }, result[0].geometry);
+                try std.testing.expectEqual(@as(i32, 2), result[0].border.width);
+                try std.testing.expect(result[0].tiled and result[0].visible);
+            } else if (count == 2) {
+                var baseline_state: State = .{};
+                defer baseline_state.deinit(allocator);
+                var baseline_snapshot = snapshot;
+                baseline_snapshot.options[@intFromEnum(id)].center_single_window = false;
+                const baseline = try arrange(allocator, &baseline_state, &baseline_snapshot, area, &windows, 1, .{});
+                defer allocator.free(baseline);
+                try std.testing.expectEqualDeep(baseline, result);
+            }
+        }
+        // A config reload applies on the same live layout state.
+        options.center_single_window = false;
+        const disabled = try arrange(allocator, &state, &snapshot, area, windows[0..1], 1, .{});
+        defer allocator.free(disabled);
+        try std.testing.expectEqual(types.Rect{ .x = -2192, .y = 48, .width = 2001, .height = 801 }, disabled[0].geometry);
+        try std.testing.expectEqual(id, state.active_layout);
+    }
+}
+
+test "single window centering leaves specialized layouts alone" {
+    const allocator = std.testing.allocator;
+    for ([_]config.LayoutId{ .monocle, .scrolling, .floating, .game_mode }) |id| {
+        var snapshot: config.Snapshot = .{};
+        snapshot.default = id;
+        var ordinary: State = .{};
+        defer ordinary.deinit(allocator);
+        var centered: State = .{};
+        defer centered.deinit(allocator);
+        const area: types.Rect = .{ .x = 0, .y = 0, .width = 3000, .height = 800 };
+        const baseline = try arrange(allocator, &ordinary, &snapshot, area, &.{.{ .handle = 1 }}, 1, .{});
+        defer allocator.free(baseline);
+        for (&snapshot.options) |*options| options.center_single_window = true;
+        const result = try arrange(allocator, &centered, &snapshot, area, &.{.{ .handle = 1 }}, 1, .{});
+        defer allocator.free(result);
+        try std.testing.expectEqualDeep(baseline, result);
+    }
+}
+
+test "single window centering preserves tile resize state and composable membership" {
+    const allocator = std.testing.allocator;
+    var snapshot: config.Snapshot = .{};
+    config.apply(&snapshot,
+        \\[layout]
+        \\default = "composable"
+        \\gaps_outer = 0
+        \\center_single_window = true
+        \\single_window_aspect_ratio = 1.0
+        \\[layout.composable.a]
+        \\layout = "tile"
+        \\p1 = [0.0, 0.0]
+        \\p2 = [0.5, 0.0]
+        \\p3 = [0.5, 1.0]
+        \\p4 = [0.0, 1.0]
+        \\[layout.composable.b]
+        \\layout = "reverse-dwindle"
+        \\p1 = [0.5, 0.0]
+        \\p2 = [1.0, 0.0]
+        \\p3 = [1.0, 1.0]
+        \\p4 = [0.5, 1.0]
+    );
+    var state: State = .{};
+    defer state.deinit(allocator);
+    try state.composite.membership.put(allocator, 1, 0);
+    try state.composite.membership.put(allocator, 2, 1);
+    state.composite.children[0].tile.master_ratio_override = 0.7;
+    try state.composite.children[0].tile.height_overrides.put(allocator, 1, 300);
+    const placements = try arrange(allocator, &state, &snapshot, .{ .x = 100, .y = 20, .width = 4000, .height = 1000 }, &.{ .{ .handle = 1 }, .{ .handle = 2 } }, 1, .{});
+    defer allocator.free(placements);
+    try std.testing.expectEqual(types.Rect{ .x = 600, .y = 20, .width = 1000, .height = 1000 }, placements[0].geometry);
+    try std.testing.expectEqual(types.Rect{ .x = 2600, .y = 20, .width = 1000, .height = 1000 }, placements[1].geometry);
+    try std.testing.expectEqual(@as(?f64, 0.7), state.composite.children[0].tile.master_ratio_override);
+    try std.testing.expectEqual(@as(?i32, 300), state.composite.children[0].tile.height_overrides.get(1));
+    try std.testing.expectEqual(@as(?u8, 1), state.composite.membership.get(2));
+}

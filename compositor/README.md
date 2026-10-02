@@ -709,3 +709,15 @@ delivery percentiles, plus confidence intervals for paired differences. Use
 `--max-p95-increase-us N` to enforce a delivery budget; the default records a
 comparison without imposing an arbitrary performance threshold. See the
 [measurement method and results](../docs/input-activity-latency.md).
+
+Single-window tiling centering can be checked in a private ultrawide headless
+session using a diagnostic `-Dvulkan-effects=false` build:
+
+```sh
+python3 scripts/test-single-window-centering.py
+```
+
+Use `--compositor` and `--ctl` to select matching binaries from a separate build.
+The test exercises tile, grid, rows, dwindle and reverse-dwindle with opening,
+closing, minimization, workspace moves, dialogs, floating overlays, fullscreen,
+maximization and configuration reload. It uses temporary configuration only.

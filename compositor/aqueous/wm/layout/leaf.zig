@@ -18,6 +18,7 @@ const rows = @import("rows.zig");
 const scrolling = @import("scrolling.zig");
 const tile = @import("tile.zig");
 const types = @import("types.zig");
+const math = @import("math.zig");
 
 pub const State = struct {
     active_layout: config.LayoutId = .tile,
@@ -66,7 +67,7 @@ pub fn arrange(
         snapshot.layoutOptions(.floating),
     );
     const options = snapshot.layoutOptions(id);
-    return switch (id) {
+    const placements = try switch (id) {
         .tile => tile.arrange(allocator, &state.tile, area, windows, options),
         .monocle => monocle.arrange(allocator, &state.monocle, area, windows, focused, options, .{
             .hide_others = snapshot.monocle_hide_others,
@@ -96,6 +97,15 @@ pub fn arrange(
         .game_mode => game_mode.arrange(allocator, &state.game_mode, area, windows, focused, options, game_options),
         .composable => unreachable,
     };
+    switch (id) {
+        .tile, .grid, .rows, .dwindle, .reverse_dwindle => {
+            if (options.center_single_window and windows.len == 1 and placements.len == 1) {
+                placements[0].geometry = math.centerSingleWindow(placements[0].geometry, options.single_window_aspect_ratio);
+            }
+        },
+        else => {},
+    }
+    return placements;
 }
 
 /// Swap two tiled windows in every initialized layout order. Keeping dormant

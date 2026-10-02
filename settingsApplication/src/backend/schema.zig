@@ -134,6 +134,18 @@ pub const fields = [_]Field{
     f("layout.gaps_inner", .layouts, "Inner gaps", "Pixels between tiled placements.", .layout, "layout", "gaps_inner", .integer, "4", 0, 512),
     f("layout.master_ratio", .layouts, "Master ratio", "Share of the output assigned to the master area.", .layout, "layout", "master_ratio", .double, "0.55", 0.01, 0.99),
     f("layout.master_count", .layouts, "Master count", "Number of windows in the master area.", .layout, "layout", "master_count", .integer, "1", 1, 64),
+    b("layout.center_single_window", .layouts, "Center single window", "Center a lone tile in tile, grid, rows and both dwindle layouts. Floating windows and dialogs do not count.", .layout, "layout", "center_single_window", false),
+    f("layout.single_window_aspect_ratio", .layouts, "Single window aspect ratio", "Maximum width divided by height for a centered single tile; 1.778 is approximately 16:9. Must be greater than zero.", .layout, "layout", "single_window_aspect_ratio", .double, "1.7777777777777777", 0, null),
+    b("layout.options.tile.center_single_window", .layouts, "Tile: Center single window", "Center a lone tile in tile, grid, rows and both dwindle layouts. Floating windows and dialogs do not count.", .layout, "layout.options.tile", "center_single_window", false),
+    f("layout.options.tile.single_window_aspect_ratio", .layouts, "Tile: Single window aspect ratio", "Maximum width divided by height for a centered single tile; 1.778 is approximately 16:9. Must be greater than zero.", .layout, "layout.options.tile", "single_window_aspect_ratio", .double, "1.7777777777777777", 0, null),
+    b("layout.options.grid.center_single_window", .layouts, "Grid: Center single window", "Center a lone tile in tile, grid, rows and both dwindle layouts. Floating windows and dialogs do not count.", .layout, "layout.options.grid", "center_single_window", false),
+    f("layout.options.grid.single_window_aspect_ratio", .layouts, "Grid: Single window aspect ratio", "Maximum width divided by height for a centered single tile; 1.778 is approximately 16:9. Must be greater than zero.", .layout, "layout.options.grid", "single_window_aspect_ratio", .double, "1.7777777777777777", 0, null),
+    b("layout.options.rows.center_single_window", .layouts, "Rows: Center single window", "Center a lone tile in tile, grid, rows and both dwindle layouts. Floating windows and dialogs do not count.", .layout, "layout.options.rows", "center_single_window", false),
+    f("layout.options.rows.single_window_aspect_ratio", .layouts, "Rows: Single window aspect ratio", "Maximum width divided by height for a centered single tile; 1.778 is approximately 16:9. Must be greater than zero.", .layout, "layout.options.rows", "single_window_aspect_ratio", .double, "1.7777777777777777", 0, null),
+    b("layout.options.dwindle.center_single_window", .layouts, "Dwindle: Center single window", "Center a lone tile in tile, grid, rows and both dwindle layouts. Floating windows and dialogs do not count.", .layout, "layout.options.dwindle", "center_single_window", false),
+    f("layout.options.dwindle.single_window_aspect_ratio", .layouts, "Dwindle: Single window aspect ratio", "Maximum width divided by height for a centered single tile; 1.778 is approximately 16:9. Must be greater than zero.", .layout, "layout.options.dwindle", "single_window_aspect_ratio", .double, "1.7777777777777777", 0, null),
+    singleWindowField(b("layout.options.reverse-dwindle.center_single_window", .layouts, "Reverse-Dwindle: Center single window", "Center a lone tile in tile, grid, rows and both dwindle layouts. Floating windows and dialogs do not count.", .layout, "layout.options.reverse-dwindle", "center_single_window", false)),
+    singleWindowField(f("layout.options.reverse-dwindle.single_window_aspect_ratio", .layouts, "Reverse-Dwindle: Single window aspect ratio", "Maximum width divided by height for a centered single tile; 1.778 is approximately 16:9. Must be greater than zero.", .layout, "layout.options.reverse-dwindle", "single_window_aspect_ratio", .double, "1.7777777777777777", 0, null)),
     f("layout.border_width", .layouts, "Border width", "Window border width in pixels.", .layout, "layout", "border_width", .integer, "2", 0, 64),
     c("layout.border_focused", .layouts, "Focused border", "ARGB color for focused windows.", .layout, "layout", "border_focused", "0xFF88C0D0"),
     c("layout.border_normal", .layouts, "Normal border", "ARGB color for normal windows.", .layout, "layout", "border_normal", "0xFF3B4252"),
@@ -393,4 +405,10 @@ pub fn normalizeLayout(value: []const u8) []const u8 {
 pub fn find(id: []const u8) ?*const Field {
     for (&fields) |*field| if (std.mem.eql(u8, field.id, id)) return field;
     return null;
+}
+
+fn singleWindowField(value: Field) Field {
+    var result = value;
+    result.section_aliases = &.{"layout.options.reverse_dwindle"};
+    return result;
 }
