@@ -357,6 +357,12 @@
         "layout": {
           "type": "string"
         },
+        "layout_index": {
+          "description": "Optional zero-based order within the window's output and workspace; null when unordered.",
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 4294967295
+        },
         "focused": {
           "type": "boolean"
         },

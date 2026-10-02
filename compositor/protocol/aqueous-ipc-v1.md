@@ -336,3 +336,6 @@ The native actions `window_switcher_next`, `window_switcher_previous` and
 IPC clients can request reduced motion per step. Native bindings use the
 compositor's animation build setting. This extension does not introduce new
 Wayland shell command enumeration values.
+
+The optional `window_order` hello capability and `window.layout_index` use the
+scope and null semantics documented in [the shell state contract](aqueous-shell-v1.md).

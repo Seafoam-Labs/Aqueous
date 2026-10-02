@@ -37,6 +37,27 @@ pub fn swap(state: *State, a: types.Handle, b: types.Handle) bool {
         leaf.swap(&state.standalone, a, b);
 }
 
+/// Scope-local order from the layout's existing state. Unknown handles and
+/// layouts without a single tiled sequence have no index.
+pub fn orderIndex(state: *const State, handle: types.Handle) ?u32 {
+    const layout = &state.standalone;
+    const order = switch (state.active_layout) {
+        .scrolling => {
+            var index: u32 = 0;
+            for (layout.scrolling.columns.items) |column| {
+                for (column.windows.items) |member| {
+                    if (member == handle) return index;
+                    index += 1;
+                }
+            }
+            return null;
+        },
+        inline .tile, .monocle, .grid, .rows, .dwindle, .reverse_dwindle => |id| @field(layout, @tagName(id)).order.items.items,
+        .floating, .game_mode, .composable => return null,
+    };
+    return if (std.mem.indexOfScalar(types.Handle, order, handle)) |index| @intCast(index) else null;
+}
+
 pub fn drop(allocator: std.mem.Allocator, state: *State, dragged: types.Handle, target: types.Handle, zone: types.DropZone) !bool {
     return if (state.active_layout == .composable)
         composable.drop(allocator, &state.composite, dragged, target, zone)
@@ -840,4 +861,42 @@ test "fractional widths use game remainder and composable region rectangles" {
     defer std.testing.allocator.free(result);
     try std.testing.expectEqual(@as(i32, 65), result[0].geometry.width);
     try std.testing.expectEqual(@as(i32, 75), result[1].geometry.width);
+}
+
+test "published order follows layout moves without focus ordering" {
+    const a = std.testing.allocator;
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 300, .height = 100 };
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+    for ([_]config.LayoutId{ .tile, .monocle, .grid, .rows, .dwindle, .reverse_dwindle, .scrolling }) |id| {
+        var state: State = .{};
+        defer state.deinit(a);
+        var snapshot: config.Snapshot = .{};
+        snapshot.default = id;
+        try std.testing.expectEqual(null, orderIndex(&state, 1));
+        a.free(try arrange(a, &state, &snapshot, area, &windows, 1, .{}));
+        try std.testing.expectEqual(@as(?u32, 0), orderIndex(&state, 1));
+        try std.testing.expectEqual(@as(?u32, 2), orderIndex(&state, 3));
+        a.free(try arrange(a, &state, &snapshot, area, &windows, 3, .{}));
+        try std.testing.expectEqual(@as(?u32, 0), orderIndex(&state, 1));
+        try std.testing.expect(swap(&state, 1, 3));
+        try std.testing.expectEqual(@as(?u32, 2), orderIndex(&state, 1));
+        try std.testing.expectEqual(@as(?u32, 0), orderIndex(&state, 3));
+        // Inactive workspaces retain their last order; new arrivals are unknown.
+        try std.testing.expectEqual(null, orderIndex(&state, 4));
+        a.free(try arrange(a, &state, &snapshot, area, windows[0..2], 1, .{}));
+        try std.testing.expectEqual(null, orderIndex(&state, 3));
+    }
+    var state: State = .{};
+    defer state.deinit(a);
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .scrolling;
+    a.free(try arrange(a, &state, &snapshot, area, &windows, 1, .{}));
+    try std.testing.expect(try drop(a, &state, 3, 1, .stack_after));
+    a.free(try arrange(a, &state, &snapshot, area, &windows, 1, .{}));
+    try std.testing.expectEqual(@as(?u32, 1), orderIndex(&state, 3));
+    try std.testing.expectEqual(@as(?u32, 2), orderIndex(&state, 2));
+    for ([_]config.LayoutId{ .floating, .game_mode, .composable }) |id| {
+        state.active_layout = id;
+        try std.testing.expectEqual(null, orderIndex(&state, 1));
+    }
 }

@@ -63,6 +63,15 @@ handles return an empty string.
 | `keyboard_device` | `id`, `name`, `seat`, `group`, `virtual` |
 | `session` | fixed `id: "session"`, `locked`, unambiguous `default_seat`, `overview_output`, `overview_window` |
 
+The optional `window_order` capability advertises `window.layout_index`, a
+nullable zero-based position in the layout of that output and workspace. Compare
+scope before index; scrolling order is column-major. The existing layout order
+is read directly, so reorder deltas update affected windows and focus alone does
+not reorder them. Inactive workspaces retain their last arranged order. Floating,
+minimized, maximized, fullscreen, unmanaged, game-mode and composable windows,
+and handles not yet arranged, have no index. Older servers may omit the field.
+This is an additive schema-1 field on both shell transports.
+
 The optional `icon_metadata` capability advertises a window `icon` field:
 `null` uses the application's default icon; otherwise it contains `revision`
 (a decimal string), `name` (nullable theme name), and `has_pixels` (boolean).

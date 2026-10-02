@@ -3035,6 +3035,14 @@ pub fn clientWindowUsesFloatingLayout(
     }, handle);
 }
 
+/// Read the existing layout order; shell refresh already diffs changed entities.
+pub fn clientWindowLayoutIndex(aqueous: *Aqueous, handle: layout_types.Handle) ?u32 {
+    if (!aqueous.mode.runsInternal()) return null;
+    const workspace = aqueous.api.windowWorkspace(handle) orelse return null;
+    const state = aqueous.layout_states.getPtr(.{ .output = workspace.output_id, .workspace = workspace.workspace_number }) orelse return null;
+    return layout_engine.orderIndex(state, handle);
+}
+
 pub fn clientMinimizeAllowed(
     aqueous: *Aqueous,
     handle: layout_types.Handle,
