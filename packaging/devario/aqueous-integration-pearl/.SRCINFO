@@ -1,0 +1,22 @@
+pkgbase = aqueous-integration-pearl
+	pkgdesc = Pearl shell integration for the Aqueous session
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/Seafoam-Labs/Aqueous
+	arch = any
+	license = GPL-3.0-only
+	license = MIT
+	makedepends = git
+	depends = aqueous-session=1.0.0-1
+	conflicts = aqueous-git
+	conflicts = aqueous-git-intel
+	conflicts = aqueous-git-dms
+	conflicts = aqueous-integration-pearl-bin
+	conflicts = aqueous<0.7.0-2
+	conflicts = aqueous-bin<0.7.0-2
+	options = !debug
+	options = !strip
+	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v1.0.0
+	sha256sums = SKIP
+
+pkgname = aqueous-integration-pearl

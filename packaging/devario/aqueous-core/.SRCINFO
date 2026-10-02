@@ -1,5 +1,5 @@
-pkgbase = aqueous
-	pkgdesc = Aqueous Wayland compositor (stable, compositor only)
+pkgbase = aqueous-core
+	pkgdesc = Aqueous compositor, configuration helper and control client
 	pkgver = 1.0.0
 	pkgrel = 1
 	url = https://github.com/Seafoam-Labs/Aqueous
@@ -9,10 +9,14 @@ pkgbase = aqueous
 	license = MIT
 	license = 0BSD
 	license = CC-BY-SA-4.0
+	checkdepends = libarchive
+	checkdepends = ripgrep
+	checkdepends = gsettings-desktop-schemas
 	makedepends = git
 	makedepends = curl
 	makedepends = patch
 	makedepends = scdoc
+	makedepends = jq
 	makedepends = python
 	makedepends = shaderc
 	makedepends = clang
@@ -25,16 +29,20 @@ pkgbase = aqueous
 	makedepends = glslang
 	makedepends = vulkan-headers
 	makedepends = hwdata
-	makedepends = zig>=0.16
+	makedepends = zig=0.16.0
+	depends = freetype2
 	depends = wayland
 	depends = libxkbcommon
 	depends = libinput
 	depends = pixman
+	depends = libpng
 	depends = libdrm
 	depends = libevdev
 	depends = libdecor
 	depends = xorg-xwayland
 	depends = pipewire
+	depends = glib2
+	depends = fontconfig
 	depends = mesa
 	depends = systemd-libs
 	depends = seatd
@@ -49,17 +57,18 @@ pkgbase = aqueous
 	depends = brightnessctl
 	depends = playerctl
 	provides = aqueous=1.0.0
+	conflicts = aqueous
 	conflicts = aqueous-bin
-	conflicts = aqueous-core
-	conflicts = aqueous-core-bin
 	conflicts = aqueous-git
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
+	conflicts = aqueous-core-bin
 	options = !strip
 	options = !debug
+	options = !zipman
 	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v1.0.0
 	source = wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz
 	sha256sums = SKIP
 	sha256sums = 972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343
 
-pkgname = aqueous
+pkgname = aqueous-core

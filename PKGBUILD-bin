@@ -1,9 +1,9 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
-# Release template: publish v0.9.1 component archives before using this recipe.
+# Release template: publish v1.0.0 component archives before using this recipe.
 # packaging/release-components.sh supplies the archive and checksum-pinned recipe.
 pkgbase=aqueous-bin
 pkgname=(aqueous-core-bin aqueous-session-bin aqueous-welcome-bin xdg-desktop-portal-aqueous-bin aqueous-integration-dms-bin aqueous-integration-noctalia-bin aqueous-integration-pearl-bin aqueous-shell-dms-bin aqueous-shell-noctalia-bin aqueous-shell-pearl-bin aqueous-bin)
-pkgver=0.9.1
+pkgver=1.0.0
 pkgrel=1
 # Keep tested binary/library bytes and component manifests stable.
 options=('!strip' '!debug' '!zipman')

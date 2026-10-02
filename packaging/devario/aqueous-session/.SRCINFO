@@ -1,0 +1,40 @@
+pkgbase = aqueous-session
+	pkgdesc = Aqueous login session and shell-neutral desktop configuration
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/Seafoam-Labs/Aqueous
+	arch = any
+	license = GPL-3.0-only
+	license = MIT
+	makedepends = git
+	depends = aqueous-core=1.0.0-1
+	depends = bash
+	depends = jq
+	depends = coreutils
+	depends = uwsm
+	depends = dbus
+	depends = systemd
+	depends = ghostty
+	depends = grim
+	depends = slurp
+	depends = wl-clipboard
+	depends = libnotify
+	depends = xdg-desktop-portal
+	depends = xdg-desktop-portal-gtk
+	conflicts = aqueous-git
+	conflicts = aqueous-git-intel
+	conflicts = aqueous-git-dms
+	conflicts = aqueous-session-bin
+	conflicts = aqueous<0.7.0-2
+	conflicts = aqueous-bin<0.7.0-2
+	options = !debug
+	options = !strip
+	backup = etc/xdg/aqueous/wm.toml
+	backup = etc/xdg/aqueous/outputs.toml
+	backup = etc/xdg/uwsm/env-aqueous
+	backup = etc/xdg/menus/aqueous-applications.menu
+	backup = etc/xdg/xdg-desktop-portal-aqueous/config
+	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v1.0.0
+	sha256sums = SKIP
+
+pkgname = aqueous-session

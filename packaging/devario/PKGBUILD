@@ -1,8 +1,8 @@
 # Maintainer: Devario maintainers
 pkgname=devario-desktop
-pkgver=0.9.1
+pkgver=1.0.0
 pkgrel=1
-pkgdesc='Devario desktop with stable Aqueous and Pearl'
+pkgdesc='Devario desktop with stable Aqueous, Pearl and Pearl Greeter'
 arch=('any')
 url='https://github.com/Seafoam-Labs/Aqueous'
 license=('GPL-3.0-only')
@@ -13,7 +13,8 @@ depends=("aqueous-core=$pkgver-1"
          "xdg-desktop-portal-aqueous=$pkgver-1"
          "aqueous-integration-pearl=$pkgver-1"
          "aqueous-shell-pearl=$pkgver-1"
-         'pearl')
+         'pearl'
+         'pearl-greeter')
 conflicts=('aqueous-desktop' 'devario-aqueous-desktop')
 backup=('etc/xdg/aqueous/session.toml')
 source=('session.toml')

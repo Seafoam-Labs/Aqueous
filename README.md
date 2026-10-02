@@ -330,13 +330,13 @@ operation. The default helper build has no GUI dependency or desktop launcher.
 
 For a minimal stable compositor, including Pearl greeter's `aqueous` dependency,
 use [`packaging/arch/aqueous/PKGBUILD`](packaging/arch/aqueous/PKGBUILD).
-It builds release `v0.9.0` and installs `aqueous` with its private wlroots library,
+It builds release `v1.0.0` and installs `aqueous` with its private wlroots library,
 manual and licenses. Build it with `cd packaging/arch/aqueous && makepkg -si`.
 
 For the complete stable desktop, use
 [`packaging/arch/aqueous-desktop/PKGBUILD`](packaging/arch/aqueous-desktop/PKGBUILD).
 It builds `aqueous-core`, the desktop components and the `aqueous-desktop` meta
-package from `v0.9.1` once that tag is published with the packaging test fix.
+package from `v1.0.0` once that tag is published.
 See the [stable desktop guide](docs/stable-desktop-packages.md)
 for build and installation instructions. The core provides `aqueous` for Pearl
 and replaces the minimal compositor package because their files overlap.
