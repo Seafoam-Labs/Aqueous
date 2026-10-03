@@ -1,7 +1,7 @@
 pkgbase = aqueous-core
 	pkgdesc = Aqueous compositor, configuration helper and control client
 	pkgver = 1.0.0
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = x86_64
 	arch = aarch64
@@ -12,6 +12,7 @@ pkgbase = aqueous-core
 	checkdepends = libarchive
 	checkdepends = ripgrep
 	checkdepends = gsettings-desktop-schemas
+	makedepends = patchelf
 	makedepends = git
 	makedepends = curl
 	makedepends = patch

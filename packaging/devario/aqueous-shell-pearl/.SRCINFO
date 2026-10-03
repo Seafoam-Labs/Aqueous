@@ -1,12 +1,12 @@
 pkgbase = aqueous-shell-pearl
 	pkgdesc = Pearl shell dependency preset for Aqueous
 	pkgver = 1.0.0
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = any
 	license = GPL-3.0-only
 	license = MIT
-	depends = aqueous-integration-pearl=1.0.0-1
+	depends = aqueous-integration-pearl=1.0.0-2
 	depends = pearl
 	conflicts = aqueous-git
 	conflicts = aqueous-git-intel

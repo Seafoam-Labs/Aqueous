@@ -38,8 +38,13 @@ before building its dependency preset, and publish `pearl-greeter` before
 building the top-level `devario-desktop` preset. Their recipes are maintained in
 Pearl's `packaging/Devario/pearl` and `packaging/Devario/pearl-greeter` directories.
 
-The component releases are `1.0.0-1`, matching the upstream split packages;
-the desktop preset has its own `pkgrel`. Core and portal use Zig `0.16.0` and
+Core, session, Pearl integration/preset, and `devario-desktop` are `1.0.0-2`.
+The portal remains `1.0.0-1`. Core release 2 removes the temporary wlroots build
+path from the installed compositor's RUNPATH using `patchelf`, then verifies
+that only `$ORIGIN/../lib/aqueous` remains. The other release bumps keep exact
+component dependency pins consistent; rebuild and publish all five in the
+order above. This packaging fix still builds the existing `v1.0.0` source tag.
+Core and portal use Zig `0.16.0` and
 target x86-64-v3 on x86_64, with baseline aarch64 support. The configuration-only
 packages are architecture independent. Pearl's current recipes support x86_64,
 so the complete Devario Pearl desktop currently targets x86_64.

@@ -1,13 +1,13 @@
 pkgbase = aqueous-integration-pearl
 	pkgdesc = Pearl shell integration for the Aqueous session
 	pkgver = 1.0.0
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = any
 	license = GPL-3.0-only
 	license = MIT
 	makedepends = git
-	depends = aqueous-session=1.0.0-1
+	depends = aqueous-session=1.0.0-2
 	conflicts = aqueous-git
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms

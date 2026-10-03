@@ -2,7 +2,7 @@
 # Standalone component from the same release as the upstream split packages.
 pkgname=aqueous-integration-pearl
 pkgver=1.0.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Pearl shell integration for the Aqueous session'
 arch=('any')
 url='https://github.com/Seafoam-Labs/Aqueous'
