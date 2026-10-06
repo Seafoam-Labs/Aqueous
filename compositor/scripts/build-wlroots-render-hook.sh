@@ -223,6 +223,9 @@ cc "$here/scripts/fixtures/wlroots-commit-timing-api.c" \
 LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     "$build_root/commit-timing-api" || die "commit timing API probe failed"
 
+python3 "$here/scripts/test-xdg-output.py" "$prefix" ||
+    die "xdg-output change detection or client isolation failed"
+
 probe="$build_root/scene-precise-position"
 cc "$here/scripts/fixtures/wlroots-precise-position.c" \
     -o "$probe" \

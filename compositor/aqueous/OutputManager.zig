@@ -946,6 +946,9 @@ pub fn commitOutputState(om: *OutputManager) void {
     }
 
     if (build_options.xwayland and server.xwayland != null) {
+        // Refresh after current state is committed: another head may change the
+        // shared X11 origin. wlroots compares each projected resource's last
+        // advertised geometry and leaves ordinary Wayland clients untouched.
         wlr_xdg_output_manager_v1_update(om.xdg_output_manager);
         // Window.renderFinish ran before current output state was committed.
         // Reconfigure against the new desktop origin even when window size and

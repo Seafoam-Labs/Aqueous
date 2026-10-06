@@ -149,6 +149,23 @@ scripts/test-color-management-luminance.sh
 scripts/test-proton-hdr-color-management.sh
 ```
 
+The XWayland output projection refresh sends geometry only when the position
+or size advertised to that client changes. Ordinary Wayland clients receive
+logical geometry through layout updates; window-management transactions do
+not resend unchanged xdg-output events. This fixes issue #80 and requires
+rebuilding and shipping the patched wlroots library, then restarting Aqueous.
+The dependency build checks xdg-output versions 1–3, client isolation, initial
+bindings, projection changes, completion events, and resource destruction.
+Run those checks separately with `python3 scripts/test-xdg-output.py PREFIX`,
+where `PREFIX` is the patched wlroots installation (defaults to
+`.deps/wlroots-render-hook`).
+To also check active XWayland sessions in both scaling modes, add
+`--compositor zig-out/bin/aqueous --ctl zig-out/bin/aqueousctl` (use
+`--renderer vulkan` for the effects build). These private two-output sessions
+check unchanged layout/window transactions, position, scale, rotation, mode,
+rejected configuration, and output reenable with native clients at each
+xdg-output version.
+
 The pinned wlroots build includes an 8-bit XRGB shared-memory screencopy path
 for 10-bit outputs, allowing clients such as grabit to capture with HDR enabled.
 PQ captures are converted to SDR gamma/primaries using the configured SDR white
