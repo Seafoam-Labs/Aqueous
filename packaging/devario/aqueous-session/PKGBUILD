@@ -1,8 +1,8 @@
 # Maintainer: Devario maintainers
 # Standalone component from the same release as the upstream split packages.
 pkgname=aqueous-session
-pkgver=1.0.0
-pkgrel=2
+pkgver=1.0.1
+pkgrel=1
 pkgdesc='Aqueous login session and shell-neutral desktop configuration'
 arch=('any')
 url='https://github.com/Seafoam-Labs/Aqueous'

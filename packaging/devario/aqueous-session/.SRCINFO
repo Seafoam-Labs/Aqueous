@@ -1,13 +1,13 @@
 pkgbase = aqueous-session
 	pkgdesc = Aqueous login session and shell-neutral desktop configuration
-	pkgver = 1.0.0
-	pkgrel = 2
+	pkgver = 1.0.1
+	pkgrel = 1
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = any
 	license = GPL-3.0-only
 	license = MIT
 	makedepends = git
-	depends = aqueous-core=1.0.0-2
+	depends = aqueous-core=1.0.1-1
 	depends = bash
 	depends = jq
 	depends = coreutils
@@ -34,7 +34,7 @@ pkgbase = aqueous-session
 	backup = etc/xdg/uwsm/env-aqueous
 	backup = etc/xdg/menus/aqueous-applications.menu
 	backup = etc/xdg/xdg-desktop-portal-aqueous/config
-	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v1.0.0
+	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v1.0.1
 	sha256sums = SKIP
 
 pkgname = aqueous-session
