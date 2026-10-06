@@ -1,8 +1,8 @@
 # Maintainer: Devario maintainers
 # Standalone component from the same release as the upstream split packages.
 pkgname=aqueous-shell-pearl
-pkgver=1.0.0
-pkgrel=2
+pkgver=1.0.1
+pkgrel=1
 pkgdesc='Pearl shell dependency preset for Aqueous'
 arch=('any')
 url='https://github.com/Seafoam-Labs/Aqueous'

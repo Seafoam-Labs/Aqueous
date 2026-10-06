@@ -1,7 +1,7 @@
 # Maintainer: Devario maintainers
 # Standalone component from the same release as the upstream split packages.
 pkgname=xdg-desktop-portal-aqueous
-pkgver=1.0.0
+pkgver=1.0.1
 pkgrel=1
 pkgdesc='Aqueous screen-sharing portal and standalone GTK source picker'
 arch=('x86_64' 'aarch64')
