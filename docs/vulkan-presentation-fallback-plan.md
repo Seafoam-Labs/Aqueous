@@ -96,6 +96,13 @@ transaction checks but stop at that known restriction. The complete preview
 suite uses the explicit no-effects Pixman diagnostic build, which is not a
 production session fallback.
 
+Deferring Xwayland startup preserves its seat, cursor, keyboard-grab protocol
+and initial coordinate validation. Hardware Vulkan and diagnostic Pixman pass
+the managed/override-redirect input tests at scales 1 and 1.5. Lavapipe's Xwayland
+window-mapping failure also reproduces with the previous experimental build and
+remains a separate software-rendering issue. Candidate fault tests verify that
+rejected candidates do not start Xwayland.
+
 The stages below describe the broader qualification and development plan;
 implemented startup selection does not mark the entire plan complete.
 
