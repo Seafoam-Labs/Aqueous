@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const protocol_version: u32 = 1;
-pub const helper_version = "1.0.0";
+pub const helper_version = "1.0.2";
 pub const capabilities: []const []const u8 = &.{
     "schema_fields",                     "validate",                      "generation_check",            "stdin_requests",
     "atomic_file_replace",               "monitor_modes",                 "monitor_mirroring",           "live_outputs",

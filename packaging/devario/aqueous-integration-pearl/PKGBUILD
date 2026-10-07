@@ -1,7 +1,7 @@
 # Maintainer: Devario maintainers
 # Standalone component from the same release as the upstream split packages.
 pkgname=aqueous-integration-pearl
-pkgver=1.0.1
+pkgver=1.0.2
 pkgrel=1
 pkgdesc='Pearl shell integration for the Aqueous session'
 arch=('any')

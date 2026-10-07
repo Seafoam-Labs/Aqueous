@@ -1,6 +1,6 @@
 pkgbase = aqueous-core
 	pkgdesc = Aqueous compositor, configuration helper and control client
-	pkgver = 1.0.1
+	pkgver = 1.0.2
 	pkgrel = 1
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = x86_64
@@ -57,7 +57,7 @@ pkgbase = aqueous-core
 	depends = xcb-util-renderutil
 	depends = brightnessctl
 	depends = playerctl
-	provides = aqueous=1.0.1
+	provides = aqueous=1.0.2
 	conflicts = aqueous
 	conflicts = aqueous-bin
 	conflicts = aqueous-git
@@ -67,7 +67,7 @@ pkgbase = aqueous-core
 	options = !strip
 	options = !debug
 	options = !zipman
-	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v1.0.1
+	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v1.0.2
 	source = wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz
 	sha256sums = SKIP
 	sha256sums = 972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343

@@ -1,13 +1,13 @@
 # Devario desktop
 
-`devario-desktop` installs stable Aqueous `1.0.1` with Pearl and Pearl Greeter. It depends directly
+`devario-desktop` installs stable Aqueous `1.0.2` with Pearl and Pearl Greeter. It depends directly
 on the core, session, portal and Pearl integration/preset packages,
 without Welcome, the general `aqueous-desktop` meta package or DMS/Noctalia
 integrations, presets or shells.
 
 The portal package includes `aqueous-portal-picker`, a standalone GTK source
 picker. Pearl screen sharing and normal session startup do not require Welcome.
-The portal recipe uses the `picker` build target from `v1.0.1`; it does not build
+The portal recipe uses the `picker` build target from `v1.0.2`; it does not build
 or install the Welcome app.
 
 The package installs `/etc/xdg/aqueous/session.toml` selecting Pearl. Aqueous uses
@@ -19,7 +19,7 @@ own install hook, without restarting the running session. Select the **Aqueous**
 session at login.
 
 Each subdirectory is an independent build directory with its own `PKGBUILD` and
-`.SRCINFO`. Source recipes select the upstream `v1.0.1` tag, which must be
+`.SRCINFO`. Source recipes select the upstream `v1.0.2` tag, which must be
 published before fetching the release; the dependency-only
 Pearl preset needs no source checkout. No recipe sources a neighboring recipe.
 
@@ -39,7 +39,7 @@ building the top-level `devario-desktop` preset. Their recipes are maintained in
 Pearl's `packaging/Devario/pearl` and `packaging/Devario/pearl-greeter` directories.
 
 Core, session, portal, Pearl integration/preset and `devario-desktop` are
-`1.0.1-1`, the first release built from the `v1.0.1` source tag. Core removes
+`1.0.2-1`, the first release built from the `v1.0.2` source tag. Core removes
 the temporary wlroots build path from the installed compositor's RUNPATH using
 `patchelf`, then verifies that only `$ORIGIN/../lib/aqueous` remains. Exact
 component dependency pins require the whole cohort to move together; rebuild
