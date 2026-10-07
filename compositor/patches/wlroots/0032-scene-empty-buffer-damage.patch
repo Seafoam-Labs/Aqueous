@@ -1,0 +1,25 @@
+From: Aqueous maintainers
+Subject: [PATCH] scene: skip transforming empty buffer damage
+
+Keep buffer ownership, cached texture invalidation, wait timeline updates and
+mapping/size damage intact. Once those updates are complete, an explicitly
+empty damage region cannot affect any output. Avoid coordinate lookup, region
+transforms, scaling and output traversal in this common commit path. A NULL
+damage region still means full damage.
+
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -1040,6 +1040,13 @@
+ 		return;
+ 	}
+ 
++	// Buffer ownership, texture invalidation, synchronization and geometry
++	// updates above still apply even when the client supplied no damage.
++	// Transforming an empty region cannot damage any output.
++	if (options->damage != NULL && pixman_region32_empty(options->damage)) {
++		return;
++	}
++
+ 	int lx, ly;
+ 	if (!wlr_scene_node_coords(&scene_buffer->node, &lx, &ly)) {
+ 		return;

@@ -2,11 +2,6 @@
 
 const std = @import("std");
 
-pub const OpaqueRegionPolicy = enum {
-    client,
-    empty,
-};
-
 pub const Rect = struct {
     x: i32,
     y: i32,
@@ -73,16 +68,6 @@ pub fn effectsRequireComposition(
     backdrop_blur: bool,
 ) bool {
     return rounded_corners or backdrop_blur;
-}
-
-pub fn opaqueRegionPolicy(opacity: f32) OpaqueRegionPolicy {
-    return if (opacity < 1) .empty else .client;
-}
-
-test "translucent buffers never advertise an opaque region" {
-    try std.testing.expectEqual(OpaqueRegionPolicy.empty, opaqueRegionPolicy(0));
-    try std.testing.expectEqual(OpaqueRegionPolicy.empty, opaqueRegionPolicy(0.85));
-    try std.testing.expectEqual(OpaqueRegionPolicy.client, opaqueRegionPolicy(1));
 }
 
 test "protocol opacity fractions preserve endpoints" {

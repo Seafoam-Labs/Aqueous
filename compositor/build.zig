@@ -540,6 +540,23 @@ pub fn build(b: *Build) !void {
         });
         const run_visual_state_test = b.addRunArtifact(visual_state_test);
 
+        const scene_opacity_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/scene_opacity.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libc = true,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        scene_opacity_test.root_module.addImport("wlroots", wlroots);
+        scene_opacity_test.root_module.addImport("pixman", pixman);
+        scene_opacity_test.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
+        scene_opacity_test.root_module.linkSystemLibrary("pixman-1", .{});
+        const run_scene_opacity_test = b.addRunArtifact(scene_opacity_test);
+        b.step("test-scene-opacity", "Test opacity and derived scene occlusion").dependOn(&run_scene_opacity_test.step);
+
         const cursor_lock_restore_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("aqueous/cursor_lock_restore.zig"),
@@ -908,6 +925,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_scaling_test.step);
         test_step.dependOn(&run_xwayland_projection_test.step);
         test_step.dependOn(&run_visual_state_test.step);
+        test_step.dependOn(&run_scene_opacity_test.step);
         test_step.dependOn(&run_cursor_lock_restore_test.step);
         test_step.dependOn(&run_cursor_config_test.step);
         test_step.dependOn(&run_child_processes_test.step);

@@ -5,11 +5,10 @@
 
 const build_options = @import("build_options");
 const std = @import("std");
-const pixman = @import("pixman");
 const wlr = @import("wlroots");
 const EffectMetadata = @import("render/EffectMetadata.zig");
 const render_metrics = @import("render_metrics.zig");
-const visual_state = @import("visual_state.zig");
+const scene_opacity = @import("scene_opacity.zig");
 
 /// Corner radius (in layout pixels) applied to window content and borders.
 /// Builds with no effects backend retain square corners.
@@ -217,41 +216,10 @@ pub fn destroyOptimizedBlur(blur_node: OutputBlurCache) void {
     render_metrics.recordBlurCache(.destroy);
 }
 
-/// Synchronize compositor-owned visual state for every buffer in a tree.
-/// Opacity below 1 invalidates the client's opaque-region hint because the
-/// resulting pixels still need blending. At opacity 1, restore the backing
-/// surface's authoritative hint. Recurse manually so disabled transaction trees
-/// are updated too.
+/// Apply opacity while preserving wlroots' format-, clip- and scale-adjusted
+/// opaque region. wlroots already excludes translucent buffers from occlusion.
 pub fn setTreeOpacity(tree: *wlr.SceneTree, opacity: f32) void {
-    setNodeOpacity(&tree.node, opacity);
-}
-
-fn setNodeOpacity(node: *wlr.SceneNode, opacity: f32) void {
-    switch (node.type) {
-        .buffer => syncBufferVisualState(wlr.SceneBuffer.fromNode(node), opacity),
-        .tree => {
-            const tree: *wlr.SceneTree = @fieldParentPtr("node", node);
-            var it = tree.children.iterator(.forward);
-            while (it.next()) |child| setNodeOpacity(child, opacity);
-        },
-        else => {},
-    }
-}
-
-fn syncBufferVisualState(buffer: *wlr.SceneBuffer, opacity: f32) void {
-    buffer.setOpacity(opacity);
-
-    switch (visual_state.opaqueRegionPolicy(opacity)) {
-        .empty => {
-            var empty: pixman.Region32 = undefined;
-            empty.init();
-            defer empty.deinit();
-            buffer.setOpaqueRegion(&empty);
-        },
-        .client => if (wlr.SceneSurface.tryFromBuffer(buffer)) |scene_surface| {
-            buffer.setOpaqueRegion(&scene_surface.surface.current.@"opaque");
-        },
-    }
+    scene_opacity.apply(&tree.node, opacity);
 }
 
 /// Copy backend-specific attributes into a transaction snapshot. Fresh clone

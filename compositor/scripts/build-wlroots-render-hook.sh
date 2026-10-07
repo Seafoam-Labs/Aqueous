@@ -37,6 +37,7 @@ patch_files=(
     "$here/patches/wlroots/0029-screencopy-sdr-gamma-lookup.patch"
     "$here/patches/wlroots/0030-vulkan-presentation-copy.patch"
     "$here/patches/wlroots/0031-vulkan-device-selection.patch"
+    "$here/patches/wlroots/0032-scene-empty-buffer-damage.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -141,9 +142,12 @@ rotate_line=$(
     [ "$history_line" -lt "$rotate_line" ] ||
     die "expanded effect damage is not recorded before buffer-history rotation"
 
+# Keep wlroots optimized independently of the caller's CFLAGS and Zig build
+# mode. Retain debug symbols and assertions for diagnostics.
 meson setup "$build_dir" "$source_dir" \
     --prefix="$prefix" \
     --libdir=lib \
+    --buildtype=debugoptimized \
     -Dexamples=false \
     -Dxwayland=enabled \
     -Drenderers=vulkan \
@@ -256,6 +260,14 @@ cc "$here/scripts/fixtures/wlroots-scene-order.c" \
 LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     "$scene_order_probe" ||
     die "patched wlroots did not preserve scene render ordering"
+
+scene_damage_probe="$build_root/wlroots-scene-empty-damage"
+cc -std=c11 -O2 -Wall -Wextra -Werror \
+    "$here/scripts/fixtures/wlroots-scene-empty-damage.c" -o "$scene_damage_probe" \
+    $(PKG_CONFIG_PATH="$prefix/lib/pkgconfig" pkg-config \
+        --cflags --libs wlroots-0.20 pixman-1 wayland-server)
+LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+    "$scene_damage_probe" || die "scene empty-damage state updates failed"
 
 python3 "$here/scripts/test-pointer-enter.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-protocol-version-handlers.py" "$source_dir" "$prefix"
