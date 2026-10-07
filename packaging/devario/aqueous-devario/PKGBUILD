@@ -1,0 +1,186 @@
+# Maintainer: Devario maintainers
+# Build all five outputs with Shelly's native builder.
+pkgbase=aqueous-devario
+pkgname=(aqueous-core aqueous-session aqueous-integration-pearl aqueous-shell-pearl
+         xdg-desktop-portal-aqueous)
+pkgver=1.0.2
+pkgrel=2
+pkgdesc='Aqueous components for the Devario Pearl desktop'
+arch=('x86_64' 'aarch64')
+url='https://github.com/Seafoam-Labs/Aqueous'
+license=('GPL-3.0-only' 'MIT')
+# Shelly resolves shared build inputs before running any package function.
+# Keep sibling dependencies and runtime-only tools in package_*() below.
+makedepends=('patchelf' 'git' 'curl' 'patch' 'scdoc' 'jq' 'python' 'shaderc' 'clang' 'lld' 'llvm'
+             'wayland-protocols>=1.49' 'pkgconf' 'meson' 'ninja' 'glslang'
+             'vulkan-headers' 'hwdata' 'zig=0.16.0'
+             'freetype2' 'wayland' 'libxkbcommon' 'libinput' 'pixman' 'libpng' 'libdrm'
+             'libevdev' 'libdecor' 'xorg-xwayland' 'pipewire' 'glib2' 'fontconfig' 'mesa'
+             'systemd-libs' 'seatd' 'libdisplay-info' 'libliftoff' 'lcms2'
+             'vulkan-icd-loader' 'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil'
+             'gtk4' 'libinih')
+checkdepends=('libarchive' 'ripgrep' 'gsettings-desktop-schemas')
+options=('!strip' '!debug' '!zipman')
+source=("aqueous::git+${url}.git#tag=v${pkgver}"
+        'wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz'
+        'xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz')
+sha256sums=('SKIP'
+            '972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343'
+            '3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400')
+
+prepare() {
+    patch --fuzz=0 -d "$srcdir/xdg-desktop-portal-wlr-0.8.4" -Np1 \
+        -i "$srcdir/aqueous/packaging/portal/0001-rename-backend-for-aqueous.patch"
+    # v1.0.2 updated the helper version but left these assertions at 0.8.3.
+    # Check against the packaged release while retaining the capability tests.
+    sed -i "s/'0\.8\.3'/'$pkgver'/g" \
+        "$srcdir/aqueous/settingsApplication/tests/backend/test-protected-collections.py" \
+        "$srcdir/aqueous/settingsApplication/tests/backend/test-display-mutations.py"
+}
+
+build() {
+    # x86-64-v3 is shared by supported Intel and AMD CPUs; ARM stays baseline.
+    case ${CARCH:-$(uname -m)} in
+        x86_64)
+            AQUEOUS_ZIG_CPU=x86_64_v3
+            export CFLAGS="${CFLAGS:+$CFLAGS }-march=x86-64-v3 -mtune=generic"
+            export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-march=x86-64-v3 -mtune=generic"
+            ;;
+        aarch64) AQUEOUS_ZIG_CPU=baseline ;;
+        *) printf 'Unsupported package architecture: %s\n' "${CARCH:-$(uname -m)}" >&2; return 1 ;;
+    esac
+    # Canonical configuration helper; Pearl supplies the settings UI.
+    ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-config-zig-global" \
+    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-config-zig-local" \
+        zig build --build-file "$srcdir/aqueous/settingsApplication/build.zig" \
+        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-config-dist"
+
+    # Build the Aqueous compositor/policy executable and inspection client.
+    msg2 "Building Aqueous compositor..."
+    cd "$srcdir/aqueous/compositor"
+    # Recreate generated protocol metadata so incremental builds cannot ship retired names.
+    rm -rf -- "$srcdir/aqueous-dist/share/aqueous-protocols"
+    # -Dllvm forces the LLVM backend + LLD linker. Zig 0.16.0's self-hosted
+    # ELF linker can't handle R_X86_64_PC64 in .sframe emitted by gcc >= 16.
+    # Keep the manuals deterministic in clean chroots. In-tree builds make
+    # them optional when scdoc is absent, but packages must always document
+    # both installed executables, including aqueousctl.
+    AQUEOUS_WLROOTS_CACHE_DIR="$srcdir" \
+        scripts/build-wlroots-render-hook.sh
+    PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig" \
+    zig build -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe -Dxwayland -Dllvm \
+        -Dman-pages=true -Dversion-string="$pkgver" \
+        --prefix "$srcdir/aqueous-dist" install
+
+    cd "$srcdir"
+    # This target builds the screen-sharing picker without the Welcome app.
+    ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-picker-zig-global" \
+    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-picker-zig-local" \
+        zig build --build-file "$srcdir/aqueous/welcome/build.zig" picker \
+        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-picker-dist"
+    sh "$srcdir/aqueous/packaging/portal/build-aqueous-portal.sh" \
+        "$srcdir/xdg-desktop-portal-wlr-0.8.4" \
+        "$srcdir/aqueous-portal-build" "$srcdir/aqueous-portal-dist"
+}
+
+check() {
+    ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-config-zig-global" \
+    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-config-zig-local" \
+        zig build --build-file "$srcdir/aqueous/settingsApplication/build.zig" test test-driver -Dmodel-only=true --prefix "$srcdir/aqueous-config-tests"
+    AQUEOUS_CONFIG_BINARY="$srcdir/aqueous-config-dist/bin/aqueous-config" \
+    AQUEOUSCTL_BINARY="$srcdir/aqueous-dist/bin/aqueousctl" \
+        "$srcdir/aqueous/settingsApplication/tests/test-packaging.sh"
+    "$srcdir/aqueous/settingsApplication/tests/test-backend.sh" "$srcdir/aqueous-config-tests/bin/aqueous-backend-test"
+
+    # aqueousctl and its protocol/manual are one feature: reject a partial
+    # install tree before package() copies it into the package image.
+    local required=(
+        bin/aqueous
+        bin/aqueous-activity-launch
+        bin/aqueousctl
+        lib/aqueous/libwlroots-0.20.so
+        share/man/man1/aqueousctl.1
+        share/aqueous-protocols/stable/aqueous-window-info-v1.xml
+        share/aqueous-protocols/stable/aqueous-window-management-v1.xml
+        share/aqueous-protocols/stable/aqueous-input-management-v1.xml
+        share/aqueous-protocols/stable/aqueous-xkb-bindings-v1.xml
+        share/aqueous-protocols/stable/aqueous-xkb-config-v1.xml
+        share/aqueous-protocols/stable/aqueous-libinput-config-v1.xml
+        share/aqueous-protocols/stable/aqueous-layer-shell-v1.xml
+    )
+    local path
+    for path in "${required[@]}"; do
+        if [[ ! -e "$srcdir/aqueous-dist/$path" ]]; then
+            error "build output is missing required file: $path"
+            return 1
+        fi
+    done
+    cmp "$srcdir/aqueous-dist/lib/aqueous/libwlroots-0.20.so" \
+        "$srcdir/aqueous/compositor/.deps/wlroots-render-hook/lib/libwlroots-0.20.so"
+    readelf -d "$srcdir/aqueous-dist/bin/aqueous" |
+        grep -F '$ORIGIN/../lib/aqueous' >/dev/null
+    if readelf -d "$srcdir/aqueous-dist/bin/aqueous" |
+        grep -i 'scenefx' >/dev/null; then
+        error "compositor still links SceneFX"
+        return 1
+    fi
+
+    test -x "$srcdir/aqueous-picker-dist/bin/aqueous-portal-picker"
+    test ! -e "$srcdir/aqueous-picker-dist/bin/aqueous-welcome"
+    bash "$srcdir/aqueous/packaging/tests/test-portal-packaging.sh" \
+        "$srcdir/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
+}
+
+package_aqueous-core() {
+    pkgdesc='Aqueous compositor, configuration helper and control client'
+    license=('GPL-3.0-only' 'MIT' '0BSD' 'CC-BY-SA-4.0')
+    depends=("freetype2" "wayland" "libxkbcommon" "libinput" "pixman" "libpng" "libdrm" "libevdev" "libdecor" "xorg-xwayland" "pipewire" "glib2" "fontconfig" "mesa" "systemd-libs" "seatd" "libdisplay-info" "libliftoff" "lcms2" "vulkan-icd-loader" "libxcb" "xcb-util-errors" "xcb-util-wm" "xcb-util-renderutil" "brightnessctl" "playerctl")
+    provides=("aqueous=$pkgver")
+    conflicts=('aqueous' 'aqueous-bin' 'aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-core-bin')
+    AQUEOUS_COMPOSITOR_DIST="$srcdir/aqueous-dist" \
+    AQUEOUS_CONFIG_BINARY="$srcdir/aqueous-config-dist/bin/aqueous-config" \
+        DESTDIR="$pkgdir" PREFIX=/usr bash "$srcdir/aqueous/packaging/stage-component.sh" core
+    # Zig also records the build-local wlroots directory. The installed binary
+    # must resolve the packaged private library without retaining worker paths.
+    local binary="$pkgdir/usr/bin/aqueous"
+    patchelf --set-rpath '$ORIGIN/../lib/aqueous' "$binary"
+    if [[ "$(patchelf --print-rpath "$binary")" != '$ORIGIN/../lib/aqueous' ]]; then
+        error "installed compositor has an unexpected private-library search path"
+        return 1
+    fi
+}
+
+package_aqueous-session() {
+    pkgdesc='Aqueous login session and shell-neutral desktop configuration'
+    arch=('any')
+    depends=("aqueous-core=$pkgver-$pkgrel" "bash" "jq" "coreutils" "uwsm" "dbus" "systemd" "ghostty" "grim" "slurp" "wl-clipboard" "libnotify" "xdg-desktop-portal" "xdg-desktop-portal-gtk")
+    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-session-bin' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    backup=('etc/xdg/aqueous/wm.toml' 'etc/xdg/aqueous/outputs.toml' 'etc/xdg/uwsm/env-aqueous' 'etc/xdg/menus/aqueous-applications.menu' 'etc/xdg/xdg-desktop-portal-aqueous/config')
+    DESTDIR="$pkgdir" PREFIX=/usr bash "$srcdir/aqueous/packaging/stage-component.sh" session
+}
+
+package_aqueous-integration-pearl() {
+    pkgdesc='Pearl shell integration for the Aqueous session'
+    arch=('any')
+    depends=("aqueous-session=$pkgver-$pkgrel")
+    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-integration-pearl-bin' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    DESTDIR="$pkgdir" PREFIX=/usr bash "$srcdir/aqueous/packaging/stage-component.sh" integration-pearl
+}
+
+package_aqueous-shell-pearl() {
+    pkgdesc='Pearl shell dependency preset for Aqueous'
+    arch=('any')
+    depends=("aqueous-integration-pearl=$pkgver-$pkgrel" "pearl")
+    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-shell-pearl-bin')
+    : # Dependency-only preset; devario-desktop owns the session selection.
+}
+
+package_xdg-desktop-portal-aqueous() {
+    pkgdesc='Aqueous screen-sharing portal and standalone GTK source picker'
+    depends=("gtk4" "libinih" "pipewire" "wayland" "systemd-libs" "xdg-desktop-portal")
+    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'xdg-desktop-portal-aqueous-bin' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    AQUEOUS_PICKER_BINARY="$srcdir/aqueous-picker-dist/bin/aqueous-portal-picker" \
+    AQUEOUS_PORTAL_BINARY="$srcdir/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" \
+    AQUEOUS_PORTAL_LICENSE="$srcdir/xdg-desktop-portal-wlr-0.8.4/LICENSE" \
+        DESTDIR="$pkgdir" PREFIX=/usr bash "$srcdir/aqueous/packaging/stage-component.sh" portal
+}
