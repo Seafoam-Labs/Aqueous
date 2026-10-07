@@ -25,6 +25,8 @@ def main():
     parser.add_argument('--compositor', type=Path, default=ROOT / 'zig-out/bin/aqueous')
     parser.add_argument('--ctl', type=Path, default=ROOT / 'zig-out/bin/aqueousctl')
     parser.add_argument('--renderer', choices=('pixman', 'vulkan'), default='pixman')
+    parser.add_argument('--presentation', choices=('direct', 'copy'), default='copy',
+                        help='Fix the Vulkan path so injected faults test frame recovery, not path selection')
     parser.add_argument('--negative-control', action='store_true')
     parser.add_argument('--negative-stage', choices=('scene_build', 'output_commit'), default='scene_build')
     args = parser.parse_args()
@@ -173,6 +175,8 @@ enabled = false
 [input]
 focus_follows_mouse = false
 ''')
+        if args.renderer == 'vulkan':
+            env['AQUEOUS_VULKAN_PRESENTATION'] = args.presentation
         compositor = launch([args.compositor.resolve(), '-no-xwayland', '-log-level', 'info', '-c', 'true'], 'compositor')
         env['WAYLAND_DISPLAY'] = wait(lambda: next((p.name for p in runtime.glob('wayland-*') if p.is_socket()), None), 'no socket')
         wait(lambda: (runtime / 'aqueous/outputd.sock').exists(), 'no output service')
@@ -199,7 +203,7 @@ focus_follows_mouse = false
             wait(lambda: any(v['event'] == 'presented' and v['frame'] == frame for v in events('target')),
                  'client frame did not receive presentation feedback')
             assert latest('target', 'submitted')['frame'] == frame, 'client committed again during recovery'
-            assert not s['timer_armed'] and s['render_locks'] == 0, s
+            assert not s['timer_armed'] and s['render_locks'] == int(s['presentation_path'].startswith('cpu-copy')), s
             return s
 
         if args.negative_control:
@@ -237,7 +241,7 @@ focus_follows_mouse = false
         wait(lambda: any(v['event'] == 'presented' and v['frame'] == frame for v in events('target')),
              'color fallback did not present')
         s = status()
-        assert s['retry']['total_failures'] == before and s['render_locks'] == 0, s
+        assert s['retry']['total_failures'] == before and s['render_locks'] == int(s['presentation_path'].startswith('cpu-copy')), s
         snapshot('color-pipeline-fallback')
         verify_pixels(frame, 'color-pipeline-fallback')
         for stage in ('fallback_build', 'fallback_commit'):
@@ -256,7 +260,7 @@ focus_follows_mouse = false
         end = time.monotonic() + 3.2
         while time.monotonic() < end:
             s = status()
-            assert s['retry']['pending'] and s['render_locks'] == 0
+            assert s['retry']['pending'] and s['render_locks'] == int(s['presentation_path'].startswith('cpu-copy'))
             time.sleep(.05)
         last = status()
         attempts = last['retry']['total_failures'] - first['retry']['total_failures']

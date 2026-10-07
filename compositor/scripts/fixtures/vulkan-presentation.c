@@ -71,6 +71,12 @@ int main(void) {
 		wl_display_destroy(display);
 		return 77;
 	}
+	struct wlr_renderer *replacement = wlr_vk_renderer_recreate(renderer);
+	assert(replacement);
+	assert(wlr_vk_renderer_get_instance(replacement) == wlr_vk_renderer_get_instance(renderer));
+	assert(wlr_vk_renderer_get_physical_device(replacement) == wlr_vk_renderer_get_physical_device(renderer));
+	wlr_renderer_destroy(renderer);
+	renderer = replacement; // owns its instance after the old renderer is gone
 	assert(wlr_vk_renderer_enable_offscreen(renderer));
 	struct wlr_allocator *allocator = wlr_allocator_autocreate(backend, renderer);
 	assert(allocator);

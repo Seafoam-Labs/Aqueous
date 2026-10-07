@@ -21,7 +21,7 @@ extern fn wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_accep
 ) bool;
 
 const util = @import("util.zig");
-const fx = @import("fx.zig");
+const RendererSelection = @import("render/RendererSelection.zig");
 const color_management = @import("color_management.zig");
 const global_filter = @import("global_filter.zig");
 const VulkanContext = if (build_options.vulkan_effects) @import("render/VulkanContext.zig") else void;
@@ -62,6 +62,8 @@ const ConfigSnapshot = @import("wm/config/loader.zig").Snapshot;
 const log = std.log;
 const linux = std.os.linux;
 
+var termination_requested = false;
+
 /// Final, ready-to-use `KEY=VALUE` selector strings for the chosen render
 /// device. Each is NUL-terminated so it can be appended verbatim to the child
 /// `envp` in main.zig, exactly like `WAYLAND_DISPLAY`. A field is null when it
@@ -92,6 +94,9 @@ vulkan_context: if (build_options.vulkan_effects) VulkanContext else void,
 effect_metadata: if (build_options.vulkan_effects) EffectMetadata else void,
 gpu_reset_recover: ?*wl.EventSource = null,
 fatal_error: ?anyerror = null,
+selection_attempt: usize,
+selection_pending: bool = true,
+
 background_effect_manager: @import("BackgroundEffectManager.zig") = .{},
 
 /// GPU selector environment variables resolved from the renderer's DRM device.
@@ -167,6 +172,7 @@ xkb_bindings: XkbBindings,
 layer_shell: LayerShell,
 
 xwayland: if (build_options.xwayland) ?*wlr.Xwayland else void = if (build_options.xwayland) null,
+xwayland_enabled: bool,
 xwayland_scaling: xwayland_projection.Mode = .legacy,
 new_xsurface: if (build_options.xwayland) wl.Listener(*wlr.XwaylandSurface) else void =
     if (build_options.xwayland) .init(handleNewXwaylandSurface),
@@ -391,6 +397,7 @@ fn resolveGpuPin(drm_fd: c_int) GpuPin {
 
 pub fn init(
     server: *Server,
+    selection: *RendererSelection,
     runtime_xwayland: bool,
     policy_mode: PolicyMode,
     xwayland_scaling: xwayland_projection.Mode,
@@ -402,6 +409,8 @@ pub fn init(
     // This keeps the code simpler and more readable.
 
     const wl_server = try wl.Server.create();
+    var selecting = true;
+    errdefer if (selecting) wl_server.destroy();
     wl_display_set_default_max_buffer_size(wl_server, 1024 * 1024);
     const loop = wl_server.getEventLoop();
 
@@ -440,10 +449,12 @@ pub fn init(
 
     var session: ?*wlr.Session = undefined;
     const backend = try wlr.Backend.autocreate(loop, &session);
-    const renderer = try fx.createRenderer(backend);
-    const vulkan_context = if (comptime build_options.vulkan_effects)
-        try VulkanContext.init(renderer)
-    else {};
+    const resources = selection.next(backend) catch |err| {
+        backend.destroy();
+        return err;
+    };
+    selecting = false;
+    const renderer = resources.renderer;
 
     const compositor = try wlr.Compositor.create(wl_server, 6, renderer);
 
@@ -459,8 +470,9 @@ pub fn init(
         .backend = backend,
         .session = session,
         .renderer = renderer,
-        .allocator = try wlr.Allocator.autocreate(backend, renderer),
-        .vulkan_context = vulkan_context,
+        .allocator = resources.allocator,
+        .vulkan_context = resources.context,
+        .selection_attempt = selection.attempt,
         .effect_metadata = if (comptime build_options.vulkan_effects)
             EffectMetadata.init(util.gpa)
         else {},
@@ -485,6 +497,7 @@ pub fn init(
         .viewporter = try wlr.Viewporter.create(wl_server),
         .fractional_scale_manager = try wlr.FractionalScaleManagerV1.create(wl_server, 1),
         .compositor = compositor,
+        .xwayland_enabled = build_options.xwayland and runtime_xwayland,
         .xwayland_scaling = xwayland_scaling,
         .subcompositor = try wlr.Subcompositor.create(wl_server),
         .cursor_shape_manager = try wlr.CursorShapeManagerV1.create(server.wl_server, 2),
@@ -575,15 +588,6 @@ pub fn init(
         }
     }
 
-    if (build_options.xwayland and runtime_xwayland) {
-        server.xwayland = try wlr.Xwayland.create(wl_server, compositor, false);
-        server.xwayland.?.events.new_surface.add(&server.new_xsurface);
-        wlr_output_set_client_projection_handler(handleXwaylandOutputProjection, server);
-        if (xwayland_scaling == .native) {
-            log.info("using native-resolution embedded Xwayland scaling", .{});
-        }
-    }
-
     try server.wm.init();
     server.aqueous.init(policy_mode, startup_config);
     try server.workspace_manager.init();
@@ -617,6 +621,46 @@ pub fn init(
 
     server.drm_lease.init(wl_server, server.backend, server.session);
     wl_server.setGlobalFilter(*Server, globalFilter, server);
+}
+
+/// Start Xwayland only after a renderer has passed the initial commit.
+pub fn startXwayland(server: *Server) !void {
+    if (comptime build_options.xwayland) {
+        server.xwayland = try wlr.Xwayland.create(server.wl_server, server.compositor, false);
+        server.xwayland.?.events.new_surface.add(&server.new_xsurface);
+        const seat = server.input_manager.defaultSeat();
+        server.xwayland.?.setSeat(seat.wlr_seat);
+        if (seat.cursor.xcursor_manager.getXcursor("default", 1)) |xcursor| {
+            const image = xcursor.images[0];
+            server.xwayland.?.setCursor(image.getBuffer(), @intCast(image.hotspot_x), @intCast(image.hotspot_y));
+        }
+        wlr_output_set_client_projection_handler(handleXwaylandOutputProjection, server);
+        if (server.xwayland_scaling == .native) {
+            log.info("using native-resolution embedded Xwayland scaling", .{});
+        }
+    }
+}
+
+/// Exercise the ordinary output transaction before publishing a client socket.
+/// A disconnected system has nothing to probe; hotplug uses per-output fallback.
+pub fn startBackend(server: *Server) !void {
+    try server.backend.start();
+    var since = util.msecTimestamp();
+    while (true) {
+        if (termination_requested) return error.StartupCancelled;
+        if (server.fatal_error) |err| return err;
+        if (!server.om.first_modeset or server.om.outputs.length() == 0) {
+            server.selection_pending = false;
+            return;
+        }
+        const active = if (server.session) |session| session.active else true;
+        if (!active) since = util.msecTimestamp();
+        if (active and util.msecTimestamp() -% since >= 10_000) {
+            log.err("initial presentation timed out", .{});
+            return error.PresentationUnavailable;
+        }
+        try server.wl_server.getEventLoop().dispatch(50);
+    }
 }
 
 /// Free allocated memory and clean up. Note: order is important here
@@ -686,6 +730,9 @@ pub fn deinit(server: *Server) void {
     server.layer_shell.deinit();
 
     server.wl_server.destroy();
+    inline for (std.meta.fields(GpuPin)) |field| {
+        if (@field(server.gpu_pin, field.name)) |value| util.gpa.free(value);
+    }
 }
 
 const WlrOutputClientProjection = extern struct {
@@ -868,12 +915,18 @@ fn blocklist(server: *Server, global: *const wl.Global) bool {
 
 /// Handle SIGINT and SIGTERM by gracefully stopping the server
 fn terminate(_: c_int, wl_server: *wl.Server) c_int {
+    termination_requested = true;
     wl_server.terminate();
     return 0;
 }
 
 fn handleRendererLost(listener: *wl.Listener(void)) void {
     const server: *Server = @fieldParentPtr("renderer_lost", listener);
+    if (server.selection_pending) {
+        server.fatal_error = error.PresentationUnavailable;
+        server.wl_server.terminate();
+        return;
+    }
     if (server.gpu_reset_recover != null) {
         log.info("ignoring GPU reset event, recovery already scheduled", .{});
         return;
@@ -911,15 +964,14 @@ fn gpuResetRecover(server: *Server) !void {
         if (output.wlr_output) |w| server.om.warming.invalidate(w);
     }
     log.info("recovering from GPU reset", .{});
-    const new_renderer = try fx.createRenderer(server.backend);
+    const resources = try RendererSelection.recover(server.backend, server.renderer);
+    const new_renderer = resources.renderer;
     errdefer new_renderer.destroy();
 
-    var new_vulkan_context = if (comptime build_options.vulkan_effects)
-        try VulkanContext.init(new_renderer)
-    else {};
+    var new_vulkan_context = resources.context;
     errdefer if (comptime build_options.vulkan_effects) new_vulkan_context.deinit();
 
-    const new_allocator = try wlr.Allocator.autocreate(server.backend, new_renderer);
+    const new_allocator = resources.allocator;
     if ((server.renderer.getDrmFd() >= 0) != (new_renderer.getDrmFd() >= 0) or
         server.renderer.features.timeline != new_renderer.features.timeline)
     {

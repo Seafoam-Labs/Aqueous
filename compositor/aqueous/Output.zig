@@ -2309,6 +2309,7 @@ fn renderAndCommit(output: *Output, force: bool, recovering: bool) output_retry.
 
     output.current.applyNoModeset(&state);
 
+    const was_copy = @import("render/Presentation.zig").usesCopy(wlr_output);
     const collect_metrics = render_metrics.enabled() and output.render_metric_sample == null;
     if (output.injectRetryFailure(.scene_build)) return .{ .failed = .scene_build };
     if (!output.buildSceneStateInternal(
@@ -2318,7 +2319,8 @@ fn renderAndCommit(output: *Output, force: bool, recovering: bool) output_retry.
         force,
         !recovering,
     )) {
-        if (!@import("render/Presentation.zig").tryCopy(wlr_output))
+        if (!@import("render/Presentation.zig").tryCopy(wlr_output) and
+            !(!was_copy and @import("render/Presentation.zig").usesCopy(wlr_output)))
             return .{ .failed = .scene_build };
         output.discardRenderMetric();
         output.discardOverlayCandidate();
@@ -2458,6 +2460,10 @@ fn buildSceneStateInternal(
     animation_changed_scene: bool,
     allow_overlay: bool,
 ) bool {
+    if (output.wlr_output) |w| {
+        if (@import("render/Presentation.zig").usesCopy(w) and
+            !hdr.apply(w, false, .l1000, hdr.default_sdr_white_level, state)) return false;
+    }
     if (!output.sent.mirror_of.empty()) {
         // A newly mirrored output may still owe baseline restoration. Mirror
         // sources are revoked before the transaction is built; its copied SDR

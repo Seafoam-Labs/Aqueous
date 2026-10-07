@@ -24,6 +24,8 @@ on:
       - 'compositor/scripts/test-pointer-enter.py'
       - 'compositor/scripts/test-vulkan-presentation.sh'
       - 'compositor/scripts/test-presentation-policy.py'
+      - 'compositor/scripts/test-vulkan-selection.py'
+      - 'compositor/scripts/test-renderer-candidates.py'
       - 'compositor/scripts/test-scene-capture.py'
       - 'compositor/scripts/test-vulkan-sync.py'
   pull_request:
@@ -49,6 +51,8 @@ on:
       - 'compositor/scripts/test-pointer-enter.py'
       - 'compositor/scripts/test-vulkan-presentation.sh'
       - 'compositor/scripts/test-presentation-policy.py'
+      - 'compositor/scripts/test-vulkan-selection.py'
+      - 'compositor/scripts/test-renderer-candidates.py'
       - 'compositor/scripts/test-scene-capture.py'
       - 'compositor/scripts/test-vulkan-sync.py'
   workflow_dispatch:
@@ -183,21 +187,22 @@ jobs:
             exit 1
           fi
 
-      - name: Test Vulkan-only startup and experimental software presentation
+      - name: Test Vulkan-only startup, candidate rejection and software presentation
         shell: bash
         run: |
           export LD_LIBRARY_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib"
           python3 compositor/scripts/test-presentation-policy.py compositor/zig-out/bin/aqueous
           cd compositor
           PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
-            zig build -Dexperimental-presentation=true -Dllvm=true -Dcpu=baseline \
+            zig build -Doutput-retry-testing=true -Dllvm=true -Dcpu=baseline \
               -Doptimize=ReleaseSafe --prefix "$RUNNER_TEMP/aqueous-presentation-test"
           python3 scripts/test-presentation-policy.py \
-            "$RUNNER_TEMP/aqueous-presentation-test/bin/aqueous" --experimental
+            "$RUNNER_TEMP/aqueous-presentation-test/bin/aqueous"
           mapfile -t icds < <(compgen -G '/usr/share/vulkan/icd.d/lvp_icd*.json')
           test "${#icds[@]}" -eq 1
           export VK_DRIVER_FILES="${icds[0]}"
           export VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation
+          python3 scripts/test-renderer-candidates.py "$RUNNER_TEMP/aqueous-presentation-test/bin/aqueous" --xwayland
           bash scripts/test-vulkan-presentation.sh "$GITHUB_WORKSPACE/.deps/wlroots-render-hook"
           python3 scripts/test-scene-capture.py --renderer vulkan \
             --compositor "$RUNNER_TEMP/aqueous-presentation-test/bin/aqueous" \

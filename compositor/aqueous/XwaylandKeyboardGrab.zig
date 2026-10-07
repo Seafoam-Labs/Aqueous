@@ -26,7 +26,7 @@ pub const Manager = struct {
         manager.grabs.init();
 
         // This protocol is meaningful and safe only for the Xwayland process.
-        if (server.xwayland != null) {
+        if (server.xwayland_enabled) {
             manager.global = try wl.Global.create(
                 server.wl_server,
                 zwp.XwaylandKeyboardGrabManagerV1,

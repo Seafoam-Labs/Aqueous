@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Presentation experiments are opt-in until physical and VM qualification passes.
+//! Prefer direct presentation; use synchronous SDR copy when it cannot work.
 const std = @import("std");
 const build_options = @import("build_options");
 const c = @import("c");
@@ -9,11 +9,9 @@ pub const Mode = enum { direct, auto, copy };
 
 pub fn mode() !Mode {
     const raw = std.c.getenv("AQUEOUS_VULKAN_PRESENTATION") orelse
-        return if (build_options.experimental_presentation) .auto else .direct;
+        return .auto;
     const selected = std.meta.stringToEnum(Mode, std.mem.span(raw)) orelse
         return error.InvalidPresentationMode;
-    if (selected != .direct and !build_options.experimental_presentation)
-        return error.ExperimentalPresentationDisabled;
     return selected;
 }
 
@@ -22,7 +20,7 @@ pub fn configure(output: *wlr.Output) !void {
     const selected = try mode();
     if (selected == .direct) {
         if (c.wlr_vk_renderer_requires_copy(@ptrCast(output.renderer.?)))
-            return error.ExperimentalPresentationDisabled;
+            return error.DirectPresentationUnavailable;
         return;
     }
     if (!c.wlr_output_allow_presentation_copy(@ptrCast(output), true))
@@ -34,7 +32,7 @@ pub fn configure(output: *wlr.Output) !void {
 }
 
 pub fn tryCopy(output: *wlr.Output) bool {
-    if (comptime !build_options.experimental_presentation or !build_options.vulkan_effects) return false;
+    if (comptime !build_options.vulkan_effects) return false;
     return c.wlr_output_try_presentation_copy(@ptrCast(output));
 }
 

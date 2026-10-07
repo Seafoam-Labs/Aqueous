@@ -135,7 +135,15 @@ EOF
 
     if [ "$mode" = managed ]; then
         local info_json rule_snippet
-        info_json=$("$AQUEOUSCTL_BIN" windows --json)
+        # X11 MapNotify can precede the Wayland buffer commit and policy map,
+        # especially with software Vulkan. Wait for the compositor's window.
+        n=0
+        while [ "$n" -lt 200 ]; do
+            info_json=$("$AQUEOUSCTL_BIN" windows --json)
+            if grep -q '"class":"AqueousXwaylandGrabTest"' <<<"$info_json"; then break; fi
+            sleep 0.05
+            n=$((n + 1))
+        done
         grep -q '"backend":"xwayland"' <<<"$info_json" || die "aqueousctl omitted the XWayland backend"
         grep -q '"class":"AqueousXwaylandGrabTest"' <<<"$info_json" || die "aqueousctl omitted WM_CLASS"
         rule_snippet=$("$AQUEOUSCTL_BIN" inspect --rule)

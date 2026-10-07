@@ -48,37 +48,6 @@ pub const workspace_slide_rate: f64 = 7.0;
 /// and snapped to its target.
 pub const anim_epsilon: f64 = 0.5;
 
-/// Create the renderer appropriate for the current build.
-pub fn createRenderer(backend: *wlr.Backend) !*wlr.Renderer {
-    if (comptime build_options.vulkan_effects) {
-        const c = @import("c");
-        const presentation = try @import("render/Presentation.zig").mode();
-        if (setenv("WLR_RENDERER", "vulkan", 1) != 0) {
-            std.log.err("cannot select the wlroots Vulkan renderer: setenv failed", .{});
-            return error.VulkanRendererSelectionFailed;
-        }
-        const renderer = wlr.Renderer.autocreate(backend) catch |err| {
-            if (presentation != .direct and std.c.getenv("WLR_RENDER_DRM_DEVICE") == null and
-                std.c.getenv("WLR_RENDERER_FORCE_SOFTWARE") == null)
-            {
-                std.log.warn("hardware Vulkan unavailable; trying software Vulkan (experimental)", .{});
-                if (c.wlr_vk_renderer_create_with_drm_fd(-1)) |software| return @ptrCast(software);
-            }
-            std.log.err("wlroots could not create the required Vulkan renderer: {s}", .{@errorName(err)});
-            return error.VulkanRendererUnavailable;
-        };
-        if (!c.wlr_renderer_is_vk(@ptrCast(renderer))) {
-            renderer.destroy();
-            std.log.err("Vulkan effects require wlroots' Vulkan renderer, but another renderer was created", .{});
-            return error.VulkanRendererUnavailable;
-        }
-        return renderer;
-    }
-    return wlr.Renderer.autocreate(backend);
-}
-
-extern fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
-
 /// Set the corner radius of a single scene buffer node.
 pub fn setBufferRadius(buffer: *wlr.SceneBuffer, radius: u31) void {
     if (comptime build_options.vulkan_effects) {

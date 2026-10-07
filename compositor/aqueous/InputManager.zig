@@ -112,12 +112,6 @@ pub fn init(input_manager: *InputManager) !void {
         try input_manager.xwayland_keyboard_grabs.init();
     }
 
-    if (build_options.xwayland) {
-        if (server.xwayland) |xwayland| {
-            xwayland.setSeat(input_manager.defaultSeat().wlr_seat);
-        }
-    }
-
     server.backend.events.new_input.add(&input_manager.new_input);
     input_manager.virtual_pointer_manager.events.new_virtual_pointer.add(&input_manager.new_virtual_pointer);
     input_manager.virtual_keyboard_manager.events.new_virtual_keyboard.add(&input_manager.new_virtual_keyboard);

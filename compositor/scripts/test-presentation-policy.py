@@ -8,7 +8,6 @@ import tempfile
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('compositor', type=Path)
-parser.add_argument('--experimental', action='store_true')
 args = parser.parse_args()
 with tempfile.TemporaryDirectory(prefix='aqueous-presentation-policy-') as directory:
     work = Path(directory)
@@ -31,12 +30,8 @@ with tempfile.TemporaryDirectory(prefix='aqueous-presentation-policy-') as direc
         ('Pixman cannot bypass Vulkan', {'WLR_RENDERER': 'pixman'}, 'VulkanRendererUnavailable'),
         ('invalid presentation', {'AQUEOUS_VULKAN_PRESENTATION': 'invalid'}, 'InvalidPresentationMode'),
     ]
-    if not args.experimental:
-        cases.append(('production gate', {'AQUEOUS_VULKAN_PRESENTATION': 'copy'},
-                      'ExperimentalPresentationDisabled'))
-    else:
-        cases.append(('explicit device restriction', {'WLR_RENDER_DRM_DEVICE': '/no/such/render-node'},
-                      'VulkanRendererUnavailable'))
+    cases.append(('explicit device restriction', {'WLR_RENDER_DRM_DEVICE': '/no/such/render-node'},
+                  'VulkanRendererUnavailable'))
     for label, extra, error in cases:
         result = subprocess.run([str(args.compositor.resolve()), '-no-xwayland', '-c', 'true'],
                                 env=env | extra, text=True, stdout=subprocess.PIPE,

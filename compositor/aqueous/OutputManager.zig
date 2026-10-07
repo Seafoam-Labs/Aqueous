@@ -125,7 +125,7 @@ fn handleNewOutput(_: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
     if (server.drm_lease.reserve(wlr_output)) return;
 
     Output.create(wlr_output) catch |err| {
-        switch (err) {
+        switch (@as(anyerror, err)) {
             error.OutOfMemory => log.err("out of memory", .{}),
             error.InitRenderFailed => log.err("failed to initialize renderer for output {s}", .{wlr_output.name}),
             error.AddTimerFailed => log.err("failed to create recovery timer for output {s}", .{wlr_output.name}),
@@ -344,7 +344,7 @@ fn coordinatesValid(om: *OutputManager, pending: []const Pending) bool {
         specs[count] = projectionSpec(&state);
         count += 1;
     }
-    return !build_options.xwayland or server.xwayland == null or
+    return !server.xwayland_enabled or
         xwayland_projection.layoutValid(specs[0..count], server.xwayland_scaling);
 }
 
@@ -691,7 +691,34 @@ pub fn autoLayout(om: *OutputManager) void {
     for (entries.items) |entry| entry.output.scheduled = entry.state;
 }
 
+/// Group commits do not identify which output failed. Retain already copied
+/// outputs, and try the remaining enabled members once before rejecting the GPU.
+fn retryPresentation(states: []wlr.Backend.OutputState) bool {
+    const presentation = @import("render/Presentation.zig");
+    var changed = false;
+    for (states) |*state| {
+        if (!state.base.enabled) continue;
+        const output: *Output = @ptrCast(@alignCast(state.output.data));
+        const selected = presentation.tryCopy(state.output);
+        if (!presentation.usesCopy(state.output)) continue;
+        const format = if (state.base.committed.render_format) state.base.render_format else state.output.render_format;
+        const description = if (state.base.committed.image_description) state.base.image_description else state.output.image_description;
+        const hdr_pending = format != Output.hdr.sdr_render_format or description != null;
+        if (!selected and !hdr_pending) continue;
+        if (!Output.hdr.apply(state.output, false, .l1000, Output.hdr.default_sdr_white_level, &state.base)) return false;
+        output.discardOverlayCandidate();
+        output.scene_output.?.damage_ring.addWhole();
+        changed = true;
+    }
+    return changed;
+}
+
 pub fn commitOutputState(om: *OutputManager) void {
+    // A suspended startup session cannot prove scanout. Keep the candidate and
+    // let the session-active listener schedule this transaction on resume.
+    if (server.selection_pending) {
+        if (server.session) |session| if (!session.active) return;
+    }
     // Revoke before constructing any conflicting modeset/preview/mirror state.
     var warming_outputs = om.outputs.iterator(.forward);
     while (warming_outputs.next()) |output| {
@@ -833,64 +860,64 @@ pub fn commitOutputState(om: *OutputManager) void {
         swapchain_manager.init(server.backend);
         defer swapchain_manager.finish();
 
-        if (!swapchain_manager.prepare(states.items) and
-            !(retainAdaptiveSync(states.items) and swapchain_manager.prepare(states.items)))
-        {
-            log.err("failed to prepare new output configuration", .{});
-            om.modesetFailed();
-            return;
-        }
-
-        // At most one path change per output. Re-prepare the group after a
-        // change so the manager owns the swapchains actually being committed.
+        // Each output can switch to copy once. Include real backend commits in
+        // this loop: TEST_ONLY success alone does not prove presentation works.
         var attempts: usize = 0;
         build_group: while (true) : (attempts += 1) {
+            for (states.items) |state| {
+                const output: *Output = @ptrCast(@alignCast(state.output.data));
+                output.discardOverlayCandidate();
+            }
+            if (!swapchain_manager.prepare(states.items) and
+                !(retainAdaptiveSync(states.items) and swapchain_manager.prepare(states.items)))
+            {
+                if (attempts <= states.items.len and retryPresentation(states.items)) continue;
+                log.err("failed to prepare new output configuration", .{});
+                om.modesetFailed();
+                return;
+            }
             for (states.items) |*state| {
                 const output: *Output = @ptrCast(@alignCast(state.output.data));
-                const built = output.buildSceneState(
-                    &state.base,
-                    swapchain_manager.getSwapchain(state.output),
-                    false,
-                    false,
-                );
-                if (!built) {
-                    if (attempts < states.items.len and
-                        @import("render/Presentation.zig").tryCopy(state.output))
-                    {
-                        output.scene_output.?.damage_ring.addWhole();
-                        for (states.items) |*pending| {
-                            const pending_output: *Output = @ptrCast(@alignCast(pending.output.data));
-                            pending_output.discardOverlayCandidate();
-                        }
-                        if (swapchain_manager.prepare(states.items)) continue :build_group;
-                    }
+                if (!output.buildSceneState(&state.base, swapchain_manager.getSwapchain(state.output), false, false)) {
+                    if (attempts <= states.items.len and retryPresentation(@as(*[1]wlr.Backend.OutputState, @ptrCast(state))))
+                        continue :build_group;
                     log.err("failed to render scene for {s}", .{state.output.name});
                     om.modesetFailed();
                     return;
                 }
             }
-            break;
-        }
 
-        const injected_failure = if (comptime build_options.output_retry_testing) blk: {
-            const preview = @import("DisplayPreview.zig");
-            var fail = preview.test_fail_commit and preview.active();
-            if (preview.test_partial_commit and preview.active() and states.items.len > 1) {
-                // Exercise recovery from a backend which applied one member
-                // before reporting failure for the group.
-                _ = server.backend.commit(states.items[0..1]);
-                fail = true;
+            const injected_failure = if (comptime build_options.output_retry_testing) blk: {
+                const preview = @import("DisplayPreview.zig");
+                var fail = preview.test_fail_commit and preview.active();
+                if (preview.test_partial_commit and preview.active() and states.items.len > 1) {
+                    // Exercise a backend which applied one member before failure.
+                    _ = server.backend.commit(states.items[0..1]);
+                    fail = true;
+                }
+                preview.test_partial_commit = false;
+                preview.test_fail_commit = false;
+                const selection = @import("render/RendererSelection.zig");
+                fail = fail or (om.first_modeset and selection.testFails(server.selection_attempt, "commit"));
+                // Reject direct only, proving copy is tried before another GPU.
+                for (states.items) |state| {
+                    if (om.first_modeset and !@import("render/Presentation.zig").usesCopy(state.output) and
+                        selection.testFails(server.selection_attempt, "direct")) fail = true;
+                }
+                break :blk fail;
+            } else false;
+            if (injected_failure or (!server.backend.commit(states.items) and
+                !(retainAdaptiveSync(states.items) and server.backend.commit(states.items))))
+            {
+                // Preview fault injection verifies transaction rollback, not
+                // renderer selection, and must retain its existing semantics.
+                if (!@import("DisplayPreview.zig").active() and attempts <= states.items.len and
+                    retryPresentation(states.items)) continue;
+                log.err("failed to commit new output configuration", .{});
+                om.modesetFailed();
+                return;
             }
-            preview.test_partial_commit = false;
-            preview.test_fail_commit = false;
-            break :blk fail;
-        } else false;
-        if (injected_failure or (!server.backend.commit(states.items) and
-            !(retainAdaptiveSync(states.items) and server.backend.commit(states.items))))
-        {
-            log.err("failed to commit new output configuration", .{});
-            om.modesetFailed();
-            return;
+            break;
         }
         for (states.items) |*state| {
             const output: *Output = @ptrCast(@alignCast(state.output.data));
@@ -1103,9 +1130,8 @@ fn retainAdaptiveSync(states: []wlr.Backend.OutputState) bool {
 fn modesetFailed(om: *OutputManager) void {
     const wm = &server.wm;
 
-    // If the very first modeset fails, the user's hardware/drivers are
-    // probably not compatible with river. In this case, exit rather
-    // than running forever without rendering anything.
+    // Initial failure rejects this startup candidate. main tears it down before
+    // trying the next GPU; no clients have been started yet.
     if (om.first_modeset) {
         log.err("no usable presentation path: initial output commit failed", .{});
         server.fatal_error = error.PresentationUnavailable;

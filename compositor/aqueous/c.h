@@ -53,6 +53,9 @@ void aqueous_scene_node_set_enabled(struct wlr_scene_node *node, int enabled);
 #ifdef RIVER_VULKAN_EFFECTS
 #include <vulkan/vulkan_core.h>
 #include <wlr/render/vulkan.h>
+#if !defined(WLR_AQUEOUS_VULKAN_SELECTION_VERSION) || WLR_AQUEOUS_VULKAN_SELECTION_VERSION != 1
+#error "Vulkan effects require the pinned Aqueous Vulkan candidate API"
+#endif
 #include <wlr/util/region.h>
 #if !defined(WLR_AQUEOUS_RENDER_HOOK_VERSION) || WLR_AQUEOUS_RENDER_HOOK_VERSION != 10
 #error "Vulkan effects require the pinned Aqueous wlroots render hook"

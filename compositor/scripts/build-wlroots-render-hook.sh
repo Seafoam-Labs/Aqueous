@@ -36,6 +36,7 @@ patch_files=(
     "$here/patches/wlroots/0028-output-color-guard.patch"
     "$here/patches/wlroots/0029-screencopy-sdr-gamma-lookup.patch"
     "$here/patches/wlroots/0030-vulkan-presentation-copy.patch"
+    "$here/patches/wlroots/0031-vulkan-device-selection.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -166,6 +167,10 @@ bash "$here/scripts/test-screencopy-sdr.sh" "$source_dir" "$prefix" ||
 library="$prefix/lib/libwlroots-0.20.so"
 [ -f "$library" ] || die "patched wlroots library was not installed"
 for symbol in \
+    wlr_vk_renderer_candidates_create \
+    wlr_vk_renderer_candidates_next \
+    wlr_vk_renderer_candidates_destroy \
+    wlr_vk_renderer_recreate \
     wlr_output_allow_presentation_copy \
     wlr_output_try_presentation_copy \
     wlr_output_uses_presentation_copy \
@@ -258,6 +263,7 @@ python3 "$here/scripts/test-protocol-version-handlers.py" "$source_dir" "$prefix
 python3 "$here/scripts/test-overlay-backend.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-color-pipeline.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-vulkan-sync.py" "$source_dir" "$prefix"
+python3 "$here/scripts/test-vulkan-selection.py" "$source_dir"
 python3 "$here/scripts/test-xwayland-size-hints.py" "$source_dir"
 python3 "$here/scripts/test-drm-lease-protocol.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-drm-lease-backend.py" "$source_dir" "$prefix"

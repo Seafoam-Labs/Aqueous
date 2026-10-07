@@ -538,6 +538,7 @@ fn handleRetryTest(service: *Service, client: *Client, request: std.json.ObjectM
             .frame_pending = wlr_output.frame_pending,
             .commit_seq = wlr_output.commit_seq,
             .render_locks = wlr_output.attach_render_locks,
+            .presentation_path = @import("../../render/Presentation.zig").name(wlr_output),
             .fault_remaining = output.retry_test.remaining,
             .session_locked = server.lock_manager.state == .locked,
             .lock_render_state = @tagName(output.lock_render_state),

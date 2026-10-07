@@ -215,13 +215,29 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         .warn, .err => .err,
     });
 
-    try server.init(
-        runtime_xwayland,
-        policy_mode,
-        xwayland_scaling,
-        overlay_planes_enabled,
-        startup_config,
-    );
+    var renderer_selection: @import("render/RendererSelection.zig") = .{};
+    defer renderer_selection.deinit();
+    while (true) {
+        try server.init(
+            &renderer_selection,
+            runtime_xwayland,
+            policy_mode,
+            xwayland_scaling,
+            overlay_planes_enabled,
+            startup_config,
+        );
+        server.startBackend() catch |err| {
+            server.deinit();
+            if (comptime build_options.vulkan_effects) {
+                if (err == error.PresentationUnavailable) {
+                    log.warn("Vulkan candidate rejected by initial presentation; trying next candidate", .{});
+                    continue;
+                }
+            }
+            return err;
+        };
+        break;
+    }
     defer server.deinit();
 
     // Xwayland is a graphics client too. Apply the renderer's GPU selection
@@ -237,6 +253,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     // started. We want Xwayland to be started by wlroots before we modify our rlimits in
     // process.setup() since wlroots does not offer a way for us to reset the rlimit post-fork.
     if (build_options.xwayland and runtime_xwayland) {
+        try server.startXwayland();
         server.wl_server.getEventLoop().dispatchIdle();
     }
 
@@ -244,7 +261,6 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
 
     var buf: [11]u8 = undefined;
     const socket = try server.wl_server.addSocketAuto(&buf);
-    try server.backend.start();
     // Native [[exec]] and keybinding children inherit the compositor socket.
     // This is intentionally delayed until addSocketAuto() has produced it.
     if (setenv("WAYLAND_DISPLAY", socket.ptr, 1) != 0) return error.SetEnvironmentFailed;

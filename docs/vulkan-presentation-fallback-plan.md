@@ -1,12 +1,13 @@
 **Vulkan presentation fallback implementation plan**
 
-Status: initial experimental implementation; the full rollout plan is not complete.
+Status: automatic Vulkan candidate selection and synchronous SDR fallback implemented.
+The broader platform qualification plan remains open.
 Aqueous must have usable Vulkan to start and
 continue rendering. Separate composition from presentation so an output can use
 display-compatible buffers even when it cannot display the Vulkan render target
 directly. Keep effects in the Vulkan composition pass.
 
-**Implemented and gated (2026-10-07)**
+**Implemented (2026-10-07)**
 
 - Private wlroots patch `0030-vulkan-presentation-copy.patch` separates the Vulkan
   image from the output allocation. It uses an optimal BGRA8 image, dedicated
@@ -18,39 +19,49 @@ directly. Keep effects in the Vulkan composition pass.
   owned allocations, and renderer replacement resets the selection. Diagnostics
   distinguish `cpu-copy-pending` from a copied frame accepted by an output commit.
 - Lavapipe can render without a DRM render node or external DMA-BUF extensions.
-  The experimental policy tries software Vulkan after the default hardware
-  renderer fails, unless an explicit renderer restriction was supplied. Required
-  effects features remain mandatory. DMA-BUF globals require a usable renderer FD.
-- Startup without Vulkan, with inadequate effects capabilities, or with an
-  unrenderable initial output fails. Unrecoverable renderer resets terminate the
-  session. Capability changes across reset fail rather than leave stale client
-  globals. GLES2/Pixman remain unavailable as production session fallbacks.
-- Arch/Devario's shared private-wlroots builder and Nix include patch 0030.
-  Production component validation rejects experimental builds. CI runs software
-  Vulkan pixel/capture tests and startup-policy tests.
+  Patch `0031-vulkan-device-selection.patch` enumerates Vulkan physical devices:
+  preferred hardware first, remaining hardware (including alternate ICDs) next,
+  CPU Vulkan last. Virtual GPUs count as hardware. Explicit device and software
+  restrictions remain binding. Required effects capabilities and allocator
+  creation are checked for every candidate. DMA-BUF globals require a usable FD.
+- Initial output allocation, scene rendering and real commits run before client
+  sockets, Xwayland and desktop commands start. Direct failures try synchronous
+  SDR copy on the same GPU. A rejected candidate is torn down before the next
+  candidate is attempted. Exhaustion exits nonzero; GLES2/Pixman are not fallbacks.
+  With no connected outputs, initial presentation is deferred until hotplug.
+  Live GPU resets recreate the exact selected physical device; failure terminates
+  the session rather than migrating existing clients to a different GPU.
+- Arch/Devario's shared private-wlroots builder and Nix include patches 0030–0031.
+  Normal builds enable automatic selection. Test-only fault injection remains
+  excluded from production packages; old experimental build artifacts remain
+  rejected. CI runs selector fault tests, software Vulkan pixel/capture tests,
+  and compositor startup rejection/cleanup tests.
 - A separate Mesa 26.2.4 patch and source manifest live under
   `packaging/mesa/26.2.4/`. They preserve public device identity and move NVIDIA's
   forced buffer-blit policy into WSI, retaining the older-driver software-WSI
-  restriction. The patch is **not a qualified or shipped Mesa package**.
+  restriction. Devario's `devario-custom-packagbuilds` repository integrates this
+  patch in `devario-core/vulkan-virtio` release `1:26.2.4-3`, replacing the previous
+  engine-name exception. Its prepare/build/check/package functions pass on the
+  development host. An isolated signed build and VM qualification remain pending.
 
-Normal builds default to direct presentation. To exercise the fallback locally:
+Normal builds default to automatic presentation. Build and run locally:
 
 ```sh
 cd compositor
 scripts/build-wlroots-render-hook.sh
 PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig" \
-  zig build -Dexperimental-presentation=true -Dllvm=true -Doptimize=ReleaseSafe
+  zig build -Dllvm=true -Doptimize=ReleaseSafe
 AQUEOUS_VULKAN_PRESENTATION=auto zig-out/bin/aqueous
 ```
 
-`direct` disables selection, `copy` forces it, and `auto` prefers the original
-path. Software-only systems need an installed, working Lavapipe ICD. An explicit
+`direct` disables copy/software fallback while still trying hardware candidates;
+`copy` forces copying, and `auto` prefers direct presentation. Software-only systems need an installed, working Lavapipe ICD. An explicit
 `WLR_RENDERER_FORCE_SOFTWARE=1` selects software Vulkan through wlroots; it does
 not select a different rendering API. Only run session launch commands in the
 intended test session.
 
 Local verification covers the complete private-wlroots build/check suite,
-production and experimental compositor builds, startup failures, packaging gates,
+production and fault-injection compositor builds, startup failures, packaging gates,
 real Vulkan pixel comparisons, injected allocation failure, per-output isolation,
 headless hotplug, resize/reuse/reset, and toplevel capture with lock/unmap denial.
 Lavapipe and native NVIDIA tests passed with Vulkan validation enabled; native
@@ -58,19 +69,35 @@ AMD direct capture also passed. These are headless tests, **not physical scanout
 or VM qualification**. Mesa's two changed C files compile against 26.2.4, and
 `packaging/mesa/test-venus-wsi.py` exercises its production policy functions.
 
-The copy currently waits synchronously for up to one second and copies whole
-frames. It is restricted to 8-bit formats. Pending work includes asynchronous
-completion, GPU-to-GPU copies, full hardware-candidate enumeration, transaction
-rollback/revalidation across all output changes, complete capture/mirror/reset
-qualification, HDR support, and performance measurements. Group commit failures
-are not yet classified sufficiently to choose a fallback in every case. The
-recorded Zink modifier, allocation, and synchronization failures still need
-independent reproducers and VM validation. Versioned Mesa packages, installed-VM
-configuration, the full vendor/hypervisor matrix, and automatic release rollout
-remain blocked on that work. No launcher or live-ISO policy was changed.
+The copy waits synchronously for up to one second and copies whole frames in
+8-bit SDR. These are accepted limits for this failure path, not release gates.
+Working direct presentation retains HDR and its existing rendering path; other
+GPUs are initialized only when the earlier candidate fails. Candidate enumeration
+adds startup work, not a copy or synchronization cost to direct frames.
 
-The stages below remain the acceptance criteria; the experimental implementation
-does not mark them all complete.
+Selector tests cover device ordering, inaccessible nodes, alternate ICDs,
+restrictions, resource ownership and exhaustion under ASan/UBSan, with mutation
+controls. Real headless NVIDIA + AMD + Lavapipe tests reject each candidate at
+renderer, effects, allocator and initial commit stages; they verify hardware is
+exhausted before software and rejected candidates never start desktop commands.
+A direct-only failure commits copied frames on the same GPU. These tests do not
+qualify physical scanout, Intel or VM configurations.
+
+Remaining work includes the vendor/hypervisor matrix, capture/mirror/reset
+qualification on real outputs, performance measurements, and the recorded Zink
+modifier, allocation and synchronization errors. Signed Mesa release packages
+and installed-VM configuration still need their own qualification. Async copies,
+GPU-to-GPU copies and copied HDR are optional future improvements. No launcher
+or live-ISO policy was changed.
+
+The existing mirroring path still requires renderer DRM timeline support;
+Lavapipe mirroring is therefore rejected. The Vulkan preview tests pass earlier
+transaction checks but stop at that known restriction. The complete preview
+suite uses the explicit no-effects Pixman diagnostic build, which is not a
+production session fallback.
+
+The stages below describe the broader qualification and development plan;
+implemented startup selection does not mark the entire plan complete.
 
 | Available capabilities, in preference order | Rendering and presentation | Effects |
 | --- | --- | --- |
@@ -184,9 +211,9 @@ directly or transfers its pixels into a separately allocated buffer accepted by
 the output. Define the final encoding explicitly so the copy does not apply
 tone mapping, output warming, or transfer functions twice.
 
-Try a GPU transfer when the display allocation supports Vulkan import and
-transfer usage even if it cannot be a color attachment. When that interoperability
-is absent, use completed Vulkan readback into bounded staging storage followed
+As a future optimization, try a GPU transfer when the display allocation supports
+Vulkan import and transfer usage even if it cannot be a color attachment. The
+implemented fallback uses completed Vulkan readback into bounded staging storage followed
 by a stride-aware CPU copy into a writable display buffer. Probe backend support
 for that destination, such as a DRM dumb buffer or a nested SHM buffer; neither
 is universally available. CPU pixel copying does not introduce another scene
@@ -197,8 +224,9 @@ ownership explicitly. Signal output readiness only after the last write. Keep
 source and destination references until their respective consumers finish;
 never forward the original render fence as proof that a later copy completed.
 Handle row pitch, modifiers, image layout, cache visibility, and non-coherent
-memory correctly. Bound in-flight work and arrange completion without blocking
-the Wayland event loop on a routine device-wide idle wait.
+memory correctly. The accepted failure path waits synchronously for the submitted
+work with a bounded timeout. Event-loop-driven asynchronous completion is a future
+optimization, not a prerequisite for automatic selection.
 
 Start with full-frame copies and full damage after allocation/path changes.
 Reuse wlroots damage tracking and add partial copies only after validating
@@ -263,10 +291,10 @@ allocation when there is no renderer DRM FD. Unsupported buffer types must not
 be advertised or accidentally pinned to an unrelated GPU.
 
 Run the full effects scene on Lavapipe and measure latency, CPU use, and memory
-at representative resolutions. Keep this path experimental until it passes its
-own tests. Before that gate, software-only configurations fail clearly; an ICD
-installation alone must not enable an unimplemented path. A missing required
-effects feature makes that Vulkan candidate unusable rather than silently
+at representative resolutions. The synchronous SDR implementation is enabled
+automatically when hardware candidates are exhausted; VM qualification and
+performance characterization remain separate work. A missing required effects
+feature makes that Vulkan candidate unusable rather than silently
 starting an effects-free compatibility session.
 
 Acceptance: an unaccelerated guest with usable Lavapipe renders and presents
@@ -348,11 +376,8 @@ or host EGL. Record skips separately from passes and retain pixel comparisons,
 Vulkan validation output, device identities, package versions, and performance
 measurements with each qualification run.
 
-Deliver the work in this order: reproducible prototype and diagnostics; tested
-hardware copy boundary; output lifecycle integration; Mesa/client corrections;
-software Vulkan qualification; matched package and platform validation; automatic
-selection. Mesa work can proceed alongside the copy implementation, but both
-must pass before enabling automatic VM selection. Enable Lavapipe automatically
-only after its separate acceptance gate. The first implementation milestone is
-a tested hardware presentation fallback with effects intact and an explicit
-failure when usable Vulkan is unavailable.
+Automatic hardware/copy/software selection is now enabled in normal builds with
+the accepted synchronous SDR limits. Continue qualification of Mesa clients and
+the vendor/hypervisor matrix before claiming those configurations are supported.
+Matched Mesa packages and installed-VM configuration remain separate delivery
+work. Every path still requires usable Vulkan and the required effects features.

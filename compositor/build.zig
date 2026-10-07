@@ -95,8 +95,6 @@ pub fn build(b: *Build) !void {
     b.getInstallStep().dependOn(&b.addInstallFile(instance_metadata, "share/aqueous/build-instance.json").step);
     options.addOption(bool, "xwayland", xwayland);
     options.addOption(bool, "vulkan_effects", vulkan_effects);
-    const experimental_presentation = b.option(bool, "experimental-presentation", "Enable experimental Vulkan copy/software presentation; requires platform qualification") orelse false;
-    options.addOption(bool, "experimental_presentation", experimental_presentation);
     options.addOption(bool, "animations", animations);
     options.addOption(bool, "external_policy", external_policy);
     options.addOption(bool, "toplevel_drag_testing", b.option(bool, "toplevel-drag-testing", "Enable private synthetic touch input (tests only)") orelse false);
@@ -110,8 +108,8 @@ pub fn build(b: *Build) !void {
     options.addOption(bool, "input_activity_testing", input_activity_testing);
     // Generated from the actual build options, never supplied by a packaging caller.
     const policy = b.addWriteFiles().add("build-policy.json", b.fmt(
-        "{{\"schema\":1,\"output_retry_testing\":{},\"display_preview_acceptance\":{},\"input_activity_testing\":{},\"experimental_presentation\":{}}}\n",
-        .{ output_retry_testing, display_preview_acceptance, input_activity_testing, experimental_presentation },
+        "{{\"schema\":1,\"output_retry_testing\":{},\"display_preview_acceptance\":{},\"input_activity_testing\":{}}}\n",
+        .{ output_retry_testing, display_preview_acceptance, input_activity_testing },
     ));
     b.getInstallStep().dependOn(&b.addInstallFile(policy, "share/aqueous/build-policy.json").step);
 
@@ -446,6 +444,8 @@ pub fn build(b: *Build) !void {
         });
         output_hdr_test.root_module.addOptions("build_options", options);
         output_hdr_test.root_module.addImport("wlroots", wlroots);
+        output_hdr_test.root_module.addImport("c", translate_c.mod);
+        output_hdr_test.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
         const run_output_hdr_test = b.addRunArtifact(output_hdr_test);
 
         const auto_hdr_test = b.addTest(.{

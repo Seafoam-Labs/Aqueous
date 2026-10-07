@@ -168,9 +168,9 @@ def main():
     assert 'VUID-' not in compositor_log and 'Validation Error' not in compositor_log, \
         'Vulkan validation failed; see compositor.log'
     if args.presentation == 'direct':
-        assert 'trying Vulkan CPU-copy' not in compositor_log
+        assert 'CPU-copy presentation' not in compositor_log
     if args.presentation == 'copy':
-        assert 'trying Vulkan CPU-copy' in compositor_log
+        assert 'CPU-copy presentation' in compositor_log
     print('PASS isolated foreign-toplevel pixels, repeated SDR metadata, lock denial, unmap and untouched failed buffers', flush=True)
 
 

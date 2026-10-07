@@ -152,6 +152,7 @@ pub fn selectFormatFromSet(formats: ?*const wlr.DrmFormatSet) ?u32 {
 }
 
 pub fn selectRenderFormat(output: *wlr.Output) ?u32 {
+    if (@import("render/Presentation.zig").usesCopy(output)) return null;
     if (!output.isDrm()) return null;
     const renderer = output.renderer orelse return null;
     if (!renderer.features.output_color_transform) return null;
@@ -204,7 +205,7 @@ pub fn edidDesiredMaxLuminance(output: *wlr.Output) ?f64 {
 }
 
 pub fn stateMatches(output: *wlr.Output, requested: bool, level: HdrLevel, sdr_white_level: f64) bool {
-    if (requested) {
+    if (requested and !@import("render/Presentation.zig").usesCopy(output)) {
         if (comptime !build_options.vulkan_effects) return false;
         const format = selectRenderFormat(output) orelse return false;
         if (output.render_format != format) return false;
@@ -227,7 +228,7 @@ pub fn stateMatches(output: *wlr.Output, requested: bool, level: HdrLevel, sdr_w
 /// Add all color and pixel-format state needed for one atomic output commit.
 /// The image description setter allocates a copy and can fail.
 pub fn apply(output: *wlr.Output, enabled: bool, level: HdrLevel, sdr_white_level: f64, state: *wlr.Output.State) bool {
-    if (enabled) {
+    if (enabled and !@import("render/Presentation.zig").usesCopy(output)) {
         if (comptime !build_options.vulkan_effects) return false;
         const format = selectRenderFormat(output) orelse return false;
         state.setRenderFormat(format);
@@ -237,7 +238,13 @@ pub fn apply(output: *wlr.Output, enabled: bool, level: HdrLevel, sdr_white_leve
     // Preserve the backend's untouched SDR state on initial modesets. Some
     // nested backends don't accept an explicit color-description commit even
     // when it merely restates their default.
-    if (stateMatches(output, false, level, sdr_white_level)) return true;
+    const pending_sdr = (!state.committed.render_format or state.render_format == sdr_render_format) and
+        (!state.committed.image_description or state.image_description == null);
+    const current_sdr = stateMatches(output, false, level, sdr_white_level);
+    if (current_sdr and pending_sdr) return true;
+    // A copy fallback can replace a prepared HDR state or an already active
+    // HDR frame. The latter may require a blocking KMS modeset to clear HDR.
+    if (!current_sdr) state.allow_reconfiguration = true;
     state.setRenderFormat(sdr_render_format);
     return wlr_output_state_set_image_description(state, null);
 }
@@ -245,6 +252,35 @@ pub fn apply(output: *wlr.Output, enabled: bool, level: HdrLevel, sdr_white_leve
 pub fn formatName(format: u32, buffer: *[4]u8) []const u8 {
     for (buffer, 0..) |*byte, shift| byte.* = @truncate(format >> @intCast(shift * 8));
     return buffer;
+}
+
+test "SDR fallback clears prepared or active HDR and preserves untouched SDR" {
+    var output: wlr.Output = undefined;
+    output.render_format = sdr_render_format;
+    output.image_description = null;
+    output.addons.init();
+    defer output.addons.deinit();
+    var state = wlr.Output.State.init();
+    defer state.finish();
+
+    try std.testing.expect(apply(&output, false, .l1000, default_sdr_white_level, &state));
+    try std.testing.expect(!state.committed.render_format and !state.committed.image_description);
+
+    var description = imageDescription(.l1000, default_sdr_white_level);
+    state.setRenderFormat(hdr_render_formats[0]);
+    try std.testing.expect(wlr_output_state_set_image_description(&state, &description));
+    try std.testing.expect(apply(&output, false, .l1000, default_sdr_white_level, &state));
+    try std.testing.expectEqual(sdr_render_format, state.render_format);
+    try std.testing.expect(state.committed.image_description and state.image_description == null);
+
+    state.finish();
+    state = wlr.Output.State.init();
+    output.render_format = hdr_render_formats[0];
+    output.image_description = @ptrCast(&description);
+    try std.testing.expect(apply(&output, false, .l1000, default_sdr_white_level, &state));
+    try std.testing.expectEqual(sdr_render_format, state.render_format);
+    try std.testing.expect(state.committed.image_description and state.image_description == null);
+    try std.testing.expect(state.allow_reconfiguration);
 }
 
 test "HDR color capability requires BT.2020 and PQ" {
