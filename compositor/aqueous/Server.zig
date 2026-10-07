@@ -91,6 +91,7 @@ allocator: *wlr.Allocator,
 vulkan_context: if (build_options.vulkan_effects) VulkanContext else void,
 effect_metadata: if (build_options.vulkan_effects) EffectMetadata else void,
 gpu_reset_recover: ?*wl.EventSource = null,
+fatal_error: ?anyerror = null,
 background_effect_manager: @import("BackgroundEffectManager.zig") = .{},
 
 /// GPU selector environment variables resolved from the renderer's DRM device.
@@ -533,7 +534,7 @@ pub fn init(
     try server.child_processes.init(util.gpa, wl_server);
     errdefer server.child_processes.deinit();
 
-    if (renderer.getTextureFormats(@intFromEnum(wlr.BufferCap.dmabuf)) != null) {
+    if (renderer.getDrmFd() >= 0 and renderer.getTextureFormats(@intFromEnum(wlr.BufferCap.dmabuf)) != null) {
         server.linux_dmabuf = try wlr.LinuxDmabufV1.createWithRenderer(wl_server, 6, renderer);
     }
     if (renderer.features.timeline and backend.features.timeline) {
@@ -897,10 +898,11 @@ fn handleRendererLost(listener: *wl.Listener(void)) void {
 
 fn gpuResetRecoverIdle(server: *Server) void {
     server.gpu_reset_recover = null;
-    // There's not much that can be done if creating a new renderer or allocator fails.
-    // With luck there might be another GPU reset after which we try again and succeed.
-    server.gpuResetRecover() catch |err|
+    server.gpuResetRecover() catch |err| {
         log.err("failed to recover rendering after GPU reset: {s}", .{@errorName(err)});
+        server.fatal_error = error.VulkanRecoveryFailed;
+        server.wl_server.terminate();
+    };
 }
 
 fn gpuResetRecover(server: *Server) !void {
@@ -918,6 +920,14 @@ fn gpuResetRecover(server: *Server) !void {
     errdefer if (comptime build_options.vulkan_effects) new_vulkan_context.deinit();
 
     const new_allocator = try wlr.Allocator.autocreate(server.backend, new_renderer);
+    if ((server.renderer.getDrmFd() >= 0) != (new_renderer.getDrmFd() >= 0) or
+        server.renderer.features.timeline != new_renderer.features.timeline)
+    {
+        // Existing clients may own buffers and sync objects from the old device.
+        // End the session until migration of those resources is qualified.
+        new_allocator.destroy();
+        return error.RendererCapabilitiesChanged;
+    }
     errdefer comptime unreachable; // no failure allowed after this point
 
     server.renderer_lost.link.remove();
@@ -932,7 +942,16 @@ fn gpuResetRecover(server: *Server) !void {
                 // This should never fail here as failure with this combination of
                 // renderer, allocator, and backend should have prevented creating
                 // the output in the first place.
-                _ = wlr_output.initRender(new_allocator, new_renderer);
+                if (!wlr_output.initRender(new_allocator, new_renderer)) {
+                    server.fatal_error = error.PresentationRecoveryFailed;
+                    server.wl_server.terminate();
+                } else {
+                    @import("render/Presentation.zig").configure(wlr_output) catch |err| {
+                        log.err("output presentation recovery failed: {s}", .{@errorName(err)});
+                        server.fatal_error = error.PresentationRecoveryFailed;
+                        server.wl_server.terminate();
+                    };
+                }
                 output.invalidateOverlayCapabilities();
             }
         }
@@ -955,7 +974,7 @@ fn gpuResetRecover(server: *Server) !void {
     server.allocator = new_allocator;
 
     if (server.linux_dmabuf) |old_dmabuf| {
-        if (new_renderer.getTextureFormats(@intFromEnum(wlr.BufferCap.dmabuf)) != null) {
+        if (new_renderer.getDrmFd() >= 0 and new_renderer.getTextureFormats(@intFromEnum(wlr.BufferCap.dmabuf)) != null) {
             const new_dmabuf_result = blk: {
                 server.creating_linux_dmabuf_global = true;
                 defer server.creating_linux_dmabuf_global = false;

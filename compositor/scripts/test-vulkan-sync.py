@@ -44,6 +44,7 @@ def main():
             "vulkan_render_pass_destroy", "render_pass_wait_sync_file", "close_sync_files",
             "render_pass_wait_render_buffer", "render_pass_wait_textures", "render_pass_submit",
         ],
+        "render/vulkan/copy.c": ["vulkan_copy_buffer_finish"],
     }
     production = "\n".join(function((source / path).read_text(), name)
                            for path, names in selected.items() for name in names)
@@ -71,8 +72,11 @@ def main():
                 'wlr_log(WLR_ERROR, "Failed to wait for foreign texture DMA-BUF fence");\n\t\t\t\tclose_sync_files(sync_file_fds);\n\t\t\t\treturn false;',
                 'wlr_log(WLR_ERROR, "Failed to wait for foreign texture DMA-BUF fence");\n\t\t\t\tclose_sync_files(sync_file_fds);\n\t\t\t\tcontinue;'),
             "publication-ignored": (
-                'bool ok = vulkan_sync_render_pass_release(renderer, pass);',
+                'bool ok = copied && vulkan_sync_render_pass_release(renderer, pass);',
                 'bool ok = (vulkan_sync_render_pass_release(renderer, pass), true);'),
+            "copy-readiness-bypassed": (
+                'bool copied = !render_buffer->copy_target || vulkan_copy_buffer_finish(pass);',
+                'bool copied = true;'),
             "wait-after-ownership": (
                 'stage_submit.waitSemaphoreInfoCount = render_wait_len;',
                 'stage_submit.waitSemaphoreInfoCount = 0;'),

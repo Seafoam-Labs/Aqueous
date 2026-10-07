@@ -87,6 +87,14 @@ pub fn init(renderer: *wlr.Renderer) !VulkanContext {
     errdefer c.vkDestroyPipelineCache(device, pipeline_cache, null);
 
     const capabilities = queryCapabilities(physical_device, queue_family, renderer);
+    if (!capabilities.rgba16f_sampled or !capabilities.rgba16f_color_attachment or
+        !capabilities.bgra8_sampled or !capabilities.bgra8_color_attachment or
+        !capabilities.linear_filtering or !capabilities.timeline_semaphore_supported or
+        !capabilities.synchronization2_supported)
+    {
+        std.log.err("Vulkan device lacks required effects formats, filtering, or synchronization", .{});
+        return error.VulkanEffectsCapabilitiesUnavailable;
+    }
     var rounded_pipeline = try RoundedPipeline.init(device, pipeline_cache);
     errdefer rounded_pipeline.deinit();
     var blur_pipeline = try BlurPipeline.init(

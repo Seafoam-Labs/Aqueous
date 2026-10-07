@@ -35,6 +35,7 @@ patch_files=(
     "$here/patches/wlroots/0027-xwayland-size-hints.patch"
     "$here/patches/wlroots/0028-output-color-guard.patch"
     "$here/patches/wlroots/0029-screencopy-sdr-gamma-lookup.patch"
+    "$here/patches/wlroots/0030-vulkan-presentation-copy.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -165,6 +166,14 @@ bash "$here/scripts/test-screencopy-sdr.sh" "$source_dir" "$prefix" ||
 library="$prefix/lib/libwlroots-0.20.so"
 [ -f "$library" ] || die "patched wlroots library was not installed"
 for symbol in \
+    wlr_output_allow_presentation_copy \
+    wlr_output_try_presentation_copy \
+    wlr_output_uses_presentation_copy \
+    wlr_output_presentation_copy_committed \
+    wlr_output_reset_presentation \
+    wlr_vk_renderer_requires_copy \
+    wlr_vk_renderer_get_copy_formats \
+    wlr_vk_copy_allocator_create \
     wlr_buffer_has_color_pipeline \
     wlr_drm_output_supports_color_pipeline \
     wlr_seat_client_validate_pointer_enter_serial \

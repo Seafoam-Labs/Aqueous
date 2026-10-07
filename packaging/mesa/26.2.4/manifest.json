@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "mesa_version": "26.2.4",
+  "source": "https://archive.mesa3d.org/mesa-26.2.4.tar.xz",
+  "source_sha256": "bce5f7fbebb934373b86c999a064d52fb5065878dc57f287f95346648ec832e9",
+  "patches": [
+    "0001-venus-preserve-identity-use-wsi-blit-policy.patch"
+  ],
+  "aqueous_presentation_api": 1,
+  "release_ready": false,
+  "patch_sha256": {
+    "0001-venus-preserve-identity-use-wsi-blit-policy.patch": "e8c019c3068a2754b0832b63affcb302cc3f5b50310496726801f870f40458d6"
+  }
+}

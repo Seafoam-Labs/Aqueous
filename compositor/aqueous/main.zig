@@ -377,6 +377,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     log.info("running server", .{});
 
     server.wl_server.run();
+    if (server.fatal_error) |err| return err;
 }
 
 fn defaultInitPath(environ: std.process.Environ) !?[:0]const u8 {

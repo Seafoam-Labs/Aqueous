@@ -1,0 +1,973 @@
+--- a/include/render/vulkan.h
++++ b/include/render/vulkan.h
+@@ -35,6 +35,7 @@
+ 
+ // Logical vulkan device state.
+ struct wlr_vk_device {
++	bool dmabuf;
+ 	struct wlr_vk_instance *instance;
+ 
+ 	VkPhysicalDevice phdev;
+@@ -235,6 +236,11 @@
+ 	VkDeviceMemory memories[WLR_DMABUF_MAX_PLANES];
+ 	uint32_t mem_count;
+ 	VkImage image;
++	bool copy_target;
++	uint32_t format;
++	VkBuffer copy_staging;
++	VkDeviceMemory copy_memory;
++	void *copy_mapping;
+ 
+ 	// Framebuffer and image view for rendering directly onto the buffer image,
+ 	// without any color transform.
+@@ -339,6 +345,7 @@
+ 	struct wl_list descriptor_pools; // wlr_vk_descriptor_pool.link
+ 	struct wl_list render_format_setups; // wlr_vk_render_format_setup.link
+ 
++	struct wlr_drm_format_set copy_formats;
+ 	bool offscreen_enabled;
+ 	bool sync_failed;
+ 	uint64_t last_submitted_point;
+@@ -499,8 +506,13 @@
+ bool vulkan_sync_render_buffer_acquire(struct wlr_vk_render_buffer *render_buffer,
+ 	int sync_file_fds[static WLR_DMABUF_MAX_PLANES]);
+ 
++bool vulkan_copy_buffer_init(struct wlr_vk_render_buffer *buffer, const struct wlr_dmabuf_attributes *attribs);
++void vulkan_copy_buffer_record(struct wlr_vk_render_buffer *buffer, VkCommandBuffer cb);
++bool vulkan_copy_buffer_finish(struct wlr_vk_render_pass *pass);
++bool vulkan_is_copy_buffer(struct wlr_buffer *buffer);
++
+ bool vulkan_read_pixels(struct wlr_vk_renderer *vk_renderer,
+-	VkFormat src_format, VkImage src_image,
++	VkFormat src_format, VkImage src_image, VkImageLayout src_layout,
+ 	uint32_t drm_format, uint32_t stride,
+ 	uint32_t width, uint32_t height, uint32_t src_x, uint32_t src_y,
+ 	uint32_t dst_x, uint32_t dst_y, void *data);
+--- a/include/wlr/render/vulkan.h
++++ b/include/wlr/render/vulkan.h
+@@ -12,6 +12,12 @@
+ #include <vulkan/vulkan_core.h>
+ #include <wlr/render/pass.h>
+ #include <wlr/render/wlr_renderer.h>
++
++struct wlr_allocator;
++struct wlr_drm_format_set;
++bool wlr_vk_renderer_requires_copy(struct wlr_renderer *renderer);
++struct wlr_allocator *wlr_vk_copy_allocator_create(struct wlr_allocator *destination);
++const struct wlr_drm_format_set *wlr_vk_renderer_get_copy_formats(struct wlr_renderer *renderer);
+ 
+ #define WLR_AQUEOUS_RENDER_HOOK_VERSION 10
+ 
+--- /dev/null
++++ b/include/wlr/types/wlr_output_presentation.h
+@@ -0,0 +1,20 @@
++#ifndef WLR_TYPES_OUTPUT_PRESENTATION_H
++#define WLR_TYPES_OUTPUT_PRESENTATION_H
++
++#include <stdbool.h>
++struct wlr_output;
++struct wlr_output_state;
++
++#define WLR_AQUEOUS_PRESENTATION_VERSION 1
++
++/** Experimental CPU-copy presentation. Disabled unless explicitly enabled. */
++bool wlr_output_allow_presentation_copy(struct wlr_output *output, bool allow);
++/** Select copy for a failed composed presentation. Does not commit an output. */
++bool wlr_output_try_presentation_copy(struct wlr_output *output);
++bool wlr_output_uses_presentation_copy(struct wlr_output *output);
++/** True only after a copied frame has passed a real output commit. */
++bool wlr_output_presentation_copy_committed(struct wlr_output *output);
++/** Reset on renderer replacement. Releases this policy's optimization locks. */
++void wlr_output_reset_presentation(struct wlr_output *output);
++
++#endif
+--- a/render/allocator/allocator.c
++++ b/render/allocator/allocator.c
+@@ -199,3 +199,21 @@
+ 	}
+ 	return buffer;
+ }
++
++struct wlr_allocator *allocator_autocreate_cpu(struct wlr_backend *backend);
++
++// Create a CPU-writable display allocation without requesting GPU render usage.
++struct wlr_allocator *allocator_autocreate_cpu(struct wlr_backend *backend) {
++	int fd = wlr_backend_get_drm_fd(backend);
++	if (fd >= 0 && (backend->buffer_caps & WLR_BUFFER_CAP_DMABUF)) {
++		int reopened = reopen_drm_node(fd, false);
++		if (reopened < 0) return NULL;
++		struct wlr_allocator *alloc = wlr_drm_dumb_allocator_create(reopened);
++		if (!alloc) close(reopened);
++		return alloc;
++	}
++	if (backend->buffer_caps & (WLR_BUFFER_CAP_SHM | WLR_BUFFER_CAP_DATA_PTR)) {
++		return wlr_shm_allocator_create();
++	}
++	return NULL;
++}
+--- /dev/null
++++ b/render/vulkan/copy.c
+@@ -0,0 +1,162 @@
++// SPDX-License-Identifier: MIT
++// Experimental bounded synchronous readback. Automatic deployment is gated.
++#include <string.h>
++#include <drm_fourcc.h>
++#include <wlr/interfaces/wlr_buffer.h>
++#include <wlr/util/log.h>
++#include "render/vulkan.h"
++
++bool vulkan_copy_buffer_init(struct wlr_vk_render_buffer *buffer,
++        const struct wlr_dmabuf_attributes *dmabuf) {
++    if (dmabuf->width <= 0 || dmabuf->height <= 0 ||
++        (uint64_t)dmabuf->width * dmabuf->height > SIZE_MAX / 4) return false;
++    if (dmabuf->format != DRM_FORMAT_XRGB8888 && dmabuf->format != DRM_FORMAT_ARGB8888) {
++        return false;
++    }
++    struct wlr_vk_renderer *renderer = buffer->renderer;
++    VkDevice dev = renderer->dev->dev;
++    buffer->copy_target = true;
++    VkImageCreateInfo image = {
++        .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
++        .flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT,
++        .imageType = VK_IMAGE_TYPE_2D,
++        .format = VK_FORMAT_B8G8R8A8_UNORM,
++        .extent = {dmabuf->width, dmabuf->height, 1},
++        .mipLevels = 1, .arrayLayers = 1,
++        .samples = VK_SAMPLE_COUNT_1_BIT,
++        .tiling = VK_IMAGE_TILING_OPTIMAL,
++        .usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
++            VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
++        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
++        .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
++    };
++    VkResult res = vkCreateImage(dev, &image, NULL, &buffer->image);
++    if (res != VK_SUCCESS) goto error;
++    VkMemoryRequirements req;
++    vkGetImageMemoryRequirements(dev, buffer->image, &req);
++    int type = vulkan_find_mem_type(renderer->dev, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, req.memoryTypeBits);
++    if (type < 0) return false;
++    VkMemoryDedicatedAllocateInfo dedicated = {
++        .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
++        .image = buffer->image,
++    };
++    VkMemoryAllocateInfo alloc = {
++        .pNext = &dedicated,
++        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
++        .allocationSize = req.size, .memoryTypeIndex = type,
++    };
++    res = vkAllocateMemory(dev, &alloc, NULL, &buffer->memories[0]);
++    if (res != VK_SUCCESS) goto error;
++    buffer->mem_count = 1;
++    res = vkBindImageMemory(dev, buffer->image, buffer->memories[0], 0);
++    if (res != VK_SUCCESS) goto error;
++
++    VkBufferCreateInfo staging = {
++        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
++        .size = (VkDeviceSize)dmabuf->width * dmabuf->height * 4,
++        .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT,
++        .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
++    };
++    res = vkCreateBuffer(dev, &staging, NULL, &buffer->copy_staging);
++    if (res != VK_SUCCESS) goto error;
++    vkGetBufferMemoryRequirements(dev, buffer->copy_staging, &req);
++    type = vulkan_find_mem_type(renderer->dev,
++        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
++        req.memoryTypeBits);
++    if (type < 0) type = vulkan_find_mem_type(renderer->dev,
++        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, req.memoryTypeBits);
++    if (type < 0) return false;
++    dedicated.image = VK_NULL_HANDLE;
++    dedicated.buffer = buffer->copy_staging;
++    alloc.allocationSize = req.size;
++    alloc.memoryTypeIndex = type;
++    res = vkAllocateMemory(dev, &alloc, NULL, &buffer->copy_memory);
++    if (res != VK_SUCCESS) goto error;
++    res = vkBindBufferMemory(dev, buffer->copy_staging, buffer->copy_memory, 0);
++    if (res != VK_SUCCESS) goto error;
++    res = vkMapMemory(dev, buffer->copy_memory, 0, VK_WHOLE_SIZE, 0, &buffer->copy_mapping);
++    if (res != VK_SUCCESS) goto error;
++    wlr_log(WLR_INFO, "Vulkan presentation copy target allocated: %dx%d", dmabuf->width, dmabuf->height);
++    return true;
++error:
++    wlr_vk_error("Vulkan presentation copy allocation", res);
++    return false;
++}
++
++void vulkan_copy_buffer_record(struct wlr_vk_render_buffer *buffer, VkCommandBuffer cb) {
++    VkImageMemoryBarrier image = {
++        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
++        .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
++        .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
++        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
++        .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
++        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
++        .image = buffer->image,
++        .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
++    };
++    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
++        VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &image);
++    VkBufferImageCopy region = {
++        .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
++        .imageExtent = {buffer->wlr_buffer->width, buffer->wlr_buffer->height, 1},
++    };
++    vkCmdCopyImageToBuffer(cb, buffer->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++        buffer->copy_staging, 1, &region);
++    VkBufferMemoryBarrier host = {
++        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
++        .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
++        .dstAccessMask = VK_ACCESS_HOST_READ_BIT,
++        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
++        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
++        .buffer = buffer->copy_staging, .size = VK_WHOLE_SIZE,
++    };
++    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
++        VK_PIPELINE_STAGE_HOST_BIT, 0, 0, NULL, 1, &host, 0, NULL);
++    image.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
++    image.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
++    image.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
++    image.newLayout = VK_IMAGE_LAYOUT_GENERAL;
++    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
++        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, NULL, 0, NULL, 1, &image);
++}
++
++bool vulkan_copy_buffer_finish(struct wlr_vk_render_pass *pass) {
++    struct wlr_vk_render_buffer *buffer = pass->render_buffer;
++    const VkSemaphoreWaitInfoKHR wait = {
++        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO_KHR,
++        .semaphoreCount = 1,
++        .pSemaphores = &pass->renderer->timeline_semaphore,
++        .pValues = &pass->command_buffer->timeline_point,
++    };
++    VkResult waited = pass->renderer->dev->api.vkWaitSemaphoresKHR(
++        pass->renderer->dev->dev, &wait, 1000000000ULL);
++    if (waited != VK_SUCCESS) {
++        wlr_vk_error("Vulkan presentation copy completion (1 second limit)", waited);
++        return false;
++    }
++    pass->completion_proven = true;
++    VkMappedMemoryRange range = {
++        .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
++        .memory = buffer->copy_memory, .offset = 0, .size = VK_WHOLE_SIZE,
++    };
++    VkResult res = vkInvalidateMappedMemoryRanges(pass->renderer->dev->dev, 1, &range);
++    if (res != VK_SUCCESS) {
++        wlr_vk_error("Vulkan presentation copy readback", res);
++        return false;
++    }
++    void *data;
++    uint32_t format;
++    size_t stride;
++    if (!wlr_buffer_begin_data_ptr_access(buffer->wlr_buffer, WLR_BUFFER_DATA_PTR_ACCESS_WRITE,
++            &data, &format, &stride)) return false;
++    size_t row = (size_t)buffer->wlr_buffer->width * 4;
++    bool ok = (format == DRM_FORMAT_XRGB8888 || format == DRM_FORMAT_ARGB8888) && stride >= row;
++    if (ok) {
++        for (int y = 0; y < buffer->wlr_buffer->height; ++y) {
++            memcpy((char *)data + y * stride, (char *)buffer->copy_mapping + y * row, row);
++        }
++    }
++    wlr_buffer_end_data_ptr_access(buffer->wlr_buffer);
++    return ok;
++}
+--- /dev/null
++++ b/render/vulkan/copy_allocator.c
+@@ -0,0 +1,98 @@
++// SPDX-License-Identifier: MIT
++#include <assert.h>
++#include <drm_fourcc.h>
++#include <stdlib.h>
++#include <wlr/backend.h>
++#include <wlr/interfaces/wlr_buffer.h>
++#include <wlr/render/allocator.h>
++#include <wlr/render/vulkan.h>
++#include "render/allocator/shm.h"
++#include "render/vulkan.h"
++
++struct copy_allocator {
++	struct wlr_allocator base;
++	struct wlr_allocator *destination;
++};
++
++struct copy_buffer {
++	struct wlr_addon addon;
++};
++
++static void copy_buffer_destroy(struct wlr_addon *addon) {
++	struct copy_buffer *buffer = wl_container_of(addon, buffer, addon);
++	wlr_addon_finish(addon);
++	free(buffer);
++}
++
++static const struct wlr_addon_interface copy_buffer_impl = {
++	.name = "vulkan_presentation_copy",
++	.destroy = copy_buffer_destroy,
++};
++
++bool vulkan_is_copy_buffer(struct wlr_buffer *buffer) {
++	return wlr_addon_find(&buffer->addons, NULL, &copy_buffer_impl) != NULL;
++}
++
++static struct wlr_buffer *copy_allocate(struct wlr_allocator *base,
++		int width, int height, const struct wlr_drm_format *format) {
++	struct copy_allocator *alloc = wl_container_of(base, alloc, base);
++	if (width <= 0 || height <= 0 || width > INT32_MAX / 4 ||
++			(uint64_t)width * height > INT32_MAX / 4 ||
++			(format->format != DRM_FORMAT_XRGB8888 && format->format != DRM_FORMAT_ARGB8888)) {
++		return NULL;
++	}
++	struct copy_buffer *tag = calloc(1, sizeof(*tag));
++	if (!tag) return NULL;
++	struct wlr_buffer *buffer = wlr_allocator_create_buffer(alloc->destination, width, height, format);
++	if (!buffer) {
++		free(tag);
++		return NULL;
++	}
++	wlr_addon_init(&tag->addon, &buffer->addons, NULL, &copy_buffer_impl);
++	return buffer;
++}
++
++static void copy_destroy(struct wlr_allocator *base) {
++	struct copy_allocator *alloc = wl_container_of(base, alloc, base);
++	wlr_allocator_destroy(alloc->destination);
++	free(alloc);
++}
++
++static const struct wlr_allocator_interface copy_impl = {
++	.create_buffer = copy_allocate,
++	.destroy = copy_destroy,
++};
++
++// Takes ownership on success only. The destination must provide writable pixels.
++struct wlr_allocator *wlr_vk_copy_allocator_create(struct wlr_allocator *destination) {
++	if (!(destination->buffer_caps & WLR_BUFFER_CAP_DATA_PTR)) return NULL;
++	struct copy_allocator *alloc = calloc(1, sizeof(*alloc));
++	if (!alloc) return NULL;
++	alloc->destination = destination;
++	wlr_allocator_init(&alloc->base, &copy_impl, destination->buffer_caps);
++	return &alloc->base;
++}
++
++const struct wlr_drm_format_set *wlr_vk_renderer_get_copy_formats(struct wlr_renderer *base) {
++	struct wlr_vk_renderer *renderer = vulkan_get_renderer(base);
++	if (renderer->copy_formats.len) return &renderer->copy_formats;
++	VkFormatProperties props;
++	vkGetPhysicalDeviceFormatProperties(renderer->dev->phdev, VK_FORMAT_B8G8R8A8_UNORM, &props);
++	VkFormatFeatureFlags required = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT |
++		VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT |
++		VK_FORMAT_FEATURE_TRANSFER_DST_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
++	if ((props.optimalTilingFeatures & required) != required) return NULL;
++	vkGetPhysicalDeviceFormatProperties(renderer->dev->phdev, VK_FORMAT_B8G8R8A8_SRGB, &props);
++	if (!(props.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT)) return NULL;
++	if (!wlr_drm_format_set_add(&renderer->copy_formats, DRM_FORMAT_XRGB8888, DRM_FORMAT_MOD_LINEAR) ||
++			!wlr_drm_format_set_add(&renderer->copy_formats, DRM_FORMAT_ARGB8888, DRM_FORMAT_MOD_LINEAR)) {
++		wlr_drm_format_set_finish(&renderer->copy_formats);
++		return NULL;
++	}
++	return &renderer->copy_formats;
++}
++
++bool wlr_vk_renderer_requires_copy(struct wlr_renderer *renderer) {
++    struct wlr_vk_device *dev = vulkan_get_renderer(renderer)->dev;
++	return !dev->dmabuf || dev->drm_fd < 0;
++}
+--- a/render/vulkan/meson.build
++++ b/render/vulkan/meson.build
+@@ -39,6 +39,8 @@
+ wlr_files += files(
+ 	'pass.c',
+ 	'renderer.c',
++	'copy.c',
++	'copy_allocator.c',
+ 	'texture.c',
+ 	'vulkan.c',
+ 	'util.c',
+--- a/render/vulkan/pass.c
++++ b/render/vulkan/pass.c
+@@ -602,7 +602,7 @@
+ 	// also add acquire/release barriers for the current render buffer
+ 	VkImageLayout src_layout = VK_IMAGE_LAYOUT_GENERAL;
+ 	if (!pass->render_buffer_out->transitioned) {
+-		src_layout = VK_IMAGE_LAYOUT_PREINITIALIZED;
++		src_layout = render_buffer->copy_target ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_PREINITIALIZED;
+ 	}
+ 
+ 	if (pass->two_pass) {
+@@ -666,6 +666,12 @@
+ 		.subresourceRange.levelCount = 1,
+ 	};
+ 
++	if (render_buffer->copy_target) {
++		acquire_barriers[idx].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++		acquire_barriers[idx].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++		release_barriers[idx].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++		release_barriers[idx].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++	}
+ 	++idx;
+ 
+ 	vkCmdPipelineBarrier(stage_cb->vk, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+@@ -676,6 +682,7 @@
+ 		VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 0, NULL,
+ 		barrier_count, release_barriers);
+ 
++	if (render_buffer->copy_target) vulkan_copy_buffer_record(render_buffer, render_cb->vk);
+ 	free(acquire_barriers);
+ 	free(release_barriers);
+ 
+@@ -805,7 +812,12 @@
+ 		wl_list_insert(&stage_cb->stage_buffers, &stage_buf->link);
+ 	}
+ 
+-	bool ok = vulkan_sync_render_pass_release(renderer, pass);
++	bool copied = !render_buffer->copy_target || vulkan_copy_buffer_finish(pass);
++	if (!copied && !pass->completion_proven) {
++        vulkan_fail_render_pass(pass);
++        return false;
++    }
++    bool ok = copied && vulkan_sync_render_pass_release(renderer, pass);
+ 	if (!ok) {
+ 		wlr_log(WLR_ERROR, "Render submitted, but completion fence publication failed");
+ 		if (!vulkan_recover_render_pass(pass)) {
+@@ -1449,8 +1461,11 @@
+ 	bool using_two_pass_pathway = !using_linear_pathway && !using_srgb_pathway;
+ 
+ 	if (using_linear_pathway && !buffer->linear.out.image_view) {
+-		struct wlr_dmabuf_attributes attribs;
+-		wlr_buffer_get_dmabuf(buffer->wlr_buffer, &attribs);
++		struct wlr_dmabuf_attributes attribs = {
++			.width = buffer->wlr_buffer->width,
++			.height = buffer->wlr_buffer->height,
++			.format = buffer->format,
++		};
+ 		if (!vulkan_setup_one_pass_framebuffer(buffer, &attribs, false)) {
+ 			wlr_log(WLR_ERROR, "Failed to set up blend image");
+ 			return NULL;
+@@ -1468,8 +1483,11 @@
+ 		}
+ 
+ 		if (!buffer->two_pass.out.image_view) {
+-			struct wlr_dmabuf_attributes attribs;
+-			wlr_buffer_get_dmabuf(buffer->wlr_buffer, &attribs);
++			struct wlr_dmabuf_attributes attribs = {
++				.width = buffer->wlr_buffer->width,
++				.height = buffer->wlr_buffer->height,
++				.format = buffer->format,
++			};
+ 			if (!vulkan_setup_two_pass_framebuffer(buffer, &attribs)) {
+ 				wlr_log(WLR_ERROR, "Failed to set up blend image");
+ 				return NULL;
+--- a/render/vulkan/pixel_format.c
++++ b/render/vulkan/pixel_format.c
+@@ -524,7 +524,7 @@
+ 	};
+ 	VkFormatProperties2 fmtp = {
+ 		.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2,
+-		.pNext = &modp,
++		.pNext = dev->dmabuf ? &modp : NULL,
+ 	};
+ 
+ 	vkGetPhysicalDeviceFormatProperties2(dev->phdev, format->vk, &fmtp);
+--- a/render/vulkan/renderer.c
++++ b/render/vulkan/renderer.c
+@@ -778,6 +778,9 @@
+ 			buffer->two_pass.blend_descriptor_set);
+ 	}
+ 
++	if (buffer->copy_mapping) vkUnmapMemory(dev, buffer->copy_memory);
++	vkDestroyBuffer(dev, buffer->copy_staging, NULL);
++	vkFreeMemory(dev, buffer->copy_memory, NULL);
+ 	vkDestroyImage(dev, buffer->image, NULL);
+ 	for (size_t i = 0u; i < buffer->mem_count; ++i) {
+ 		vkFreeMemory(dev, buffer->memories[i], NULL);
+@@ -1054,16 +1057,31 @@
+ 	wl_list_insert(&renderer->render_buffers, &buffer->link);
+ 
+ 	struct wlr_dmabuf_attributes dmabuf = {0};
+-	if (!wlr_buffer_get_dmabuf(wlr_buffer, &dmabuf)) {
++	bool copy = wlr_vk_renderer_requires_copy(&renderer->wlr_renderer) || vulkan_is_copy_buffer(wlr_buffer);
++	if (copy) {
++		void *data;
++		size_t stride;
++		if (!wlr_buffer_begin_data_ptr_access(wlr_buffer,
++				WLR_BUFFER_DATA_PTR_ACCESS_WRITE, &data, &dmabuf.format, &stride)) goto error;
++		wlr_buffer_end_data_ptr_access(wlr_buffer);
++		dmabuf.width = wlr_buffer->width;
++		dmabuf.height = wlr_buffer->height;
++	} else if (!wlr_buffer_get_dmabuf(wlr_buffer, &dmabuf)) {
+ 		goto error;
+ 	}
+ 
+ 	wlr_log(WLR_DEBUG, "vulkan create_render_buffer: %.4s, %dx%d",
+ 		(const char*) &dmabuf.format, dmabuf.width, dmabuf.height);
+ 
++	buffer->format = dmabuf.format;
+ 	bool using_mutable_srgb = false;
+-	buffer->image = vulkan_import_dmabuf(renderer, &dmabuf,
+-		buffer->memories, &buffer->mem_count, true, &using_mutable_srgb);
++	if (copy) {
++		if (!vulkan_copy_buffer_init(buffer, &dmabuf)) goto error;
++		using_mutable_srgb = true;
++	} else {
++		buffer->image = vulkan_import_dmabuf(renderer, &dmabuf,
++			buffer->memories, &buffer->mem_count, true, &using_mutable_srgb);
++	}
+ 	if (!buffer->image) {
+ 		goto error;
+ 	}
+@@ -1094,7 +1112,6 @@
+ 		destroy_render_buffer(buffer);
+ 	}
+ 
+-	wlr_dmabuf_attributes_finish(&dmabuf);
+ 	return NULL;
+ }
+ 
+@@ -1164,6 +1181,7 @@
+ 
+ bool vulkan_sync_render_buffer_acquire(struct wlr_vk_render_buffer *render_buffer,
+ 		int sync_file_fds[static WLR_DMABUF_MAX_PLANES]) {
++	if (render_buffer->copy_target) return true;
+ 	return buffer_export_sync_file(render_buffer->renderer, render_buffer->wlr_buffer,
+ 		DMA_BUF_SYNC_WRITE, sync_file_fds);
+ }
+@@ -1190,6 +1208,22 @@
+ 	VkResult res;
+ 	struct wlr_vk_command_buffer *cb = pass->command_buffer;
+ 
++	if (pass->render_buffer->copy_target) {
++		// Drain the binary semaphore if submit used one, before recycling it.
++		if (renderer->dev->implicit_sync_interop || pass->signal_timeline != NULL) {
++			const VkSemaphoreGetFdInfoKHR info = {
++				.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR,
++				.semaphore = cb->binary_semaphore,
++				.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT,
++			};
++			int fd = -1;
++			res = renderer->dev->api.vkGetSemaphoreFdKHR(renderer->dev->dev, &info, &fd);
++			if (res != VK_SUCCESS) return false;
++			if (fd >= 0) close(fd);
++		}
++		return pass->signal_timeline == NULL ||
++			wlr_drm_syncobj_timeline_signal(pass->signal_timeline, pass->signal_point);
++	}
+ 	if (!renderer->dev->implicit_sync_interop && pass->signal_timeline == NULL) {
+ 		// We have no choice but to block here sadly
+ 		return vulkan_wait_command_buffer(cb, renderer);
+@@ -1248,7 +1282,7 @@
+ 		struct wlr_renderer *wlr_renderer, uint32_t buffer_caps) {
+ 	struct wlr_vk_renderer *renderer = vulkan_get_renderer(wlr_renderer);
+ 	if (buffer_caps & WLR_BUFFER_CAP_DMABUF) {
+-		return &renderer->dev->dmabuf_texture_formats;
++		return renderer->dev->dmabuf ? &renderer->dev->dmabuf_texture_formats : NULL;
+ 	} else if (buffer_caps & WLR_BUFFER_CAP_DATA_PTR) {
+ 		return &renderer->dev->shm_texture_formats;
+ 	} else {
+@@ -1259,12 +1293,14 @@
+ static const struct wlr_drm_format_set *vulkan_get_render_formats(
+ 		struct wlr_renderer *wlr_renderer) {
+ 	struct wlr_vk_renderer *renderer = vulkan_get_renderer(wlr_renderer);
+-	return &renderer->dev->dmabuf_render_formats;
++	return !wlr_vk_renderer_requires_copy(wlr_renderer) ? &renderer->dev->dmabuf_render_formats :
++		wlr_vk_renderer_get_copy_formats(wlr_renderer);
+ }
+ 
+ static void vulkan_destroy(struct wlr_renderer *wlr_renderer) {
+ 	struct wlr_vk_renderer *renderer = vulkan_get_renderer(wlr_renderer);
+ 	struct wlr_vk_device *dev = renderer->dev;
++	wlr_drm_format_set_finish(&renderer->copy_formats);
+ 	if (!dev) {
+ 		free(renderer);
+ 		return;
+@@ -1384,7 +1420,7 @@
+ }
+ 
+ bool vulkan_read_pixels(struct wlr_vk_renderer *vk_renderer,
+-		VkFormat src_format, VkImage src_image,
++		VkFormat src_format, VkImage src_image, VkImageLayout src_layout,
+ 		uint32_t drm_format, uint32_t stride,
+ 		uint32_t width, uint32_t height, uint32_t src_x, uint32_t src_y,
+ 		uint32_t dst_x, uint32_t dst_y, void *data) {
+@@ -1505,9 +1541,9 @@
+ 			VK_PIPELINE_STAGE_TRANSFER_BIT,
+ 			VK_ACCESS_TRANSFER_WRITE_BIT);
+ 	vulkan_change_layout(cb, src_image,
+-			VK_IMAGE_LAYOUT_GENERAL,
+-			VK_PIPELINE_STAGE_TRANSFER_BIT,
+-			VK_ACCESS_MEMORY_READ_BIT,
++			src_layout,
++			VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
++			VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT,
+ 			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+ 			VK_PIPELINE_STAGE_TRANSFER_BIT,
+ 			VK_ACCESS_TRANSFER_READ_BIT);
+@@ -1563,14 +1599,14 @@
+ 			VK_PIPELINE_STAGE_TRANSFER_BIT,
+ 			VK_ACCESS_TRANSFER_WRITE_BIT,
+ 			VK_IMAGE_LAYOUT_GENERAL,
+-			VK_PIPELINE_STAGE_TRANSFER_BIT,
+-			0);
++			VK_PIPELINE_STAGE_HOST_BIT,
++			VK_ACCESS_HOST_READ_BIT);
+ 	vulkan_change_layout(cb, src_image,
+ 			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+ 			VK_PIPELINE_STAGE_TRANSFER_BIT,
+ 			VK_ACCESS_TRANSFER_READ_BIT,
+-			VK_IMAGE_LAYOUT_GENERAL,
+-			VK_PIPELINE_STAGE_TRANSFER_BIT,
++			src_layout,
++			VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+ 			VK_ACCESS_MEMORY_READ_BIT);
+ 
+ 	if (!vulkan_submit_stage_wait(vk_renderer)) {
+@@ -2700,7 +2736,8 @@
+ 	}
+ 
+ 	renderer->dev = dev;
+-	wlr_renderer_init(&renderer->wlr_renderer, &renderer_impl, WLR_BUFFER_CAP_DMABUF);
++	wlr_renderer_init(&renderer->wlr_renderer, &renderer_impl,
++		(dev->dmabuf ? WLR_BUFFER_CAP_DMABUF : 0) | WLR_BUFFER_CAP_DATA_PTR);
+ 	renderer->wlr_renderer.features.input_color_transform = true;
+ 	renderer->wlr_renderer.features.output_color_transform = true;
+ 	wl_list_init(&renderer->stage.buffers);
+--- a/render/vulkan/texture.c
++++ b/render/vulkan/texture.c
+@@ -238,6 +238,7 @@
+ 	void *p = wlr_texture_read_pixel_options_get_data(options);
+ 
+ 	return vulkan_read_pixels(texture->renderer, texture->format->vk, texture->image,
++		texture->dmabuf_imported ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+ 		options->format, options->stride, src.width, src.height, src.x, src.y, 0, 0, p);
+ }
+ 
+@@ -812,7 +813,7 @@
+ 	uint32_t format;
+ 	size_t stride;
+ 	struct wlr_dmabuf_attributes dmabuf;
+-	if (wlr_buffer_get_dmabuf(buffer, &dmabuf)) {
++	if (renderer->dev->dmabuf && !vulkan_is_copy_buffer(buffer) && wlr_buffer_get_dmabuf(buffer, &dmabuf)) {
+ 		return vulkan_texture_from_dmabuf_buffer(renderer, buffer, &dmabuf);
+ 	} else if (wlr_buffer_begin_data_ptr_access(buffer,
+ 			WLR_BUFFER_DATA_PTR_ACCESS_READ, &data, &format, &stride)) {
+--- a/render/vulkan/vulkan.c
++++ b/render/vulkan/vulkan.c
+@@ -467,11 +467,24 @@
+ 	// extensions before the device is created
+ 	const char *extensions[32] = {0};
+ 	size_t extensions_len = 0;
+-	extensions[extensions_len++] = VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME;
+-	extensions[extensions_len++] = VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME; // or vulkan 1.2
+-	extensions[extensions_len++] = VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME;
+-	extensions[extensions_len++] = VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME;
+-	extensions[extensions_len++] = VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME;
++	const char *dmabuf_extensions[] = {
++		VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
++		VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME,
++		VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME,
++		VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME,
++	};
++	dev->dmabuf = true;
++	for (size_t i = 0; i < sizeof(dmabuf_extensions) / sizeof(dmabuf_extensions[0]); i++) {
++		dev->dmabuf &= check_extension(avail_ext_props, avail_extc, dmabuf_extensions[i]);
++	}
++	if (dev->dmabuf) {
++		for (size_t i = 0; i < sizeof(dmabuf_extensions) / sizeof(dmabuf_extensions[0]); i++) {
++			extensions[extensions_len++] = dmabuf_extensions[i];
++		}
++	} else {
++		wlr_log(WLR_INFO, "Vulkan device lacks DMA-BUF interoperability; presentation requires CPU copy");
++	}
++	extensions[extensions_len++] = VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME;
+ 	extensions[extensions_len++] = VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME; // or vulkan 1.2
+ 	extensions[extensions_len++] = VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME; // or vulkan 1.3
+ 
+@@ -624,8 +637,9 @@
+ 
+ 	vkGetDeviceQueue(dev->dev, dev->queue_family, 0, &dev->queue);
+ 
+-	load_device_proc(dev, "vkGetMemoryFdPropertiesKHR",
+-		&dev->api.vkGetMemoryFdPropertiesKHR);
++	if (dev->dmabuf) {
++		load_device_proc(dev, "vkGetMemoryFdPropertiesKHR", &dev->api.vkGetMemoryFdPropertiesKHR);
++	}
+ 	load_device_proc(dev, "vkWaitSemaphoresKHR", &dev->api.vkWaitSemaphoresKHR);
+ 	load_device_proc(dev, "vkGetSemaphoreCounterValueKHR",
+ 		&dev->api.vkGetSemaphoreCounterValueKHR);
+--- a/types/meson.build
++++ b/types/meson.build
+@@ -11,6 +11,7 @@
+ 	'output/cursor.c',
+ 	'output/output.c',
+ 	'output/render.c',
++	'output/presentation.c',
+ 	'output/state.c',
+ 	'output/swapchain.c',
+ 	'scene/drag_icon.c',
+--- /dev/null
++++ b/types/output/presentation.c
+@@ -0,0 +1,136 @@
++// SPDX-License-Identifier: MIT
++#include <stdlib.h>
++#include <wlr/backend.h>
++#include <wlr/config.h>
++#include <wlr/render/allocator.h>
++#include <wlr/render/swapchain.h>
++#include <wlr/types/wlr_output.h>
++#include <wlr/types/wlr_output_presentation.h>
++#include <wlr/util/log.h>
++#include "types/wlr_output.h"
++
++#if WLR_HAS_VULKAN_RENDERER
++#include <wlr/render/vulkan.h>
++// Allocator owns a re-opened DRM FD, never the backend's FD.
++struct wlr_allocator *allocator_autocreate_cpu(struct wlr_backend *backend);
++bool vulkan_is_copy_buffer(struct wlr_buffer *buffer);
++
++struct output_presentation {
++	struct wlr_addon addon;
++	struct wlr_output *output;
++	struct wlr_allocator *original;
++	struct wlr_allocator *copy;
++	bool allowed;
++	bool attempted;
++	bool committed;
++	struct wl_listener commit;
++};
++
++static void presentation_destroy(struct wlr_addon *addon) {
++	struct output_presentation *p = wl_container_of(addon, p, addon);
++	wl_list_remove(&p->commit.link);
++	wlr_addon_finish(addon);
++	wlr_allocator_destroy(p->copy);
++	free(p);
++}
++
++static const struct wlr_addon_interface presentation_impl = {
++	.name = "vulkan_output_presentation",
++	.destroy = presentation_destroy,
++};
++
++static struct output_presentation *get_presentation(struct wlr_output *output) {
++	struct wlr_addon *addon = wlr_addon_find(&output->addons, NULL, &presentation_impl);
++	if (!addon) return NULL;
++	struct output_presentation *p = wl_container_of(addon, p, addon);
++	return p;
++}
++#endif
++
++#if WLR_HAS_VULKAN_RENDERER
++static void presentation_handle_commit(struct wl_listener *listener, void *data) {
++	struct output_presentation *p = wl_container_of(listener, p, commit);
++	struct wlr_output_event_commit *event = data;
++	if (!p->copy || !event->state->buffer || !vulkan_is_copy_buffer(event->state->buffer)) return;
++	if (!p->committed) {
++		wlr_log(WLR_INFO, "Output '%s': Vulkan CPU-copy frame committed", p->output->name);
++		p->committed = true;
++	}
++}
++#endif
++
++bool wlr_output_allow_presentation_copy(struct wlr_output *output, bool allow) {
++#if WLR_HAS_VULKAN_RENDERER
++	struct output_presentation *p = get_presentation(output);
++	if (!p) {
++		if (!allow) return true;
++		if (!output->renderer || !wlr_renderer_is_vk(output->renderer)) return false;
++		p = calloc(1, sizeof(*p));
++		if (!p) return false;
++		p->output = output;
++		p->original = output->allocator;
++		p->commit.notify = presentation_handle_commit;
++		wl_signal_add(&output->events.commit, &p->commit);
++		wlr_addon_init(&p->addon, &output->addons, NULL, &presentation_impl);
++	}
++	if (!allow && p->copy) return false; // reset after draining committed buffers
++	p->allowed = allow;
++	return true;
++#else
++	return !allow;
++#endif
++}
++
++bool wlr_output_try_presentation_copy(struct wlr_output *output) {
++#if WLR_HAS_VULKAN_RENDERER
++	struct output_presentation *p = get_presentation(output);
++	if (!p || !p->allowed || p->attempted) return false;
++	p->attempted = true;
++	if (!wlr_vk_renderer_get_copy_formats(output->renderer)) return false;
++	struct wlr_allocator *destination = allocator_autocreate_cpu(output->backend);
++	if (!destination) return false;
++	p->copy = wlr_vk_copy_allocator_create(destination);
++	if (!p->copy) {
++		wlr_allocator_destroy(destination);
++		return false;
++	}
++	output->allocator = p->copy;
++	wlr_output_lock_attach_render(output, true);
++	wlr_output_lock_software_cursors(output, true);
++	wlr_log(WLR_INFO, "Output '%s': trying Vulkan CPU-copy presentation (experimental)", output->name);
++	return true;
++#else
++	return false;
++#endif
++}
++
++bool wlr_output_uses_presentation_copy(struct wlr_output *output) {
++#if WLR_HAS_VULKAN_RENDERER
++	struct output_presentation *p = get_presentation(output);
++	return p && p->copy;
++#else
++	return false;
++#endif
++}
++
++bool wlr_output_presentation_copy_committed(struct wlr_output *output) {
++#if WLR_HAS_VULKAN_RENDERER
++	struct output_presentation *p = get_presentation(output);
++	return p && p->committed;
++#else
++	return false;
++#endif
++}
++
++void wlr_output_reset_presentation(struct wlr_output *output) {
++#if WLR_HAS_VULKAN_RENDERER
++	struct output_presentation *p = get_presentation(output);
++	if (!p) return;
++	if (p->copy) {
++		output->allocator = p->original;
++		wlr_output_lock_attach_render(output, false);
++		wlr_output_lock_software_cursors(output, false);
++	}
++	presentation_destroy(&p->addon);
++#endif
++}
+--- a/types/output/render.c
++++ b/types/output/render.c
+@@ -1,4 +1,9 @@
+ #include <assert.h>
++#include <wlr/config.h>
++#include <wlr/types/wlr_output_presentation.h>
++#if WLR_HAS_VULKAN_RENDERER
++#include <wlr/render/vulkan.h>
++#endif
+ #include <drm_fourcc.h>
+ #include <stdlib.h>
+ #include <wlr/interfaces/wlr_output.h>
+@@ -32,6 +37,7 @@
+ 	wlr_swapchain_destroy(output->cursor_swapchain);
+ 	output->cursor_swapchain = NULL;
+ 
++	wlr_output_reset_presentation(output);
+ 	output->allocator = allocator;
+ 	output->renderer = renderer;
+ 
+@@ -153,6 +159,11 @@
+ 
+ 	const struct wlr_drm_format_set *render_formats =
+ 		wlr_renderer_get_render_formats(renderer);
++#if WLR_HAS_VULKAN_RENDERER
++	if (wlr_output_uses_presentation_copy(output)) {
++		render_formats = wlr_vk_renderer_get_copy_formats(renderer);
++	}
++#endif
+ 	if (render_formats == NULL) {
+ 		wlr_log(WLR_ERROR, "Failed to get render formats");
+ 		return false;
+--- a/types/output/swapchain.c
++++ b/types/output/swapchain.c
+@@ -1,4 +1,9 @@
+ #include <assert.h>
++#include <wlr/config.h>
++#include <wlr/types/wlr_output_presentation.h>
++#if WLR_HAS_VULKAN_RENDERER
++#include <wlr/render/vulkan.h>
++#endif
+ #include <drm_fourcc.h>
+ #include <stdlib.h>
+ #include <wlr/render/allocator.h>
+@@ -63,7 +68,7 @@
+ 	return ok;
+ }
+ 
+-bool wlr_output_configure_primary_swapchain(struct wlr_output *output,
++static bool configure_primary_swapchain(struct wlr_output *output,
+ 		const struct wlr_output_state *state, struct wlr_swapchain **swapchain_ptr) {
+ 	struct wlr_output_state empty_state;
+ 	if (state == NULL) {
+@@ -81,7 +86,7 @@
+ 
+ 	// Re-use the existing swapchain if possible
+ 	struct wlr_swapchain *old_swapchain = *swapchain_ptr;
+-	if (old_swapchain != NULL &&
++	if (old_swapchain != NULL && old_swapchain->allocator == output->allocator &&
+ 			old_swapchain->width == width && old_swapchain->height == height &&
+ 			old_swapchain->format.format == format) {
+ 		return true;
+@@ -116,3 +121,10 @@
+ 	*swapchain_ptr = swapchain;
+ 	return true;
+ }
++
++bool wlr_output_configure_primary_swapchain(struct wlr_output *output,
++		const struct wlr_output_state *state, struct wlr_swapchain **swapchain_ptr) {
++	if (configure_primary_swapchain(output, state, swapchain_ptr)) return true;
++	if (!wlr_output_try_presentation_copy(output)) return false;
++	return configure_primary_swapchain(output, state, swapchain_ptr);
++}
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -7,6 +7,7 @@
+ #include "util/env.h"
+ #include "util/time.h"
+ #include <assert.h>
++#include <wlr/types/wlr_output_presentation.h>
+ #include <drm_fourcc.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -3294,7 +3295,8 @@
+ 		wlr_output_state_set_buffer(state, buffer);
+ 	}
+ 
+-	if (layer_candidate != NULL && layer_candidate->layer != NULL &&
++	if (!wlr_output_uses_presentation_copy(output) &&
++			layer_candidate != NULL && layer_candidate->layer != NULL &&
+ 			layer_candidate->buffer != NULL && options->color_transform == NULL &&
+ 			!render_gamma_lut &&
+ 			debug_damage != WLR_SCENE_DEBUG_DAMAGE_HIGHLIGHT) {
+--- a/types/wlr_output_swapchain_manager.c
++++ b/types/wlr_output_swapchain_manager.c
+@@ -1,4 +1,9 @@
+ #include <assert.h>
++#include <wlr/config.h>
++#include <wlr/types/wlr_output_presentation.h>
++#if WLR_HAS_VULKAN_RENDERER
++#include <wlr/render/vulkan.h>
++#endif
+ #include <drm_fourcc.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -79,10 +84,12 @@
+ 		int width, int height, const struct wlr_drm_format *format) {
+ 	struct wlr_output *output = manager_output->output;
+ 
+-	if (swapchain_is_compatible(output->swapchain, width, height, format)) {
++	if (output->swapchain && output->swapchain->allocator == output->allocator &&
++			swapchain_is_compatible(output->swapchain, width, height, format)) {
+ 		return output->swapchain;
+ 	}
+-	if (swapchain_is_compatible(manager_output->new_swapchain, width, height, format)) {
++	if (manager_output->new_swapchain && manager_output->new_swapchain->allocator == output->allocator &&
++			swapchain_is_compatible(manager_output->new_swapchain, width, height, format)) {
+ 		return manager_output->new_swapchain;
+ 	}
+ 
+@@ -177,7 +184,8 @@
+ 			return false;
+ 		}
+ 		if (!manager_output_prepare(manager_output, &state->base, explicit_modifiers)) {
+-			return false;
++			if (!wlr_output_try_presentation_copy(state->output) ||
++					!manager_output_prepare(manager_output, &state->base, explicit_modifiers)) return false;
+ 		}
+ 	}
+ 

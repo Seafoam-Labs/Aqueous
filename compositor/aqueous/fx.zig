@@ -52,11 +52,18 @@ pub const anim_epsilon: f64 = 0.5;
 pub fn createRenderer(backend: *wlr.Backend) !*wlr.Renderer {
     if (comptime build_options.vulkan_effects) {
         const c = @import("c");
+        const presentation = try @import("render/Presentation.zig").mode();
         if (setenv("WLR_RENDERER", "vulkan", 1) != 0) {
             std.log.err("cannot select the wlroots Vulkan renderer: setenv failed", .{});
             return error.VulkanRendererSelectionFailed;
         }
         const renderer = wlr.Renderer.autocreate(backend) catch |err| {
+            if (presentation != .direct and std.c.getenv("WLR_RENDER_DRM_DEVICE") == null and
+                std.c.getenv("WLR_RENDERER_FORCE_SOFTWARE") == null)
+            {
+                std.log.warn("hardware Vulkan unavailable; trying software Vulkan (experimental)", .{});
+                if (c.wlr_vk_renderer_create_with_drm_fd(-1)) |software| return @ptrCast(software);
+            }
             std.log.err("wlroots could not create the required Vulkan renderer: {s}", .{@errorName(err)});
             return error.VulkanRendererUnavailable;
         };

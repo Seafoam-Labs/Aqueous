@@ -580,6 +580,7 @@ pub fn create(wlr_output: *wlr.Output) !void {
     }
 
     if (!wlr_output.initRender(server.allocator, server.renderer)) return error.InitRenderFailed;
+    try @import("render/Presentation.zig").configure(wlr_output);
 
     const scene_output = try server.scene.wlr_scene.createSceneOutput(wlr_output);
     errdefer comptime unreachable;
@@ -2309,14 +2310,24 @@ fn renderAndCommit(output: *Output, force: bool, recovering: bool) output_retry.
     output.current.applyNoModeset(&state);
 
     const collect_metrics = render_metrics.enabled() and output.render_metric_sample == null;
-    if (output.injectRetryFailure(.scene_build) or !output.buildSceneStateInternal(
+    if (output.injectRetryFailure(.scene_build)) return .{ .failed = .scene_build };
+    if (!output.buildSceneStateInternal(
         &state,
         null,
         collect_metrics,
         force,
         !recovering,
     )) {
-        return .{ .failed = .scene_build };
+        if (!@import("render/Presentation.zig").tryCopy(wlr_output))
+            return .{ .failed = .scene_build };
+        output.discardRenderMetric();
+        output.discardOverlayCandidate();
+        state.finish();
+        state = wlr.Output.State.init();
+        output.current.applyNoModeset(&state);
+        output.scene_output.?.damage_ring.addWhole();
+        if (!output.buildSceneStateInternal(&state, null, collect_metrics, true, false))
+            return .{ .failed = .scene_build };
     }
 
     // FIFO barriers use a non-tearing latch. The client's tearing preference
@@ -2342,7 +2353,8 @@ fn renderAndCommit(output: *Output, force: bool, recovering: bool) output_retry.
         const color_pipeline_attempt = buffer_has_color_pipeline or
             (if (comptime build_options.output_retry_testing) output.retry_test.simulate_color_pipeline and !recovering else false);
         output.commitOverlayState(false);
-        if (!promoted_attempt and !color_pipeline_attempt) return .{ .failed = .output_commit };
+        const copied_attempt = @import("render/Presentation.zig").tryCopy(wlr_output);
+        if (!promoted_attempt and !color_pipeline_attempt and !copied_attempt) return .{ .failed = .output_commit };
 
         // The failed state may omit an overlay or contain a primary buffer
         // awaiting hardware color conversion. Rebuild the complete renderer

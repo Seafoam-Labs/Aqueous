@@ -11,6 +11,10 @@
 #include <libinput.h>
 #include <libudev.h>
 #include <wlr/types/wlr_output_layer.h>
+#include <wlr/types/wlr_output_presentation.h>
+#if !defined(WLR_AQUEOUS_PRESENTATION_VERSION) || WLR_AQUEOUS_PRESENTATION_VERSION != 1
+#error "Aqueous requires the pinned wlroots presentation API"
+#endif
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_fifo_v1.h>

@@ -17,6 +17,8 @@ def main():
     parser.add_argument('--compositor', type=Path, default=ROOT / 'zig-out/bin/aqueous')
     parser.add_argument('--ctl', type=Path, default=ROOT / 'zig-out/bin/aqueousctl')
     parser.add_argument('--renderer', choices=('pixman', 'vulkan'), default='pixman')
+    parser.add_argument('--render-device', help='Explicit DRM render node for Vulkan regression tests')
+    parser.add_argument('--presentation', choices=('direct', 'auto', 'copy'))
     args = parser.parse_args()
     work = Path(tempfile.mkdtemp(prefix='aqueous-scene-capture-'))
     print(f'Artifacts: {work}', flush=True)
@@ -110,6 +112,10 @@ def main():
         env.update(HOME=str(work / 'home'), XDG_RUNTIME_DIR=str(runtime), XDG_CONFIG_HOME=str(work / 'config'),
                    XDG_CACHE_HOME=str(work / 'cache'), XDG_STATE_HOME=str(work / 'state'),
                    WLR_BACKENDS='headless', WLR_HEADLESS_OUTPUTS='2', WLR_RENDERER=args.renderer)
+        if args.render_device:
+            env['WLR_RENDER_DRM_DEVICE'] = args.render_device
+        if args.presentation:
+            env['AQUEOUS_VULKAN_PRESENTATION'] = args.presentation
         for name in ('CONFIG', 'RULES', 'OUTPUTS', 'INPUT', 'LAYOUT'):
             path = work / f'{name.lower()}.toml'; path.write_text('')
             env[f'AQUEOUS_{name}'] = str(path)
@@ -148,7 +154,6 @@ def main():
         command(target, 'target', 'u')
         wait(lambda: window('scene-target') is None, 'target unmap')
         command(target, 'target', 'f')
-        print('PASS isolated foreign-toplevel pixels, repeated SDR metadata, lock denial, unmap and untouched failed buffers', flush=True)
     finally:
         for child in reversed(children):
             if child.poll() is None:
@@ -159,6 +164,14 @@ def main():
                     os.killpg(child.pid, signal.SIGKILL); child.wait()
         for log in logs:
             log.close()
+    compositor_log = (work / 'compositor.log').read_text()
+    assert 'VUID-' not in compositor_log and 'Validation Error' not in compositor_log, \
+        'Vulkan validation failed; see compositor.log'
+    if args.presentation == 'direct':
+        assert 'trying Vulkan CPU-copy' not in compositor_log
+    if args.presentation == 'copy':
+        assert 'trying Vulkan CPU-copy' in compositor_log
+    print('PASS isolated foreign-toplevel pixels, repeated SDR metadata, lock denial, unmap and untouched failed buffers', flush=True)
 
 
 if __name__ == '__main__':

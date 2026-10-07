@@ -3,6 +3,7 @@
 #include "render/vulkan.h"
 #include "util/matrix.h"
 #include <assert.h>
+#include <drm_fourcc.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/dma-buf.h>
@@ -38,6 +39,26 @@ static int poll_mode;
 static jmp_buf fatal_jump;
 static bool expect_fatal;
 static unsigned fatal_count;
+static bool copy_complete, fail_copy_map;
+static unsigned char copy_source[32 * 32 * 4], copy_destination[32 * (32 * 4 + 8)];
+
+void vulkan_copy_buffer_record(struct wlr_vk_render_buffer *buffer, VkCommandBuffer cb) {
+    assert(buffer->copy_target);
+}
+VKAPI_ATTR VkResult VKAPI_CALL vkInvalidateMappedMemoryRanges(VkDevice dev,
+        uint32_t count, const VkMappedMemoryRange *ranges) {
+    assert(completed >= renderer.last_submitted_point);
+    return VK_SUCCESS;
+}
+static bool mock_begin_data(struct wlr_buffer *buffer, uint32_t flags,
+        void **data, uint32_t *format, size_t *stride) {
+    assert(completed >= renderer.last_submitted_point);
+    *data = copy_destination;
+    *format = DRM_FORMAT_XRGB8888;
+    *stride = 32 * 4 + 8;
+    return !fail_copy_map;
+}
+static void mock_end_data(struct wlr_buffer *buffer) { copy_complete = true; }
 
 static int new_fd(void) {
     int fd = open("/dev/null", O_RDONLY | O_CLOEXEC);
@@ -199,6 +220,8 @@ static _Noreturn void mock_abort(void) {
 #define dmabuf_import_sync_file mock_import_sync_file
 #define poll mock_poll
 #define wlr_buffer_get_dmabuf mock_get_dmabuf
+#define wlr_buffer_begin_data_ptr_access mock_begin_data
+#define wlr_buffer_end_data_ptr_access mock_end_data
 #define wlr_buffer_lock mock_lock
 #define wlr_buffer_unlock mock_unlock
 #define wlr_drm_syncobj_timeline_export_sync_file mock_timeline_export
@@ -249,6 +272,9 @@ static void init(void) {
     poll_mode = 1;
     expect_fatal = false;
     fatal_count = 0;
+    copy_complete = fail_copy_map = false;
+    memset(copy_source, 0x71, sizeof(copy_source));
+    memset(copy_destination, 0xa5, sizeof(copy_destination));
 }
 static struct wlr_vk_render_pass *new_pass(bool explicit_source, bool explicit_dest) {
     struct wlr_vk_render_pass *pass = calloc(1, sizeof(*pass));
@@ -319,6 +345,41 @@ static void recover_next_frame(void) {
 }
 int main(void) {
     wlr_log_init(WLR_SILENT, NULL);
+    for (unsigned explicit = 0; explicit < 2; explicit++) {
+        init();
+        target.copy_target = true;
+        target.copy_mapping = copy_source;
+        assert(render_pass_submit(&new_pass(false, explicit)->base));
+        assert(copy_complete && wait_count == 1 && signal_count == explicit);
+        // Non-packed destinations must retain row padding.
+        for (unsigned y = 0; y < 32; y++) {
+            for (unsigned x = 0; x < 136; x++)
+                assert(copy_destination[y * 136 + x] == (x < 128 ? 0x71 : 0xa5));
+        }
+        assert(src_buffer.n_locks == 0 && dst_buffer.n_locks == 0);
+        finish();
+    }
+    init();
+    target.copy_target = true;
+    target.copy_mapping = copy_source;
+    fail_copy_map = true;
+    assert(!render_pass_submit(&new_pass(false, true)->base));
+    assert(!copy_complete && src_buffer.n_locks == 0 && dst_buffer.n_locks == 0);
+    finish();
+
+    init();
+    target.copy_target = true;
+    wait_result = VK_TIMEOUT;
+    struct wlr_vk_render_pass *copy_pass = new_pass(false, true);
+    expect_fatal = true;
+    if (setjmp(fatal_jump) == 0) {
+        render_pass_submit(&copy_pass->base);
+        assert(!"copy timeout must not publish incomplete pixels");
+    }
+    assert(!copy_complete && signal_count == 0 && wait_count == 1);
+    assert(src_buffer.n_locks == 1 && dst_buffer.n_locks == 1);
+    renderer.failed_passes = copy_pass;
+    finish();
     // Each of two source and destination planes: partial exports/imports close
     // every unconsumed FD, no render batch submitted, next frame succeeds.
     for (unsigned operation = 0; operation < 2; operation++) {

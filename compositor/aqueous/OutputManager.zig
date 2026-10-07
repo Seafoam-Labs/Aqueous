@@ -129,6 +129,11 @@ fn handleNewOutput(_: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
             error.OutOfMemory => log.err("out of memory", .{}),
             error.InitRenderFailed => log.err("failed to initialize renderer for output {s}", .{wlr_output.name}),
             error.AddTimerFailed => log.err("failed to create recovery timer for output {s}", .{wlr_output.name}),
+            else => log.err("output {s}: presentation initialization failed: {s}", .{ wlr_output.name, @errorName(err) }),
+        }
+        if (server.om.first_modeset) {
+            server.fatal_error = error.PresentationUnavailable;
+            server.wl_server.terminate();
         }
         wlr_output.destroy();
         return;
@@ -836,21 +841,35 @@ pub fn commitOutputState(om: *OutputManager) void {
             return;
         }
 
-        for (states.items) |*state| {
-            const output: *Output = @ptrCast(@alignCast(state.output.data));
-            const built = output.buildSceneState(
-                &state.base,
-                swapchain_manager.getSwapchain(state.output),
-                false,
-                false,
-            );
-            if (!built) {
-                log.err("failed to render scene for {s}", .{state.output.name});
-                if (!output.sent.mirror_of.empty()) {
+        // At most one path change per output. Re-prepare the group after a
+        // change so the manager owns the swapchains actually being committed.
+        var attempts: usize = 0;
+        build_group: while (true) : (attempts += 1) {
+            for (states.items) |*state| {
+                const output: *Output = @ptrCast(@alignCast(state.output.data));
+                const built = output.buildSceneState(
+                    &state.base,
+                    swapchain_manager.getSwapchain(state.output),
+                    false,
+                    false,
+                );
+                if (!built) {
+                    if (attempts < states.items.len and
+                        @import("render/Presentation.zig").tryCopy(state.output))
+                    {
+                        output.scene_output.?.damage_ring.addWhole();
+                        for (states.items) |*pending| {
+                            const pending_output: *Output = @ptrCast(@alignCast(pending.output.data));
+                            pending_output.discardOverlayCandidate();
+                        }
+                        if (swapchain_manager.prepare(states.items)) continue :build_group;
+                    }
+                    log.err("failed to render scene for {s}", .{state.output.name});
                     om.modesetFailed();
                     return;
                 }
             }
+            break;
         }
 
         const injected_failure = if (comptime build_options.output_retry_testing) blk: {
@@ -1088,7 +1107,8 @@ fn modesetFailed(om: *OutputManager) void {
     // probably not compatible with river. In this case, exit rather
     // than running forever without rendering anything.
     if (om.first_modeset) {
-        log.err("initial modeset failed, exiting river", .{});
+        log.err("no usable presentation path: initial output commit failed", .{});
+        server.fatal_error = error.PresentationUnavailable;
         server.wl_server.terminate();
         return;
     }

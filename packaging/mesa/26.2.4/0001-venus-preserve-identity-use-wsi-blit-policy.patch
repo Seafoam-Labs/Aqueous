@@ -1,0 +1,82 @@
+--- a/src/virtio/vulkan/vn_wsi.c
++++ b/src/virtio/vulkan/vn_wsi.c
+@@ -138,42 +138,6 @@
+        physical_dev->renderer_driver_version <
+           VN_MAKE_NVIDIA_VERSION(590, 48, 1, 0));
+ 
+-   /* Normally Venus on Nvidia GPUs takes the prime blit path. The exception
+-    * is when KWin or any wlroots based compositors are used:
+-    * 1. KWin and wlroots based compositors always add LINEAR to dmabuf
+-    *    feedback tranches assuming LINEAR can be handled by GPU drivers.
+-    * 2. Venus + Virgl only sees the compositor injected LINEAR mod since
+-    *    Virgl doesn't support explicit modifiers on the driver side.
+-    * 3. Nvidia GPUs doesn't support LINEAR color attachment, and it's too
+-    *    late to reject LINEAR mod when the native image path has already
+-    *    been taken instead of the prime image path.
+-    *
+-    * Gamescope requires VK_EXT_physical_device_drm and its runtime doesn't
+-    * use standard WSI extensions, so venus can spoof without impacting it.
+-    */
+-   struct vk_properties *props = &physical_dev->base.vk.properties;
+-   const bool is_nvidia = props->vendorID == 0x10de;
+-   const char *app_name = physical_dev->instance->base.vk.app_info.app_name;
+-   const bool is_gamescope = app_name && strcmp(app_name, "gamescope") == 0;
+-   if (is_nvidia && !is_gamescope) {
+-      /* Fail same_gpu check on x11. See wsi_device_matches_drm_fd. */
+-      physical_dev->base.vk.supported_extensions.EXT_pci_bus_info = false;
+-      props->pciDomain = 0;
+-      props->pciBus = 0;
+-      props->pciDevice = 0;
+-      props->pciFunction = 0;
+-
+-      /* Fail same_gpu check on wayland. See wsi_wl_display_init. */
+-      physical_dev->base.vk.supported_extensions.EXT_physical_device_drm =
+-         false;
+-      props->drmHasPrimary = false;
+-      props->drmHasRender = true;
+-      props->drmPrimaryMajor = 0;
+-      props->drmPrimaryMinor = 0;
+-      props->drmRenderMajor = 0;
+-      props->drmRenderMinor = 0;
+-   }
+-
+    const VkAllocationCallbacks *alloc =
+       &physical_dev->instance->base.vk.alloc;
+    VkResult result = wsi_device_init(
+@@ -185,6 +149,14 @@
+       });
+    if (result != VK_SUCCESS)
+       return result;
++
++   /* Preserve the guest DRM/PCI identity for device matching. Nvidia still
++    * needs the PRIME buffer blit when LINEAR is advertised by the compositor:
++    * a LINEAR image need not support color-attachment usage. Keep that policy
++    * in WSI instead of falsifying public properties or matching app names.
++    */
++   physical_dev->wsi_device.force_buffer_blit =
++      physical_dev->base.vk.properties.vendorID == 0x10de;
+ 
+    physical_dev->wsi_device.supports_scanout = false;
+    physical_dev->wsi_device.supports_modifiers =
+--- a/src/vulkan/wsi/wsi_common_drm.c
++++ b/src/vulkan/wsi/wsi_common_drm.c
+@@ -910,7 +910,7 @@
+ wsi_drm_image_needs_buffer_blit(const struct wsi_device *wsi,
+                                 const struct wsi_drm_image_params *params)
+ {
+-   if (WSI_DEBUG & WSI_DEBUG_BUFFER)
++   if (wsi->force_buffer_blit || (WSI_DEBUG & WSI_DEBUG_BUFFER))
+       return true;
+ 
+    if (!params->same_gpu)
+--- a/src/vulkan/wsi/wsi_common.h
++++ b/src/vulkan/wsi/wsi_common.h
+@@ -92,6 +92,8 @@
+ 
+    bool supports_protected[VK_ICD_WSI_PLATFORM_MAX];
+ 
++   /* Force PRIME buffer copies even for a matching DRM device/modifier. */
++   bool force_buffer_blit;
+    bool supports_modifiers;
+    uint32_t maxImageDimension2D;
+    uint32_t optimalBufferCopyRowPitchAlignment;

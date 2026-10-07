@@ -920,6 +920,7 @@ fn writeOutputs(_: *Service, json: *std.json.Stringify) !void {
         try field(json, "mirror_of", state.mirror_of.slice());
         try field(json, "mirror_status", output.mirror.status(output));
         try field(json, "mirror_error", output.mirror.failure);
+        try field(json, "presentation_path", @import("../../render/Presentation.zig").name(wlr_output));
         try field(json, "adaptive_sync", state.adaptive_sync);
         try field(json, "fullscreen_only_adaptive_sync", state.fullscreen_only_adaptive_sync);
         try field(json, "effective_adaptive_sync", output.adaptiveSyncTarget(state));
