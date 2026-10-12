@@ -16,6 +16,7 @@ from PIL import Image, ImageChops, ImageStat
 
 ROOT = Path(__file__).resolve().parents[1]
 BIN = Path(os.environ.get('AQUEOUS_COMPOSITOR_BIN', ROOT / 'zig-out/bin/aqueous'))
+CTL = Path(os.environ.get('AQUEOUS_CTL_BIN', BIN.parent / 'aqueousctl'))
 ARTIFACTS = Path(tempfile.mkdtemp(prefix='aqueous-background-effect-'))
 print(f'Artifacts: {ARTIFACTS}', flush=True)
 
@@ -50,8 +51,8 @@ def build_fixture():
 
 
 class Client:
-    def __init__(self, fixture, env, mode='layer'):
-        self.proc = subprocess.Popen([str(fixture), mode], env=env, stdin=subprocess.PIPE,
+    def __init__(self, fixture, env, mode='layer', initial='empty'):
+        self.proc = subprocess.Popen([str(fixture), mode, initial], env=env, stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=(ARTIFACTS / f'client-{mode}-{time.time_ns()}.log').open('w'), text=True, bufsize=1)
         self.lines = queue.Queue()
         threading.Thread(target=lambda: [self.lines.put(line.strip()) for line in self.proc.stdout], daemon=True).start()
@@ -82,6 +83,7 @@ def run(fixture, uncached=False):
     rules.write_text('')
     env = {k: v for k, v in os.environ.items() if not k.startswith(('AQUEOUS_', 'DMS_'))}
     env.update(XDG_RUNTIME_DIR=str(runtime), XDG_CONFIG_HOME=str(case / 'config'), HOME=str(case),
+               XDG_STATE_HOME=str(case / 'state'), XDG_CACHE_HOME=str(case / 'cache'),
                WLR_BACKENDS='headless', WLR_HEADLESS_OUTPUTS='1', WLR_RENDERER='pixman' if os.environ.get('AQUEOUS_TEST_NO_EFFECTS') == '1' else 'vulkan',
                AQUEOUS_CONFIG=str(config), AQUEOUS_RULES=str(rules))
     for key in ('WAYLAND_DISPLAY', 'DISPLAY', 'LD_PRELOAD', 'DBUS_SESSION_BUS_ADDRESS'):
@@ -120,6 +122,9 @@ def run(fixture, uncached=False):
         if os.environ.get('AQUEOUS_TEST_DMS_ONLY') == '1':
             test_dms(fixture, env, case, capture, difference, clients)
             return
+        test_ownership(fixture, env, case, capture, difference, clients)
+        test_gtk(fixture, env, case, capture, difference, clients)
+        rules.write_text('')
         client = Client(fixture, env)
         clients.append(client)
         baseline = capture('baseline')
@@ -209,12 +214,12 @@ def run(fixture, uncached=False):
             role_client = Client(fixture, env, mode)
             clients.append(role_client)
             def role_settled():
-                scene = subprocess.check_output([str(ROOT / 'zig-out/bin/aqueousctl'), 'scene'], env=env, text=True)
+                scene = subprocess.check_output([str(CTL), 'scene'], env=env, text=True)
                 return all(' disabled' in line for line in scene.splitlines() if 'window animation snapshot [tree]' in line)
             wait_for(role_settled)
             dx = dy = 0
             if mode in ('toplevel', 'geometry', 'app-popup'):
-                windows = json.loads(subprocess.check_output([str(ROOT / 'zig-out/bin/aqueousctl'), 'windows', '--json'], env=env, text=True))
+                windows = json.loads(subprocess.check_output([str(CTL), 'windows', '--json'], env=env, text=True))
                 geometry = next(w['geometry'] for w in windows if w['app_id'] == 'aqueous.blur.client')
                 dx, dy = geometry['x'], geometry['y']
                 if mode == 'geometry':
@@ -226,8 +231,8 @@ def run(fixture, uncached=False):
             role_client.send('set hole'); role_client.send('commit')
             wait_for(role_settled)
             role_blur = capture(f'{mode}-blur')
-            (case / f'{mode}-scene.txt').write_text(subprocess.check_output([str(ROOT / 'zig-out/bin/aqueousctl'), 'scene'], env=env, text=True))
-            (case / f'{mode}-windows.json').write_text(subprocess.check_output([str(ROOT / 'zig-out/bin/aqueousctl'), 'windows', '--json'], env=env, text=True))
+            (case / f'{mode}-scene.txt').write_text(subprocess.check_output([str(CTL), 'scene'], env=env, text=True))
+            (case / f'{mode}-windows.json').write_text(subprocess.check_output([str(CTL), 'windows', '--json'], env=env, text=True))
             assert difference(role_baseline, role_blur, role_box((30, 30, 70, 160))) > 20, mode
             assert difference(role_baseline, role_blur, role_box((85, 65, 135, 115))) < 1, mode
             role_client.send('clear'); role_client.send('commit')
@@ -262,6 +267,234 @@ def run(fixture, uncached=False):
         text = (case / 'compositor.log').read_text()
         assert compositor.returncode == 0, text[-6000:]
         assert not any(s in text for s in ('panic:', 'Vulkan backdrop blur failed', 'Validation Error', 'cleaning up ')), text[-6000:]
+
+
+def scene(env):
+    return subprocess.check_output([str(CTL), 'scene'], env=env, text=True, timeout=10)
+
+
+def settled(env):
+    return all(' disabled' in line for line in scene(env).splitlines()
+               if 'window animation snapshot [tree]' in line)
+
+
+def wait_settled(env):
+    previous = None
+    since = time.monotonic()
+
+    def stable():
+        nonlocal previous, since
+        text = scene(env)
+        if text != previous or any('window animation snapshot [tree]' in line and ' disabled' not in line
+                                   for line in text.splitlines()):
+            previous, since = text, time.monotonic()
+        return time.monotonic() - since > .15
+
+    wait_for(stable)
+
+
+def marker_enabled(text, label):
+    return any(line.lstrip(' │├─└').split(' [rect]')[0] == label and ' disabled' not in line
+               for line in text.splitlines() if ' [rect]' in line)
+
+
+def window_geometry(env, app_id):
+    windows = json.loads(subprocess.check_output([str(CTL), 'windows', '--json'], env=env, text=True))
+    return next((w['geometry'] for w in windows if w['app_id'] == app_id), None)
+
+
+def settle_fixture_window(client, env):
+    # The fixture has no continuously drawing event loop. Drive the commits
+    # needed to finish initial placement before taking a pixel reference.
+    def placed():
+        client.send('commit')
+        geometry = window_geometry(env, 'aqueous.blur.client')
+        return geometry and geometry['x'] == 32 and geometry['y'] == 32
+    wait_for(placed)
+    wait_settled(env)
+
+
+def test_ownership(fixture, env, case, capture, difference, clients):
+    rules = Path(env['AQUEOUS_RULES'])
+    window_rule = ('[[window]]\napp_id = "aqueous.blur.client"\nfloating = true\n'
+                   'width = 320\nheight = 240\nx = 32\ny = 32\n')
+    layer_rule = '[[layer]]\nnamespace = "aqueous.blur.client"\nblur = true\nblur_popups = true\n'
+    rules.write_text(window_rule + layer_rule)
+    time.sleep(.3)
+    for mode, label in (('toplevel', 'backdrop blur marker'),
+                        ('layer', 'layer backdrop blur marker'),
+                        ('popup', 'layer popup backdrop blur marker')):
+        client = Client(fixture, env, mode, 'none')
+        clients.append(client)
+        if mode == 'toplevel':
+            settle_fixture_window(client, env)
+        else:
+            wait_settled(env)
+        dx = dy = 0
+        if mode == 'toplevel':
+            geometry = window_geometry(env, 'aqueous.blur.client')
+            dx, dy = geometry['x'], geometry['y']
+        bounds = (dx + 20, dy + 20, dx + 300, dy + 200)
+
+        def state(name, fallback, native, reference=None):
+            wait_settled(env)
+            image = capture(f'ownership-{mode}-{name}')
+            text = scene(env)
+            (case / f'ownership-{mode}-{name}.txt').write_text(text)
+            assert marker_enabled(text, label) == fallback, (mode, name, 'fallback', text)
+            assert marker_enabled(text, 'native background blur marker') == native, (mode, name, 'native', text)
+            if reference is not None:
+                assert difference(reference, image, bounds) < 1, (mode, name, 'pixels changed')
+            return image
+
+        fallback = state('no-object', True, False)
+        client.send('create')
+        state('create-pending', True, False, fallback)
+        client.send('commit')
+        state('unused', True, False, fallback)
+        client.send('set hole')
+        state('region-pending', True, False, fallback)
+        client.send('commit')
+        native = state('region', False, True)
+        client.send('set empty')
+        state('empty-pending', False, True, native)
+        client.send('commit')
+        sharp = state('empty', False, False)
+        assert difference(fallback, sharp, bounds) > 20, (mode, 'fallback must visibly blur')
+        assert difference(native, sharp, (dx+30, dy+30, dx+70, dy+160)) > 20
+        assert difference(native, sharp, (dx+85, dy+65, dx+135, dy+115)) < 1
+        client.send('clear'); client.send('commit')
+        state('null', False, False, sharp)
+        client.send('destroy')
+        state('destroy-pending', False, False, sharp)
+        client.send('commit')
+        state('destroyed', True, False, fallback)
+        client.send('create'); client.send('commit')
+        state('recreated-unused', True, False, fallback)
+        client.send('set hole'); client.send('commit')
+        state('recreated-region', False, True, native)
+        denied = (window_rule + 'blur = false\n' + layer_rule if mode == 'toplevel'
+                  else window_rule + layer_rule.replace('blur = true', 'blur = false'))
+        rules.write_text(denied)
+        wait_for(lambda: not marker_enabled(scene(env), 'native background blur marker'))
+        state('rule-denied', False, False, sharp)
+        rules.write_text(window_rule + layer_rule)
+        wait_for(lambda: marker_enabled(scene(env), 'native background blur marker'))
+        state('rule-restored', False, True, native)
+        client.send('destroy'); client.send('create')
+        state('recreate-pending', False, True, native)
+        client.send('commit')
+        state('recreate-committed', True, False, fallback)
+        if mode == 'toplevel':
+            test_snapshot_ownership(client, env, case, rules, window_rule, layer_rule)
+        client.close()
+
+    early = Client(fixture, env, 'toplevel', 'early')
+    clients.append(early)
+    settle_fixture_window(early, env)
+    text = scene(env)
+    (case / 'ownership-before-map.txt').write_text(text)
+    assert marker_enabled(text, 'backdrop blur marker'), text
+    assert not marker_enabled(text, 'native background blur marker'), text
+    early.close()
+    print('PASS blur ownership: unused objects, explicit regions, empty/null, destroy/recreate and first map', flush=True)
+
+
+def test_snapshot_ownership(client, env, case, rules, window_rule, layer_rule):
+    # Moving a floating window through a rule produces a frozen moving snapshot.
+    # Repeat after explicit requests and committed destruction;
+    # the latter leaves a live attachment allocated but no longer authoritative.
+    for request in ('empty', 'hole', 'destroyed'):
+        owned = request != 'destroyed'
+        client.send('set hole' if request == 'hole' else 'clear'); client.send('commit')
+        if not owned:
+            client.send('destroy'); client.send('commit')
+        rules.write_text(layer_rule + window_rule.replace('x = 32', 'x = 400'))
+        observed = []
+
+        def moving():
+            text = scene(env)
+            active = any('window animation snapshot [tree]' in line and ' disabled' not in line
+                         for line in text.splitlines())
+            if active:
+                observed.append(text)
+            return active
+
+        wait_for(moving)
+        text = observed[-1]
+        (case / f'ownership-animation-{request}.txt').write_text(text)
+        assert marker_enabled(text, 'animation backdrop blur marker') == (not owned), text
+        assert marker_enabled(text, 'native background blur marker') == (request == 'hole'), text
+        # Change live ownership while the old pixels are still moving. The
+        # snapshot keeps its captured policy until it hands back to live content.
+        if owned:
+            client.send('destroy')
+        else:
+            client.send('create'); client.send('clear')
+        client.send('commit')
+        text = scene(env)
+        (case / f'ownership-animation-{request}-live-change.txt').write_text(text)
+        assert any('window animation snapshot [tree]' in line and ' disabled' not in line
+                   for line in text.splitlines()), 'live ownership change missed the animation'
+        assert marker_enabled(text, 'animation backdrop blur marker') == (not owned), text
+        assert marker_enabled(text, 'native background blur marker') == (request == 'hole'), text
+        wait_settled(env)
+        assert marker_enabled(scene(env), 'backdrop blur marker') == owned
+        rules.write_text(window_rule + layer_rule)
+        time.sleep(.3)
+        wait_settled(env)
+        if not owned:
+            client.send('destroy')
+        client.send('create'); client.send('commit')
+    print('PASS frozen blur ownership: empty, nonempty, destruction and live changes during animation', flush=True)
+
+
+def test_gtk(fixture, env, case, capture, difference, clients):
+    if subprocess.run(['pkg-config', '--exists', 'gtk4']).returncode != 0:
+        print('SKIP GTK4 smoke: GTK4 development files unavailable', flush=True)
+        return
+    executable = ARTIFACTS / 'gtk-background-effect'
+    if not executable.exists():
+        flags = shlex.split(subprocess.check_output(['pkg-config', '--cflags', '--libs', 'gtk4'], text=True))
+        subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-O2',
+                        str(ROOT / 'scripts/fixtures/gtk-background-effect.c'), *flags, '-o', str(executable)], check=True)
+    rules = Path(env['AQUEOUS_RULES'])
+    rules.write_text('[[window]]\napp_id = "org.aqueous.GtkBlurProbe"\nfloating = true\n'
+                     'width = 320\nheight = 240\nx = 32\ny = 32\nopacity = 0.75\n')
+    time.sleep(.3)
+    background = Client(fixture, env)
+    clients.append(background)
+    images = []
+    for disabled in (False, True):
+        gtk_env = dict(env, GDK_BACKEND='wayland', GSK_RENDERER='cairo', GTK_A11Y='none',
+                       GTK_THEME='Adwaita', WAYLAND_DEBUG='1',
+                       GDK_WAYLAND_DISABLE='ext_background_effect_manager_v1' if disabled else '')
+        log_path = case / f'gtk-{disabled}.log'
+        with log_path.open('w') as log:
+            proc = subprocess.Popen([str(executable)], env=gtk_env, stdout=log, stderr=log)
+            try:
+                def ready():
+                    assert proc.poll() is None, log_path.read_text()
+                    return 'GTK_BLUR_READY' in log_path.read_text() and settled(env)
+                wait_for(ready)
+                wait_settled(env)
+                text = scene(env)
+                (case / f'gtk-{disabled}-scene.txt').write_text(text)
+                assert marker_enabled(text, 'backdrop blur marker'), text
+                images.append(capture(f'gtk-{disabled}'))
+            finally:
+                proc.terminate(); proc.wait(timeout=5)
+        trace = log_path.read_text()
+        if disabled:
+            assert '.get_background_effect(' not in trace
+        elif '.get_background_effect(' not in trace:
+            print('SKIP GTK native-object assertion: installed GTK does not create the object', flush=True)
+        else:
+            assert '.set_blur_region(' not in trace, 'plain GTK fixture unexpectedly requests native blur'
+        wait_for(lambda: 'Aqueous GTK blur probe' not in scene(env))
+    assert difference(images[0], images[1], (62, 62, 322, 242)) < 1, 'GTK native discovery changed fallback blur'
+    background.close()
+    print('PASS GTK4 opacity/fallback pixels with native protocol enabled and disabled', flush=True)
 
 
 def test_dms(fixture, env, case, capture, difference, clients):

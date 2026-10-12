@@ -565,6 +565,15 @@ preference toggles and absence of helper calls or compositor configuration write
 Initialize that checkout's `dank-qml-common` submodule first. This uses temporary
 settings and clears inherited DMS connections.
 
+The regression covers unused effect objects, explicit empty/null requests,
+commit boundaries, destruction/recreation, and frozen animation ownership in
+both cached and uncached rendering. When GTK4 development files are installed,
+it also compares an actual GTK window with native protocol discovery enabled
+and disabled. Creating an unused effect object must preserve compositor fallback
+blur; only an explicit committed region request overrides it. Override the test
+binaries with `AQUEOUS_COMPOSITOR_BIN` and `AQUEOUS_CTL_BIN` (the latter defaults
+to `aqueousctl` alongside the selected compositor).
+
 With a separate `-Dvulkan-effects=false` build, verify the global stays absent:
 
 ```sh

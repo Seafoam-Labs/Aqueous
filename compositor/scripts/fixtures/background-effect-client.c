@@ -25,6 +25,8 @@ static struct ext_background_effect_manager_v1 *manager, *second_manager;
 static uint32_t caps;
 static bool caps_received;
 static bool inverted;
+static bool early_effect;
+static struct ext_background_effect_surface_v1 *initial_effect;
 struct view { struct wl_surface *surface; struct zwlr_layer_surface_v1 *layer; struct wl_buffer *buffer; bool configured; bool geometry_offset; struct xdg_surface *xdg; struct xdg_toplevel *toplevel; struct xdg_popup *popup; };
 static void capabilities(void *data, struct ext_background_effect_manager_v1 *m, uint32_t flags) {
     (void)data; (void)m; caps = flags; caps_received = true;
@@ -104,6 +106,8 @@ static void popup_done(void *d, struct xdg_popup *p) { (void)d; (void)p; }
 static const struct xdg_popup_listener popup_listener = { .configure = popup_configure, .popup_done = popup_done };
 static void xdg_init(struct view *v, struct view *parent) {
     v->surface = wl_compositor_create_surface(compositor);
+    if (early_effect && !parent)
+        initial_effect = ext_background_effect_manager_v1_get_background_effect(manager, v->surface);
     v->buffer = buffer(320, 240, false);
     v->xdg = xdg_wm_base_get_xdg_surface(wm_base, v->surface);
     xdg_surface_add_listener(v->xdg, &xdg_listener, v);
@@ -162,6 +166,11 @@ int main(int argc, char **argv) {
     struct view background = {0}, view = {0}, popup = {0}, nested = {0};
     view_init(&background, true);
     const char *mode = argc > 1 ? argv[1] : "layer";
+    // Existing mask tests start with an explicit empty request. Ownership tests
+    // can instead start without an object, or create one before the first map.
+    const char *initial = argc > 2 ? argv[2] : "empty";
+    early_effect = !strcmp(initial, "early");
+    assert(!early_effect || !strcmp(mode, "toplevel"));
     view.geometry_offset = !strcmp(mode, "geometry");
     if (!strcmp(mode, "toplevel") || !strcmp(mode, "geometry") || !strcmp(mode, "app-popup")) xdg_init(&view, NULL);
     else view_init(&view, false);
@@ -182,11 +191,17 @@ int main(int argc, char **argv) {
         wl_surface_commit(child); wl_surface_commit(view.surface);
         target = child;
     }
-    if (view.xdg && target != view.surface) {
-        (void)ext_background_effect_manager_v1_get_background_effect(manager, view.surface);
+    if (target != view.surface && !sub) {
+        struct ext_background_effect_surface_v1 *parent_effect =
+            ext_background_effect_manager_v1_get_background_effect(manager, view.surface);
+        ext_background_effect_surface_v1_set_blur_region(parent_effect, NULL);
         wl_surface_commit(view.surface);
     }
-    struct ext_background_effect_surface_v1 *effect = ext_background_effect_manager_v1_get_background_effect(manager, target);
+    struct ext_background_effect_surface_v1 *effect = initial_effect;
+    if (!effect && strcmp(initial, "none"))
+        effect = ext_background_effect_manager_v1_get_background_effect(manager, target);
+    if (!strcmp(initial, "empty"))
+        ext_background_effect_surface_v1_set_blur_region(effect, NULL);
     wl_surface_commit(target);
     wl_surface_commit(view.surface);
     assert(wl_display_roundtrip(display) >= 0);

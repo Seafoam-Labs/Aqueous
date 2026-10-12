@@ -1999,8 +1999,14 @@ fn syncBackdropBlur(
 ) void {
     const blur = window.backdrop_blur orelse return;
     const requested = &window.rendering_requested;
-    const native = (if (window.rootSurface()) |surface| server.background_effect_manager.controls(surface) else false) or
-        (window.anim_snapshot and server.background_effect_manager.hasFrozenIn(window.anim_tree));
+    // The snapshot's blur ownership must follow its frozen content, even if
+    // the live surface commits a different request while it is animating.
+    const native = if (window.anim_snapshot)
+        server.background_effect_manager.hasFrozenIn(window.anim_tree)
+    else if (window.rootSurface()) |surface|
+        server.background_effect_manager.controls(surface)
+    else
+        false;
     const active = !native and allow and
         server.wm.blur.enabled and
         server.wm.blur.radius > 0 and

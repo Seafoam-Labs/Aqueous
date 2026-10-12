@@ -216,10 +216,12 @@ Quickshell versions, can instead supply exact regions. No matching layer rule
 is required for native blur. A matching `blur = false` rule vetoes the request;
 for layer popups, a matching rule must allow both `blur` and `blur_popups`.
 
-A committed client mask, including an empty or null mask, takes precedence over
-an enabled fallback rule. Destroying the effect object restores fallback blur
-on the next surface commit. Requests are per surface and do not automatically
-propagate to popups or subsurfaces. Global blur disable always takes precedence.
+Creating a background-effect object without setting a blur region leaves fallback
+blur unchanged. An explicit, committed client mask, including an empty or null
+mask, takes precedence over an enabled fallback rule. Destroying the effect
+object restores fallback blur on the next surface commit. Requests are per
+surface and do not automatically propagate to popups or subsurfaces. Global blur
+disable always takes precedence.
 The same client-mask precedence and explicit `blur = false` veto apply to
 application windows. Native requests can also apply to fullscreen windows.
 

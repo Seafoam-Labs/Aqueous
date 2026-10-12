@@ -53,7 +53,9 @@ const Mask = struct {
     }
 };
 const State = struct {
-    active: bool = false,
+    // Creating an effect object is not a blur request (GTK does this eagerly).
+    // An explicit empty/null request still owns blur and suppresses fallback.
+    has_explicit_request: bool = false,
     mask: ?*Mask = null,
 
     fn init(raw: *anyopaque) callconv(.c) void {
@@ -172,7 +174,6 @@ fn managerRequest(resource: *ext.BackgroundEffectManagerV1, request: ext.Backgro
             effect.* = .{ .resource = effect_resource, .surface = surface };
             surface.effect = effect;
             State.finish(&surface.pending);
-            surface.pending.active = true;
             effect_resource.setHandler(*Effect, effectRequest, effectDestroy, effect);
         },
     }
@@ -194,14 +195,14 @@ fn effectRequest(resource: *ext.BackgroundEffectSurfaceV1, request: ext.Backgrou
             };
             const mask = Mask.create(if (args.region) |region| wlr_region_from_resource(region) else null) catch return resource.postNoMemory();
             State.finish(&surface.pending);
-            surface.pending = .{ .active = true, .mask = mask };
+            surface.pending = .{ .has_explicit_request = true, .mask = mask };
         },
     }
 }
 
 pub fn controls(manager: *BackgroundEffectManager, surface: *wlr.Surface) bool {
     const record = manager.surfaces.get(surface) orelse return false;
-    return record.current.active;
+    return record.current.has_explicit_request;
 }
 
 pub fn schedule(manager: *BackgroundEffectManager) void {
@@ -351,7 +352,7 @@ pub const Attachment = struct {
         } else if (wlr.SceneSurface.tryFromBuffer(buffer)) |scene_surface| {
             const surface = scene_surface.surface;
             if (server.background_effect_manager.surfaces.get(surface)) |record| {
-                if (record.current.active) if (record.current.mask) |mask| {
+                if (record.current.has_explicit_request) if (record.current.mask) |mask| {
                     if (!region.intersectRect(&mask.region, 0, 0, @intCast(@max(0, surface.current.width)), @intCast(@max(0, surface.current.height)))) return;
                     const clip = scene_surface.private.clip;
                     if (!clip.empty()) {
@@ -385,12 +386,15 @@ pub const Attachment = struct {
 
 pub fn clone(manager: *BackgroundEffectManager, source: *wlr.SceneBuffer, target: *wlr.SceneBuffer) !void {
     if (comptime !fx.blur_available) return;
-    if (manager.forBuffer(source) == null) {
+    const existing = manager.forBuffer(source);
+    // Live attachments can outlast a committed effect destruction. Do not turn
+    // those inactive records into frozen ownership. Frozen sources, however,
+    // retain the ownership captured with their pixels, including empty masks.
+    if (existing == null or !existing.?.frozen) {
         const scene_surface = wlr.SceneSurface.tryFromBuffer(source) orelse return;
         if (!manager.controls(scene_surface.surface)) return;
-        _ = try Attachment.create(source);
     }
-    const original = manager.forBuffer(source).?;
+    const original = existing orelse try Attachment.create(source);
     original.sync();
     const attachment = try Attachment.create(target);
     attachment.frozen = true;
