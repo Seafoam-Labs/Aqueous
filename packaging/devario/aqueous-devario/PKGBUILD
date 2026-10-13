@@ -3,8 +3,8 @@
 pkgbase=aqueous-devario
 pkgname=(aqueous-core aqueous-session aqueous-integration-pearl aqueous-shell-pearl
          xdg-desktop-portal-aqueous)
-pkgver=1.0.2
-pkgrel=3
+pkgver=1.0.3
+pkgrel=1
 pkgdesc='Aqueous components for the Devario Pearl desktop'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Seafoam-Labs/Aqueous'
@@ -31,11 +31,6 @@ sha256sums=('SKIP'
 prepare() {
     patch --fuzz=0 -d "$srcdir/xdg-desktop-portal-wlr-0.8.4" -Np1 \
         -i "$srcdir/aqueous/packaging/portal/0001-rename-backend-for-aqueous.patch"
-    # v1.0.2 updated the helper version but left these assertions at 0.8.3.
-    # Check against the packaged release while retaining the capability tests.
-    sed -i "s/'0\.8\.3'/'$pkgver'/g" \
-        "$srcdir/aqueous/settingsApplication/tests/backend/test-protected-collections.py" \
-        "$srcdir/aqueous/settingsApplication/tests/backend/test-display-mutations.py"
 }
 
 build() {

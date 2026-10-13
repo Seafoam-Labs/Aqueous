@@ -1,7 +1,7 @@
 pkgbase = aqueous-devario
 	pkgdesc = Aqueous components for the Devario Pearl desktop
-	pkgver = 1.0.2
-	pkgrel = 3
+	pkgver = 1.0.3
+	pkgrel = 1
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = x86_64
 	arch = aarch64
@@ -58,7 +58,7 @@ pkgbase = aqueous-devario
 	options = !strip
 	options = !debug
 	options = !zipman
-	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v1.0.2
+	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v1.0.3
 	source = wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz
 	source = xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz
 	sha256sums = SKIP
@@ -97,7 +97,7 @@ pkgname = aqueous-core
 	depends = xcb-util-renderutil
 	depends = brightnessctl
 	depends = playerctl
-	provides = aqueous=1.0.2
+	provides = aqueous=1.0.3
 	conflicts = aqueous
 	conflicts = aqueous-bin
 	conflicts = aqueous-git<1.0.2.r6
@@ -108,7 +108,7 @@ pkgname = aqueous-core
 pkgname = aqueous-session
 	pkgdesc = Aqueous login session and shell-neutral desktop configuration
 	arch = any
-	depends = aqueous-core=1.0.2-3
+	depends = aqueous-core=1.0.3-1
 	depends = bash
 	depends = jq
 	depends = coreutils
@@ -136,7 +136,7 @@ pkgname = aqueous-session
 pkgname = aqueous-integration-pearl
 	pkgdesc = Pearl shell integration for the Aqueous session
 	arch = any
-	depends = aqueous-session=1.0.2-3
+	depends = aqueous-session=1.0.3-1
 	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
@@ -148,8 +148,8 @@ pkgname = aqueous-shell-pearl
 	pkgdesc = Pearl shell dependency preset for Aqueous
 	arch = any
 	depends = pearl-capture-picker>=1
-	depends = xdg-desktop-portal-aqueous=1.0.2-3
-	depends = aqueous-integration-pearl=1.0.2-3
+	depends = xdg-desktop-portal-aqueous=1.0.3-1
+	depends = aqueous-integration-pearl=1.0.3-1
 	depends = pearl
 	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel

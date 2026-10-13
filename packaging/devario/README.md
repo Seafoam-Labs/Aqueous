@@ -1,13 +1,13 @@
 # Devario desktop
 
-`devario-desktop` installs stable Aqueous `1.0.2` with Pearl and Pearl Greeter. It depends directly
+`devario-desktop` installs stable Aqueous `1.0.3` with Pearl and Pearl Greeter. It depends directly
 on the core, session, portal and Pearl integration/preset packages,
 without Welcome, the general `aqueous-desktop` meta package or DMS/Noctalia
 integrations, presets or shells.
 
 The portal package includes `aqueous-portal-picker`, a standalone GTK source
 picker. Pearl screen sharing and normal session startup do not require Welcome.
-The component recipe uses the `picker` build target from `v1.0.2`; it does not build
+The component recipe uses the `picker` build target from `v1.0.3`; it does not build
 or install the Welcome app.
 
 The package installs `/etc/xdg/aqueous/session.toml` selecting Pearl. Aqueous uses
@@ -19,13 +19,11 @@ own install hook, without restarting the running session. Select the **Aqueous**
 session at login.
 
 `aqueous-devario/PKGBUILD` is one split-package recipe for Shelly's native
-builder. It fetches the upstream `v1.0.2` tag once and builds the compositor,
+builder. It fetches the upstream `v1.0.3` tag once and builds the compositor,
 configuration helper, portal and standalone picker in a shared build lifecycle.
 The tag must be published before fetching the release. Each output has its own
 package function, runtime dependencies and file ownership. The dependency-only
 Pearl preset has an empty payload. No recipe sources a neighboring recipe.
-Source preparation corrects two stale `0.8.3` version assertions in the
-`v1.0.2` backend tests to the packaged version so the full checks can run.
 
 | Output package | Contents |
 | --- | --- |
@@ -59,7 +57,7 @@ Publish `pearl` and `pearl-greeter` before building the separate top-level
 `packaging/Devario/pearl` and `packaging/Devario/pearl-greeter` directories.
 
 Core, session, portal, Pearl integration/preset and `devario-desktop` are
-`1.0.2-2`, consolidating the former standalone recipes while retaining their
+`1.0.3-1`, consolidating the former standalone recipes while retaining their
 installed package names. Existing `1.0.2-1` installations upgrade normally.
 Core removes the temporary wlroots build path from the installed compositor's RUNPATH using
 `patchelf`, then verifies that only `$ORIGIN/../lib/aqueous` remains. Exact
