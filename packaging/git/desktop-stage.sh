@@ -44,12 +44,13 @@ session)
             *) transform < "$file" | write "$target" "$(stat -c %a -- "$file")";;
         esac
     done < <(find "$work/session" -type f -print0 | sort -z)
-    # Each Git session uses the native picker for DMS/Pearl/None. Avoid global
+    # Each Git session uses the Aqueous picker for DMS/None. Avoid global
     # DMS plugin discovery paths owned by the stable and legacy integrations.
     sed -i -E 's@dms\) exec .*;;@dms) exec aqueous-portal-picker-'"$channel"';;@' "$destination$private/session-runtime.sh"
     # Git Pearl ships suffixed binaries; retain "pearl" as the selection ID.
     sed -i -e 's/^pearl_binary=pearl$/pearl_binary=pearl-git/' \
         -e 's/^pearl_control=pearlctl$/pearl_control=pearlctl-git/' "$destination$private/session-runtime.sh"
+    sed -i 's|/lib/pearl/pearl-capture-picker|/lib/pearl-git/pearl-capture-picker|g' "$destination$private/session-runtime.sh"
     # Preserve a separate Pearl Git portal identity after the Aqueous transform.
     sed -i -e 's/Pearl:/Pearl-Git:/g' \
         -e 's/xdg-desktop-portal-pearl\.service/xdg-desktop-portal-pearl-git.service/g' \

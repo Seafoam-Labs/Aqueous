@@ -147,7 +147,7 @@ pkgname = aqueous-integration-pearl
 pkgname = aqueous-shell-pearl
 	pkgdesc = Pearl shell dependency preset for Aqueous
 	arch = any
-	depends = xdg-desktop-portal-pearl
+	depends = pearl-capture-picker>=1
 	depends = xdg-desktop-portal-aqueous=1.0.2-2
 	depends = aqueous-integration-pearl=1.0.2-2
 	depends = pearl

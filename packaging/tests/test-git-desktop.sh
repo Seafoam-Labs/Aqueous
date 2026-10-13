@@ -40,6 +40,7 @@ for channel in git; do
     test -x "$base/$channel-portal/usr/bin/aqueous-portal-picker-$channel"
     test ! -e "$base/$channel-welcome/usr/bin/aqueous-portal-picker-$channel"
     grep -q "exec aqueous-portal-picker-$channel" "$runtime"
+    grep -q "^pearl_capture_picker=/usr/lib/pearl-git/pearl-capture-picker$" "$runtime"
     ! grep -q -- "--choose" "$runtime"
     for command in wm init shell-action; do sh -n "$session/usr/bin/aqueous-$command-$channel"; done
     grep -q "Exec=uwsm start -- aqueous-wm-$channel" "$session/usr/share/wayland-sessions/$instance.desktop"
@@ -65,7 +66,7 @@ for channel in git; do
     grep -qx 'pearl_binary=pearl-git' "$runtime"
     grep -qx 'pearl_control=pearlctl-git' "$runtime"
     recipe=$root/packaging/arch/aqueous-desktop-$channel/PKGBUILD
-    bash -c 'set -eu; source "$1"; "package_aqueous-shell-pearl-$2"; [[ ${#depends[@]} == 2 && ${depends[1]} == pearl-git ]]' _ "$recipe" "$channel"
+    bash -c 'set -eu; source "$1"; "package_aqueous-shell-pearl-$2"; [[ ${#depends[@]} == 4 && ${depends[0]} == "pearl-capture-picker-git>=1" && ${depends[1]} == "xdg-desktop-portal-aqueous-git=$pkgver-$pkgrel" && ${depends[2]} == "aqueous-integration-pearl-git=$pkgver-$pkgrel" && ${depends[3]} == pearl-git ]]' _ "$recipe" "$channel"
     bash -c '
         set -eu
         source "$1"
@@ -75,7 +76,11 @@ for channel in git; do
             (
                 unset replaces
                 "package_$package"
-                [[ ${#replaces[@]} == 1 && ${replaces[0]} == "${package%-git}-intel-git" ]]
+                if [[ $package == aqueous-shell-none-git ]]; then
+                    [[ ! -v replaces ]] # New preset has no retired Intel package.
+                else
+                    [[ ${#replaces[@]} == 1 && ${replaces[0]} == "${package%-git}-intel-git" ]]
+                fi
             )
         done
         # Review sees the placeholder; the final build sees a VCS revision.
@@ -86,8 +91,8 @@ for channel in git; do
             [[ ${depends[0]} == "aqueous-core-$2>=0.7.0" ]]
             "package_aqueous-desktop-$2"
             [[ ${provides+x} != x && ${conflicts+x} != x && ${install+x} != x ]]
-            [[ ${#depends[@]} == 7 && ${depends[0]} == "aqueous-core-$2>=0.7.0" ]]
-            for dep in "${depends[@]:1}"; do [[ $dep == *"-$2=$pkgver-$pkgrel" ]]; done
+            [[ ${#depends[@]} == 8 && ${depends[0]} == "aqueous-shell-none-$2=$pkgver-$pkgrel" && ${depends[1]} == "aqueous-core-$2>=0.7.0" ]]
+            for dep in "${depends[@]:2}"; do [[ $dep == *"-$2=$pkgver-$pkgrel" ]]; done
         done
     ' _ "$recipe" "$channel"
     (

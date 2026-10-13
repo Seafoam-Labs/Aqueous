@@ -2,9 +2,11 @@
 
 Aqueous packages a private, namespaced build of
 [`xdg-desktop-portal-wlr`](https://github.com/emersion/xdg-desktop-portal-wlr)
-0.8.4. The upstream source is fetched during packaging and the small patch in
-this directory changes only its executable name, D-Bus identity, and config
-directory. ScreenCast and Screenshot remain upstream implementations.
+0.8.4. The upstream source is fetched during packaging and the patch in
+this directory namespaces the backend and makes dmenu selection asynchronous.
+The request remains cancellable while its picker is open; closing its request
+or session kills the chooser process group and returns no capture source.
+PipeWire streaming and Screenshot retain the upstream implementation.
 
 Installed files:
 
@@ -20,7 +22,8 @@ the remaining portal interfaces.
 
 Arch packages use `aqueous-shell-action chooser`, which follows the active
 session selected in Welcome to Aqueous. DMS uses the existing Zig bridge and
-`aqueousPortal` plugin; Noctalia uses `noctalia dmenu`. Pearl and Nothing use
+`aqueousPortal` plugin; Noctalia uses `noctalia dmenu`. Pearl uses its bundled `/usr/lib/pearl/pearl-capture-picker` (the Git
+session uses `/usr/lib/pearl-git/pearl-capture-picker`). Nothing uses
 `aqueous-portal-picker`, a standalone GTK picker shipped by the portal package.
 It reads the source list from stdin and has no Welcome/setup dependency. All use `chooser_type=dmenu`
 and return the selected original source line, with no output on cancellation.
@@ -107,3 +110,8 @@ When updating upstream, update the version and checksum in every source
 PKGBUILD, the release workflow, `nix/default.nix`, and
 `scripts/gentoo-install.sh`, then run `packaging/tests/test-portal-packaging.sh`
 against the newly built binary.
+
+Pearl shell presets require the versioned `pearl-capture-picker>=1` capability
+(or `pearl-capture-picker-git>=1`), provided by the corresponding Pearl package.
+This prevents installation of the new dispatcher with an older Pearl build;
+there is no separate picker package. Existing user chooser overrides are retained.

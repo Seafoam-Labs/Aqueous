@@ -1,8 +1,6 @@
-diff --git a/meson.build b/meson.build
-index f05d0f0..8ec9c32 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -68,7 +68,7 @@ xdpw_files = files(
+@@ -68,7 +68,7 @@
  )
  
  executable(
@@ -11,10 +9,9 @@ index f05d0f0..8ec9c32 100644
  	[xdpw_files, wl_proto_files],
  	dependencies: [
  		wayland_client,
-diff --git a/src/core/config.c b/src/core/config.c
 --- a/src/core/config.c
 +++ b/src/core/config.c
-@@ -111,7 +111,7 @@ static char *config_path(const char *prefix, const char *filename) {
+@@ -111,7 +111,7 @@
  		return NULL;
  	}
  
@@ -23,15 +20,405 @@ diff --git a/src/core/config.c b/src/core/config.c
  
  	size_t size = 3 + strlen(prefix) + strlen(config_folder) + strlen(filename);
  	char *path = calloc(size, sizeof(char));
-diff --git a/src/core/main.c b/src/core/main.c
 --- a/src/core/main.c
 +++ b/src/core/main.c
-@@ -21,1 +21,1 @@
+@@ -18,16 +18,16 @@
+ 	EVENT_LOOP_TIMER,
+ };
+ 
 -static const char service_name[] = "org.freedesktop.impl.portal.desktop.wlr";
 +static const char service_name[] = "org.freedesktop.impl.portal.desktop.aqueous";
-@@ -25,1 +25,1 @@
+ 
+ static int xdpw_usage(FILE *stream, int rc) {
+ 	static const char *usage =
 -		"Usage: xdg-desktop-portal-wlr [options]\n"
 +		"Usage: xdg-desktop-portal-aqueous [options]\n"
-@@ -30,1 +30,1 @@
+ 		"\n"
+ 		"    -l, --loglevel=<loglevel>        Select log level (default is ERROR).\n"
+ 		"                                     QUIET, ERROR, WARN, INFO, DEBUG, TRACE\n"
+ 		"    -c, --config=<config file>	      Select config file.\n"
 -		"                                     (default is $XDG_CONFIG_HOME/xdg-desktop-portal-wlr/config)\n"
 +		"                                     (default is $XDG_CONFIG_HOME/xdg-desktop-portal-aqueous/config)\n"
+ 		"    -r, --replace                    Replace a running instance.\n"
+ 		"    -h, --help                       Get help (this text).\n"
+ 		"\n";
+--- a/include/xdpw.h
++++ b/include/xdpw.h
+@@ -35,6 +35,7 @@
+ };
+ 
+ struct xdpw_session {
++	void *chooser;
+ 	struct wl_list link;
+ 	sd_bus_slot *slot;
+ 	char *session_handle;
+@@ -58,6 +59,9 @@
+ 	PORTAL_RESPONSE_ENDED = 2
+ };
+ 
++void xdpw_chooser_cancel(void *data);
++int xdpw_chooser_async(struct xdpw_screencast_context *, struct xdpw_session *, sd_bus_message *, const char *, uint32_t);
++void xdpw_select_sources_done(struct xdpw_screencast_context *, struct xdpw_session *, struct xdpw_screencast_target *, sd_bus_message *);
+ int xdpw_screenshot_init(struct xdpw_state *state);
+ int xdpw_screencast_init(struct xdpw_state *state);
+ 
+--- a/src/core/session.c
++++ b/src/core/session.c
+@@ -63,6 +63,8 @@
+ 		return;
+ 	}
+ 
++	if (sess->chooser) xdpw_chooser_cancel(sess->chooser);
++
+ 	if (!sess->closed) {
+ 		sd_bus_emit_signal(sd_bus_slot_get_bus(sess->slot), sess->session_handle,
+ 			"org.freedesktop.impl.portal.Session", "Closed", "");
+--- a/src/screencast/chooser.c
++++ b/src/screencast/chooser.c
+@@ -1,3 +1,4 @@
++#define _GNU_SOURCE
+ #include <sys/wait.h>
+ #include <unistd.h>
+ 
+@@ -281,3 +282,178 @@
+ end:
+ 	return false;
+ }
++
++/* Aqueous dmenu requests stay on the event loop while the picker is running. */
++#include <errno.h>
++#include <fcntl.h>
++#include <signal.h>
++#include <sys/prctl.h>
++#define CHOOSER_LIMIT (1024 * 1024)
++struct async_chooser {
++ struct xdpw_screencast_context *ctx;
++ struct xdpw_session *session;
++ sd_bus_message *message;
++ sd_bus_slot *request_slot, *owner_slot;
++ pid_t pid;
++ int input_fd, output_fd;
++ char *input, *output;
++ size_t input_len, sent, received;
++ uint32_t types;
++ bool cancelled;
++};
++void xdpw_chooser_cancel(void *data) {
++ struct async_chooser *job = data;
++ job->session = NULL;
++ job->cancelled = true;
++}
++static int chooser_close(sd_bus_message *msg, void *data, sd_bus_error *error) {
++ struct async_chooser *job = data;
++ if (strcmp(sd_bus_message_get_sender(msg), sd_bus_message_get_sender(job->message)))
++  return sd_bus_error_set_const(error, SD_BUS_ERROR_ACCESS_DENIED, "Request belongs to another sender");
++ job->cancelled = true;
++ return sd_bus_reply_method_return(msg, "");
++}
++static int chooser_owner(sd_bus_message *msg, void *data, sd_bus_error *error) {
++ (void)error;
++ struct async_chooser *job = data;
++ const char *name, *old, *next;
++ if (sd_bus_message_read(msg, "sss", &name, &old, &next) >= 0 && !*next &&
++     !strcmp(name, sd_bus_message_get_sender(job->message))) job->cancelled = true;
++ return 0;
++}
++static const sd_bus_vtable chooser_request[] = {
++ SD_BUS_VTABLE_START(0),
++ SD_BUS_METHOD("Close", "", "", chooser_close, SD_BUS_VTABLE_UNPRIVILEGED),
++ SD_BUS_VTABLE_END
++};
++static bool append_label(struct async_chooser *job, char *label) {
++ if (!label) return false;
++ size_t length = strlen(label);
++ if (length + 1 > CHOOSER_LIMIT - job->input_len) { free(label); return false; }
++ char *next = realloc(job->input, job->input_len + length + 1);
++ if (!next) { free(label); return false; }
++ job->input = next;
++ memcpy(next + job->input_len, label, length);
++ job->input_len += length;
++ next[job->input_len++] = '\n';
++ free(label);
++ return true;
++}
++static void chooser_finish(struct async_chooser *job, bool accepted) {
++ if (job->input_fd >= 0) close(job->input_fd);
++ if (job->output_fd >= 0) close(job->output_fd);
++ if (job->pid > 0) {
++  kill(-job->pid, SIGKILL);
++  while (waitpid(job->pid, NULL, 0) < 0 && errno == EINTR) {}
++ }
++ struct xdpw_screencast_target *target = NULL;
++ if (accepted && !job->cancelled && job->session && job->received > 0) {
++  /* Keep legacy dmenu support for one unterminated line; reject NUL/multiple lines. */
++  size_t length = job->received;
++  if (job->output[length - 1] == '\n') length--;
++  if (length && length <= CHOOSER_LIMIT &&
++      !memchr(job->output, '\0', length) && !memchr(job->output, '\n', length)) {
++   job->output[length] = '\0';
++   target = calloc(1, sizeof(*target));
++   if (target) {
++    struct xdpw_wlr_output *out;
++    if (job->types & MONITOR) wl_list_for_each(out, &job->ctx->output_list, link) {
++     char *label = get_output_label(out, XDPW_CHOOSER_DMENU);
++     bool equal = label && !strcmp(label, job->output); free(label);
++     if (equal) { target->type = MONITOR; target->output = out; break; }
++    }
++    struct xdpw_toplevel *top;
++    if (!target->output && (job->types & WINDOW)) wl_list_for_each(top, &job->ctx->toplevels, link) {
++     char *label = get_toplevel_label(top, XDPW_CHOOSER_DMENU);
++     bool equal = label && !strcmp(label, job->output); free(label);
++     if (equal) { target->type = WINDOW; target->toplevel = top; break; }
++    }
++    if (!target->output && !target->toplevel) { free(target); target = NULL; }
++   }
++  }
++ }
++ if (job->session) job->session->chooser = NULL;
++ sd_bus_slot_unref(job->request_slot);
++ sd_bus_slot_unref(job->owner_slot);
++ xdpw_select_sources_done(job->ctx, job->session, target, job->message);
++ sd_bus_message_unref(job->message);
++ free(job->input); free(job->output); free(job);
++}
++static void chooser_tick(void *data) {
++ struct async_chooser *job = data;
++ if (job->cancelled) { chooser_finish(job, false); return; }
++ if (job->input_fd >= 0) {
++  ssize_t n = write(job->input_fd, job->input + job->sent, job->input_len - job->sent);
++  if (n > 0) job->sent += n;
++  else if (n < 0 && errno != EAGAIN && errno != EINTR) { chooser_finish(job, false); return; }
++  if (job->sent == job->input_len) { close(job->input_fd); job->input_fd = -1; }
++ }
++ for (;;) {
++  if (job->received == CHOOSER_LIMIT + 1) { chooser_finish(job, false); return; }
++  ssize_t n = read(job->output_fd, job->output + job->received, CHOOSER_LIMIT + 1 - job->received);
++  if (n > 0) { job->received += n; continue; }
++  if (n < 0 && errno == EINTR) continue;
++  if (n < 0 && errno != EAGAIN) { chooser_finish(job, false); return; }
++  break;
++ }
++ int status;
++ pid_t result = waitpid(job->pid, &status, WNOHANG);
++ if (result == job->pid) {
++  /* Drain once more after exit, closing the race with the previous read. */
++  ssize_t n;
++  while (job->received < CHOOSER_LIMIT + 1 &&
++         (n = read(job->output_fd, job->output + job->received, CHOOSER_LIMIT + 1 - job->received)) > 0) job->received += n;
++  kill(-job->pid, SIGKILL); /* No descendant may retain a request pipe. */
++  job->pid = 0;
++  chooser_finish(job, WIFEXITED(status) && WEXITSTATUS(status) == 0);
++  return;
++ }
++ if (result < 0 && errno != EINTR) { chooser_finish(job, false); return; }
++ if (!xdpw_add_timer(job->ctx->state, 20 * 1000 * 1000, chooser_tick, job)) chooser_finish(job, false);
++}
++int xdpw_chooser_async(struct xdpw_screencast_context *ctx, struct xdpw_session *session,
++ sd_bus_message *message, const char *handle, uint32_t types) {
++ struct async_chooser *job = calloc(1, sizeof(*job));
++ if (!job) return -ENOMEM;
++ job->ctx = ctx; job->session = session; job->message = sd_bus_message_ref(message);
++ job->input_fd = job->output_fd = -1; job->types = types & ctx->state->screencast_source_types;
++ job->output = malloc(CHOOSER_LIMIT + 1);
++ if (!job->output || !ctx->state->config->screencast_conf.chooser_cmd) goto fail;
++ struct xdpw_wlr_output *out;
++ if (job->types & MONITOR) wl_list_for_each(out, &ctx->output_list, link)
++  if (!append_label(job, get_output_label(out, XDPW_CHOOSER_DMENU))) goto fail;
++ struct xdpw_toplevel *top;
++ if (job->types & WINDOW) wl_list_for_each(top, &ctx->toplevels, link)
++  if (!append_label(job, get_toplevel_label(top, XDPW_CHOOSER_DMENU))) goto fail;
++ if (!job->input_len) goto fail;
++ if (sd_bus_add_object_vtable(ctx->state->bus, &job->request_slot, handle,
++     "org.freedesktop.impl.portal.Request", chooser_request, job) < 0) goto fail;
++ if (sd_bus_match_signal(ctx->state->bus, &job->owner_slot, "org.freedesktop.DBus",
++     "/org/freedesktop/DBus", "org.freedesktop.DBus", "NameOwnerChanged", chooser_owner, job) < 0) goto fail;
++ int in[2], output[2];
++ if (pipe2(in, O_CLOEXEC) < 0) goto fail;
++ if (pipe2(output, O_CLOEXEC) < 0) { close(in[0]); close(in[1]); goto fail; }
++ signal(SIGPIPE, SIG_IGN);
++ pid_t parent = getpid();
++ job->pid = fork();
++ if (job->pid == 0) {
++  setpgid(0, 0);
++  prctl(PR_SET_PDEATHSIG, SIGKILL);
++  if (getppid() != parent) _exit(1);
++  if (dup2(in[0], 0) < 0 || dup2(output[1], 1) < 0) _exit(1);
++  close(in[0]); close(in[1]); close(output[0]); close(output[1]);
++  execl("/bin/sh", "sh", "-c", ctx->state->config->screencast_conf.chooser_cmd, NULL);
++  _exit(127);
++ }
++ close(in[0]); close(output[1]);
++ job->input_fd = in[1]; job->output_fd = output[0];
++ if (job->pid < 0) goto fail;
++ setpgid(job->pid, job->pid);
++ if (fcntl(job->input_fd, F_SETFL, O_NONBLOCK) < 0 || fcntl(job->output_fd, F_SETFL, O_NONBLOCK) < 0) goto fail;
++ session->chooser = job;
++ if (!xdpw_add_timer(ctx->state, 1, chooser_tick, job)) goto fail;
++ return 1; /* Deferred method reply. */
++fail:
++ chooser_finish(job, false);
++ return 1;
++}
+--- a/src/screencast/screencast.c
++++ b/src/screencast/screencast.c
+@@ -129,7 +129,52 @@
+ 	free(cast);
+ }
+ 
+-bool setup_target(struct xdpw_screencast_context *ctx, struct xdpw_session *sess, struct xdpw_screencast_restore_data *data, uint32_t type_mask) {
++static bool setup_selected_target(struct xdpw_screencast_context *ctx, struct xdpw_session *sess, struct xdpw_screencast_target *target) {
++	assert(target->output || target->toplevel);
++
++	// Disable screencast sharing to avoid sharing between dmabuf and shm capable clients
++	/*
++	struct xdpw_screencast_instance *cast, *tmp_c;
++	wl_list_for_each_reverse_safe(cast, tmp_c, &ctx->screencast_instances, link) {
++		logprint(INFO, "xdpw: existing screencast instance: %d %s cursor",
++			cast->target->output->id,
++			cast->target->with_cursor ? "with" : "without");
++
++		if (cast->target->output->id == target->output->id && cast->target->with_cursor == target->with_cursor) {
++			if (cast->refcount == 0) {
++				logprint(DEBUG,
++					"xdpw: matching cast instance found, "
++					"but is already scheduled for destruction, skipping");
++			}
++			else {
++				sess->screencast_data.screencast_instance = cast;
++				++cast->refcount;
++			}
++			logprint(INFO, "xdpw: screencast instance %p now has %d references",
++				cast, cast->refcount);
++		}
++	}
++	*/
++
++	if (!sess->screencast_data.screencast_instance) {
++		sess->screencast_data.screencast_instance = calloc(1, sizeof(struct xdpw_screencast_instance));
++		xdpw_screencast_instance_init(ctx, sess->screencast_data.screencast_instance, target);
++	}
++
++	switch (sess->screencast_data.screencast_instance->target->type) {
++	case MONITOR:
++		logprint(INFO, "wlroots: output: %s", sess->screencast_data.screencast_instance->target->output->name);
++		break;
++	case WINDOW:
++		logprint(INFO, "wlroots: toplevel: %s", sess->screencast_data.screencast_instance->target->toplevel->title);
++		break;
++	}
++
++	return true;
++
++}
++
++bool setup_target(struct xdpw_screencast_context *ctx, struct xdpw_session *sess, struct xdpw_screencast_restore_data *data, uint32_t type_mask, bool allow_chooser) {
+ 	bool target_initialized = false;
+ 
+ 	type_mask &= ctx->state->screencast_source_types;
+@@ -162,6 +207,7 @@
+ 	if (data) {
+ 		target_initialized = xdpw_wlr_target_from_data(ctx, target, data);
+ 	}
++	if (!target_initialized && !allow_chooser) { free(target); return false; }
+ 	if (!target_initialized) {
+ 		target_initialized = xdpw_wlr_target_chooser(ctx, target, type_mask);
+ 		//TODO: Chooser option to confirm the persist mode
+@@ -186,48 +232,7 @@
+ 		free(target);
+ 		return false;
+ 	}
+-	assert(target->output || target->toplevel);
+-
+-	// Disable screencast sharing to avoid sharing between dmabuf and shm capable clients
+-	/*
+-	struct xdpw_screencast_instance *cast, *tmp_c;
+-	wl_list_for_each_reverse_safe(cast, tmp_c, &ctx->screencast_instances, link) {
+-		logprint(INFO, "xdpw: existing screencast instance: %d %s cursor",
+-			cast->target->output->id,
+-			cast->target->with_cursor ? "with" : "without");
+-
+-		if (cast->target->output->id == target->output->id && cast->target->with_cursor == target->with_cursor) {
+-			if (cast->refcount == 0) {
+-				logprint(DEBUG,
+-					"xdpw: matching cast instance found, "
+-					"but is already scheduled for destruction, skipping");
+-			}
+-			else {
+-				sess->screencast_data.screencast_instance = cast;
+-				++cast->refcount;
+-			}
+-			logprint(INFO, "xdpw: screencast instance %p now has %d references",
+-				cast, cast->refcount);
+-		}
+-	}
+-	*/
+-
+-	if (!sess->screencast_data.screencast_instance) {
+-		sess->screencast_data.screencast_instance = calloc(1, sizeof(struct xdpw_screencast_instance));
+-		xdpw_screencast_instance_init(ctx, sess->screencast_data.screencast_instance, target);
+-	}
+-
+-	switch (sess->screencast_data.screencast_instance->target->type) {
+-	case MONITOR:
+-		logprint(INFO, "wlroots: output: %s", sess->screencast_data.screencast_instance->target->output->name);
+-		break;
+-	case WINDOW:
+-		logprint(INFO, "wlroots: toplevel: %s", sess->screencast_data.screencast_instance->target->toplevel->title);
+-		break;
+-	}
+-
+-	return true;
+-
++	return setup_selected_target(ctx, sess, target);
+ }
+ 
+ static int start_screencast(struct xdpw_screencast_instance *cast) {
+@@ -297,11 +302,7 @@
+ 		return ret;
+ 	}
+ 
+-	struct xdpw_request *req =
+-		xdpw_request_create(sd_bus_message_get_bus(msg), request_handle);
+-	if (req == NULL) {
+-		return -ENOMEM;
+-	}
++	/* CreateSession completes synchronously; do not leave a stale Request object. */
+ 
+ 	struct xdpw_session *sess =
+ 		xdpw_session_create(state, sd_bus_message_get_bus(msg), strdup(session_handle));
+@@ -325,6 +326,16 @@
+ 
+ 	sd_bus_message_unref(reply);
+ 	return 0;
++}
++
++void xdpw_select_sources_done(struct xdpw_screencast_context *ctx, struct xdpw_session *sess,
++ struct xdpw_screencast_target *target, sd_bus_message *msg) {
++ bool ok = false;
++ if (sess && target) {
++  target->with_cursor = sess->screencast_data.cursor_mode == EMBEDDED;
++  ok = setup_selected_target(ctx, sess, target);
++ } else free(target);
++ sd_bus_reply_method_return(msg, "ua{sv}", ok ? PORTAL_RESPONSE_SUCCESS : PORTAL_RESPONSE_CANCELLED, 0);
+ }
+ 
+ static int method_screencast_select_sources(sd_bus_message *msg, void *data,
+@@ -490,7 +501,17 @@
+ 		return ret;
+ 	}
+ 
+-	bool selection_canceled = !setup_target(ctx, sess, restore_data.version > 0 ? &restore_data : NULL, type_mask);
++	if (sess->chooser || sess->screencast_data.screencast_instance) return -EBUSY;
++	bool async = state->config->screencast_conf.chooser_type == XDPW_CHOOSER_DMENU;
++	bool selection_canceled = !setup_target(ctx, sess, restore_data.version > 0 ? &restore_data : NULL, type_mask, !async);
++	if (async && selection_canceled) {
++        /* Preserve upstream opt-in persistence for other shell choosers. */
++        const char *mode = getenv("XDPW_PERSIST_MODE");
++        uint32_t limit = mode && !strcmp(mode, "permanent") ? PERSIST_PERMANENT :
++            mode && !strcmp(mode, "transient") ? PERSIST_TRANSIENT : PERSIST_NONE;
++        if (sess->screencast_data.persist_mode > limit) sess->screencast_data.persist_mode = limit;
++		return xdpw_chooser_async(ctx, sess, msg, request_handle, type_mask);
++	}
+ 
+ 	ret = sd_bus_message_new_method_return(msg, &reply);
+ 	if (ret < 0) {

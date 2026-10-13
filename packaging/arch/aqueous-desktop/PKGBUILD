@@ -244,7 +244,7 @@ package_aqueous-shell-noctalia() {
 
 package_aqueous-shell-pearl() {
     pkgdesc="Aqueous aqueous-shell-pearl"
-    depends=("xdg-desktop-portal-pearl" "xdg-desktop-portal-aqueous=$pkgver-$pkgrel" "aqueous-integration-pearl=$pkgver-$pkgrel" "pearl")
+    depends=("pearl-capture-picker>=1" "xdg-desktop-portal-aqueous=$pkgver-$pkgrel" "aqueous-integration-pearl=$pkgver-$pkgrel" "pearl")
     conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-shell-pearl-bin')
     : # Dependency-only preset.
 }

@@ -9,6 +9,7 @@ snapshot=${XDG_RUNTIME_DIR:-/nonexistent}/aqueous/welcome-session.json
 fail() { printf 'Aqueous session: %s\n' "$*" >&2; return 1; }
 pearl_binary=pearl
 pearl_control=pearlctl
+pearl_capture_picker=/usr/lib/pearl/pearl-capture-picker
 shell_command() {
     if [[ $1 == pearl ]]; then printf '%s\n' "$pearl_binary"; else printf '%s\n' "$1"; fi
 }
@@ -107,6 +108,7 @@ action() {
             return;;
         chooser)
             case $shell in
+                pearl) exec "$pearl_capture_picker";;
                 dms) exec "${AQUEOUS_DMS_CHOOSER:-$(dirname -- "${BASH_SOURCE[0]}")/aqueous-dms-portal-chooser}";;
                 noctalia) exec noctalia dmenu -p 'Select a source to share:';;
                 *) exec aqueous-portal-picker;;

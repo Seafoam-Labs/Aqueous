@@ -88,7 +88,7 @@ package_aqueous-shell-noctalia-git() {
 package_aqueous-shell-pearl-git() {
     replaces=('aqueous-shell-pearl-intel-git')
     pkgdesc='Optional Pearl shell preset for Aqueous Git'
-    depends=("xdg-desktop-portal-pearl-git" "xdg-desktop-portal-aqueous-git=$pkgver-$pkgrel" "aqueous-integration-pearl-$_channel=$pkgver-$pkgrel" 'pearl-git')
+    depends=("pearl-capture-picker-git>=1" "xdg-desktop-portal-aqueous-git=$pkgver-$pkgrel" "aqueous-integration-pearl-$_channel=$pkgver-$pkgrel" 'pearl-git')
 }
 package_aqueous-desktop-git() {
     replaces=('aqueous-desktop-intel-git')

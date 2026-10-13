@@ -109,8 +109,10 @@ printf 'version=1\nshell="pearl"\n' > "$base/picker-config/aqueous/session.toml"
 printf '#!/bin/sh\ncat\n' > "$base/spies/aqueous-portal-picker"
 printf '#!/bin/sh\nexit 97\n' > "$base/spies/aqueous-welcome"
 chmod +x "$base/spies/aqueous-portal-picker" "$base/spies/aqueous-welcome"
+cp "$runtime" "$base/picker-runtime"
+sed -i "s|^pearl_capture_picker=.*|pearl_capture_picker=$base/spies/aqueous-portal-picker|" "$base/picker-runtime"
 printf 'Monitor: fixture\n' | XDG_CONFIG_HOME="$base/picker-config" XDG_RUNTIME_DIR="$base/picker-run" \
-    "$runtime" action chooser > "$base/picker-selected"
+    "$base/picker-runtime" action chooser > "$base/picker-selected"
 grep -qx 'Monitor: fixture' "$base/picker-selected"
 assert_no "$base/portal/usr/bin/aqueous-welcome"
 [[ -x $base/portal/usr/bin/aqueous-portal-picker ]]

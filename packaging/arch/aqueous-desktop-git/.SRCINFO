@@ -110,7 +110,7 @@ pkgname = aqueous-shell-noctalia-git
 
 pkgname = aqueous-shell-pearl-git
 	pkgdesc = Optional Pearl shell preset for Aqueous Git
-	depends = xdg-desktop-portal-pearl-git
+	depends = pearl-capture-picker-git>=1
 	depends = xdg-desktop-portal-aqueous-git=0.7.0.r0.g0000000-2
 	depends = aqueous-integration-pearl-git=0.7.0.r0.g0000000-2
 	depends = pearl-git
