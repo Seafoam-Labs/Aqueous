@@ -50,6 +50,10 @@ session)
     # Git Pearl ships suffixed binaries; retain "pearl" as the selection ID.
     sed -i -e 's/^pearl_binary=pearl$/pearl_binary=pearl-git/' \
         -e 's/^pearl_control=pearlctl$/pearl_control=pearlctl-git/' "$destination$private/session-runtime.sh"
+    # Preserve a separate Pearl Git portal identity after the Aqueous transform.
+    sed -i -e 's/Pearl:/Pearl-Git:/g' \
+        -e 's/xdg-desktop-portal-pearl\.service/xdg-desktop-portal-pearl-git.service/g' \
+        "$destination$private/session-runtime.sh"
     # Applications activated through the user manager need the same toolchain
     # and instance marker as direct compositor children.
     sed -i '/^export AQUEOUS_SOCKET=/! s/AQUEOUS_SOCKET /AQUEOUS_SOCKET AQUEOUS_INSTANCE PATH LD_LIBRARY_PATH /g' "$destination$prefix/bin/aqueous-init-$channel"

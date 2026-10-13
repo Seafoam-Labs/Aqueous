@@ -48,6 +48,15 @@ fi
 # real desktop's service environment.
 [ "${AQUEOUS_NESTED:-0}" = 1 ] && exit 0
 
+# Welcome has frozen the active shell for this login. Export the matching
+# portal identity before UWSM finalization or any user-service activation.
+session_runtime=${AQUEOUS_SESSION_RUNTIME:-/usr/lib/aqueous/session-runtime.sh}
+portal_backend=xdg-desktop-portal-gtk.service
+if [ -x "$session_runtime" ]; then
+    selected_desktop=$("$session_runtime" portal-identity) && export XDG_CURRENT_DESKTOP="$selected_desktop"
+    selected_backend=$("$session_runtime" portal-backend) && portal_backend=$selected_backend
+fi
+
 # Propagate an empty value after optional IPC failure to clear stale service
 # manager endpoints from a previous compositor instance.
 export AQUEOUS_SOCKET="${AQUEOUS_SOCKET:-}"
@@ -106,7 +115,7 @@ else
             WAYLAND_DISPLAY \
             AQUEOUS_SOCKET \
             $display_var \
-            XDG_CURRENT_DESKTOP=Aqueous \
+            XDG_CURRENT_DESKTOP \
             XDG_SESSION_TYPE=wayland \
             XDG_RUNTIME_DIR \
             XCURSOR_THEME \
@@ -136,7 +145,7 @@ fi
 
 # Kick the portal in case it already failed earlier in the boot.
 # reset-failed clears the start-limit so the restart actually runs.
-systemctl --user reset-failed xdg-desktop-portal-gtk.service xdg-desktop-portal-aqueous.service 2>/dev/null || true
-systemctl --user restart xdg-desktop-portal.service xdg-desktop-portal-gtk.service xdg-desktop-portal-aqueous.service 2>/dev/null || true
+systemctl --user reset-failed "$portal_backend" xdg-desktop-portal-aqueous.service 2>/dev/null || true
+systemctl --user restart xdg-desktop-portal.service "$portal_backend" xdg-desktop-portal-aqueous.service 2>/dev/null || true
 
 exit 0

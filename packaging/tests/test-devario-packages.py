@@ -58,7 +58,7 @@ def check_metadata():
                        for dep in package.get("depends", []))
     assert f"aqueous-core={version}" in packages["aqueous-session"]["depends"]
     assert packages["aqueous-integration-pearl"]["depends"] == [f"aqueous-session={version}"]
-    assert packages["aqueous-shell-pearl"]["depends"] == [f"aqueous-integration-pearl={version}", "pearl"]
+    assert packages["aqueous-shell-pearl"]["depends"] == ["xdg-desktop-portal-pearl", f"xdg-desktop-portal-aqueous={version}", f"aqueous-integration-pearl={version}", "pearl"]
     _, desktop = metadata(DEVARIO)
     assert set(desktop) == {"devario-desktop"}
     assert set(desktop["devario-desktop"]["depends"]) == {f"{name}={version}" for name in NAMES} | {"pearl", "pearl-greeter"}

@@ -8,6 +8,10 @@
 # abort the whole session.
 
 export XDG_CURRENT_DESKTOP=Aqueous
+session_runtime=${AQUEOUS_SESSION_RUNTIME:-/usr/lib/aqueous/session-runtime.sh}
+if [ -x "$session_runtime" ]; then
+    selected_desktop=$("$session_runtime" portal-identity selection) && export XDG_CURRENT_DESKTOP="$selected_desktop"
+fi
 export XDG_SESSION_TYPE=wayland
 export XDG_SESSION_DESKTOP=Aqueous
 

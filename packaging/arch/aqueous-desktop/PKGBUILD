@@ -1,6 +1,6 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
-pkgname=(aqueous-core aqueous-session aqueous-welcome xdg-desktop-portal-aqueous
+pkgname=(aqueous-shell-none aqueous-core aqueous-session aqueous-welcome xdg-desktop-portal-aqueous
          aqueous-integration-dms aqueous-integration-noctalia aqueous-integration-pearl
          aqueous-shell-dms aqueous-shell-noctalia aqueous-shell-pearl aqueous-desktop)
 pkgbase=aqueous-desktop
@@ -187,7 +187,7 @@ package_aqueous-core() {
 
 package_aqueous-session() {
     pkgdesc="Aqueous session"
-    depends=("aqueous-core=$pkgver-$pkgrel" "bash" "jq" "coreutils" "uwsm" "dbus" "systemd" "ghostty" "grim" "slurp" "wl-clipboard" "libnotify" "xdg-desktop-portal" "xdg-desktop-portal-gtk")
+    depends=("aqueous-core=$pkgver-$pkgrel" "bash" "jq" "coreutils" "uwsm" "dbus" "systemd" "ghostty" "grim" "slurp" "wl-clipboard" "libnotify" "xdg-desktop-portal")
     conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-session-bin' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
     backup=('etc/xdg/aqueous/wm.toml' 'etc/xdg/aqueous/outputs.toml' 'etc/xdg/uwsm/env-aqueous' 'etc/xdg/menus/aqueous-applications.menu' 'etc/xdg/xdg-desktop-portal-aqueous/config')
     _stage_component session
@@ -230,29 +230,35 @@ package_aqueous-integration-pearl() {
 
 package_aqueous-shell-dms() {
     pkgdesc="Aqueous aqueous-shell-dms"
-    depends=("aqueous-integration-dms=$pkgver-$pkgrel" "dms-shell")
+    depends=("xdg-desktop-portal-gtk" "aqueous-integration-dms=$pkgver-$pkgrel" "dms-shell")
     conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-shell-dms-bin')
     : # Dependency-only preset.
 }
 
 package_aqueous-shell-noctalia() {
     pkgdesc="Aqueous aqueous-shell-noctalia"
-    depends=("aqueous-integration-noctalia=$pkgver-$pkgrel" "noctalia")
+    depends=("xdg-desktop-portal-gtk" "aqueous-integration-noctalia=$pkgver-$pkgrel" "noctalia")
     conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-shell-noctalia-bin')
     : # Dependency-only preset.
 }
 
 package_aqueous-shell-pearl() {
     pkgdesc="Aqueous aqueous-shell-pearl"
-    depends=("aqueous-integration-pearl=$pkgver-$pkgrel" "pearl")
+    depends=("xdg-desktop-portal-pearl" "xdg-desktop-portal-aqueous=$pkgver-$pkgrel" "aqueous-integration-pearl=$pkgver-$pkgrel" "pearl")
     conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-shell-pearl-bin')
     : # Dependency-only preset.
 }
 
 package_aqueous-desktop() {
     pkgdesc="Complete stable Aqueous desktop (shell selected through welcome)"
-    depends=("aqueous-core=$pkgver-$pkgrel" "aqueous-session=$pkgver-$pkgrel" "aqueous-welcome=$pkgver-$pkgrel" "xdg-desktop-portal-aqueous=$pkgver-$pkgrel" "aqueous-integration-dms=$pkgver-$pkgrel" "aqueous-integration-noctalia=$pkgver-$pkgrel" "aqueous-integration-pearl=$pkgver-$pkgrel")
+    depends=("aqueous-shell-none=$pkgver-$pkgrel" "aqueous-core=$pkgver-$pkgrel" "aqueous-session=$pkgver-$pkgrel" "aqueous-welcome=$pkgver-$pkgrel" "xdg-desktop-portal-aqueous=$pkgver-$pkgrel" "aqueous-integration-dms=$pkgver-$pkgrel" "aqueous-integration-noctalia=$pkgver-$pkgrel" "aqueous-integration-pearl=$pkgver-$pkgrel")
     conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-bin')
     install=aqueous-desktop.install
     : # Dependency-only preset.
+}
+
+package_aqueous-shell-none() {
+    pkgdesc='Shell-free Aqueous portal provider preset'
+    depends=("aqueous-session=$pkgver-$pkgrel" 'xdg-desktop-portal-gtk')
+    : # Dependency-only preset; does not start a desktop shell.
 }

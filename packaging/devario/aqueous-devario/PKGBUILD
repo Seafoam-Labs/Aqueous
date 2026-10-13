@@ -153,7 +153,7 @@ package_aqueous-core() {
 package_aqueous-session() {
     pkgdesc='Aqueous login session and shell-neutral desktop configuration'
     arch=('any')
-    depends=("aqueous-core=$pkgver-$pkgrel" "bash" "jq" "coreutils" "uwsm" "dbus" "systemd" "ghostty" "grim" "slurp" "wl-clipboard" "libnotify" "xdg-desktop-portal" "xdg-desktop-portal-gtk")
+    depends=("aqueous-core=$pkgver-$pkgrel" "bash" "jq" "coreutils" "uwsm" "dbus" "systemd" "ghostty" "grim" "slurp" "wl-clipboard" "libnotify" "xdg-desktop-portal")
     conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-session-bin' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
     backup=('etc/xdg/aqueous/wm.toml' 'etc/xdg/aqueous/outputs.toml' 'etc/xdg/uwsm/env-aqueous' 'etc/xdg/menus/aqueous-applications.menu' 'etc/xdg/xdg-desktop-portal-aqueous/config')
     DESTDIR="$pkgdir" PREFIX=/usr bash "$srcdir/aqueous/packaging/stage-component.sh" session
@@ -170,7 +170,7 @@ package_aqueous-integration-pearl() {
 package_aqueous-shell-pearl() {
     pkgdesc='Pearl shell dependency preset for Aqueous'
     arch=('any')
-    depends=("aqueous-integration-pearl=$pkgver-$pkgrel" "pearl")
+    depends=("xdg-desktop-portal-pearl" "xdg-desktop-portal-aqueous=$pkgver-$pkgrel" "aqueous-integration-pearl=$pkgver-$pkgrel" "pearl")
     conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-shell-pearl-bin')
     : # Dependency-only preset; devario-desktop owns the session selection.
 }

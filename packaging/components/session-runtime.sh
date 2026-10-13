@@ -124,7 +124,24 @@ action() {
         *) fail "Unknown action: $1";;
     esac
 }
+# Read-only identity selection, before portal/service environment import.
+portal_identity() {
+    local selected
+    case ${1:-active} in
+        selection) selected=$(selection);;
+        active) selected=$(active_selection);;
+        *) return 2;;
+    esac
+    if [[ $selected == pearl ]]; then printf 'Pearl:Aqueous\n'; else printf 'Aqueous\n'; fi
+}
+portal_backend() {
+    local selected
+    selected=$(active_selection)
+    if [[ $selected == pearl ]]; then printf 'xdg-desktop-portal-pearl.service\n'; else printf 'xdg-desktop-portal-gtk.service\n'; fi
+}
 case ${1:-} in
+    portal-identity) portal_identity "${2:-active}";;
+    portal-backend) portal_backend;;
     selection) selection;;
     active-selection) active_selection;;
     prepare-session) prepare_session;;
@@ -132,5 +149,5 @@ case ${1:-} in
     condition) in_aqueous && [[ ${AQUEOUS_NESTED:-0} != 1 ]] && valid_shell "${2:-}" && [[ $(active_selection) == "$2" ]];;
     action) action "${2:-}";;
     recover) recover 'Your desktop shell failed to start. Review its journal or run aqueous-welcome.';;
-    *) fail 'Usage: session-runtime.sh selection|active-selection|prepare-session|condition SHELL|external-condition|action NAME|recover';;
+    *) fail 'Usage: session-runtime.sh portal-identity|portal-backend|selection|active-selection|prepare-session|condition SHELL|external-condition|action NAME|recover';;
 esac

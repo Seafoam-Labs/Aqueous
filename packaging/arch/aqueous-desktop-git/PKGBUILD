@@ -1,6 +1,6 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
 pkgbase=aqueous-desktop-git
-pkgname=(aqueous-session-git aqueous-welcome-git xdg-desktop-portal-aqueous-git
+pkgname=(aqueous-shell-none-git aqueous-session-git aqueous-welcome-git xdg-desktop-portal-aqueous-git
          aqueous-integration-dms-git aqueous-integration-noctalia-git aqueous-integration-pearl-git
          aqueous-shell-dms-git aqueous-shell-noctalia-git aqueous-shell-pearl-git aqueous-desktop-git)
 _channel=git
@@ -39,7 +39,7 @@ package_aqueous-session-git() {
     pkgdesc='Aqueous Git login session and runtime'
     # Core is built by a separate VCS recipe. Review occurs before pkgver().
     depends=("aqueous-core-$_channel>=0.7.0" 'bash' 'jq' 'coreutils' 'uwsm' 'dbus' 'systemd'
-             'ghostty' 'grim' 'slurp' 'wl-clipboard' 'libnotify' 'xdg-desktop-portal' 'xdg-desktop-portal-gtk')
+             'ghostty' 'grim' 'slurp' 'wl-clipboard' 'libnotify' 'xdg-desktop-portal')
     backup=('etc/xdg/aqueous-git/wm.toml' 'etc/xdg/aqueous-git/outputs.toml'
             'etc/xdg/uwsm/env-aqueous-git' 'etc/xdg/menus/aqueous-git-applications.menu'
             'etc/xdg/xdg-desktop-portal-aqueous-git/config')
@@ -78,23 +78,29 @@ package_aqueous-integration-pearl-git() {
 package_aqueous-shell-dms-git() {
     replaces=('aqueous-shell-dms-intel-git')
     pkgdesc='Optional DMS shell preset for Aqueous Git'
-    depends=("aqueous-integration-dms-$_channel=$pkgver-$pkgrel" 'dms-shell')
+    depends=("xdg-desktop-portal-gtk" "aqueous-integration-dms-$_channel=$pkgver-$pkgrel" 'dms-shell')
 }
 package_aqueous-shell-noctalia-git() {
     replaces=('aqueous-shell-noctalia-intel-git')
     pkgdesc='Optional Noctalia shell preset for Aqueous Git'
-    depends=("aqueous-integration-noctalia-$_channel=$pkgver-$pkgrel" 'noctalia')
+    depends=("xdg-desktop-portal-gtk" "aqueous-integration-noctalia-$_channel=$pkgver-$pkgrel" 'noctalia')
 }
 package_aqueous-shell-pearl-git() {
     replaces=('aqueous-shell-pearl-intel-git')
     pkgdesc='Optional Pearl shell preset for Aqueous Git'
-    depends=("aqueous-integration-pearl-$_channel=$pkgver-$pkgrel" 'pearl-git')
+    depends=("xdg-desktop-portal-pearl-git" "xdg-desktop-portal-aqueous-git=$pkgver-$pkgrel" "aqueous-integration-pearl-$_channel=$pkgver-$pkgrel" 'pearl-git')
 }
 package_aqueous-desktop-git() {
     replaces=('aqueous-desktop-intel-git')
     pkgdesc='Complete Aqueous Git desktop (shell selected through welcome)'
-    depends=("aqueous-core-$_channel>=0.7.0" "aqueous-session-$_channel=$pkgver-$pkgrel"
+    depends=("aqueous-shell-none-git=$pkgver-$pkgrel" "aqueous-core-$_channel>=0.7.0" "aqueous-session-$_channel=$pkgver-$pkgrel"
              "aqueous-welcome-$_channel=$pkgver-$pkgrel" "xdg-desktop-portal-aqueous-$_channel=$pkgver-$pkgrel"
              "aqueous-integration-dms-$_channel=$pkgver-$pkgrel" "aqueous-integration-noctalia-$_channel=$pkgver-$pkgrel"
              "aqueous-integration-pearl-$_channel=$pkgver-$pkgrel")
+}
+
+package_aqueous-shell-none-git() {
+    pkgdesc='Shell-free Aqueous portal provider preset'
+    depends=("aqueous-session-git=$pkgver-$pkgrel" 'xdg-desktop-portal-gtk')
+    : # Dependency-only preset; does not start a desktop shell.
 }

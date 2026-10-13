@@ -121,7 +121,6 @@ pkgname = aqueous-session
 	depends = wl-clipboard
 	depends = libnotify
 	depends = xdg-desktop-portal
-	depends = xdg-desktop-portal-gtk
 	conflicts = aqueous-git
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
@@ -148,6 +147,8 @@ pkgname = aqueous-integration-pearl
 pkgname = aqueous-shell-pearl
 	pkgdesc = Pearl shell dependency preset for Aqueous
 	arch = any
+	depends = xdg-desktop-portal-pearl
+	depends = xdg-desktop-portal-aqueous=1.0.2-2
 	depends = aqueous-integration-pearl=1.0.2-2
 	depends = pearl
 	conflicts = aqueous-git

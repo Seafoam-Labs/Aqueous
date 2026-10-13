@@ -67,6 +67,11 @@ pkgbase = aqueous-desktop
 	sha256sums = 972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343
 	sha256sums = 3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400
 
+pkgname = aqueous-shell-none
+	pkgdesc = Shell-free Aqueous portal provider preset
+	depends = aqueous-session=1.0.2-1
+	depends = xdg-desktop-portal-gtk
+
 pkgname = aqueous-core
 	pkgdesc = Aqueous core
 	license = GPL-3.0-only
@@ -122,7 +127,6 @@ pkgname = aqueous-session
 	depends = wl-clipboard
 	depends = libnotify
 	depends = xdg-desktop-portal
-	depends = xdg-desktop-portal-gtk
 	conflicts = aqueous-git
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
@@ -196,6 +200,7 @@ pkgname = aqueous-integration-pearl
 
 pkgname = aqueous-shell-dms
 	pkgdesc = Aqueous aqueous-shell-dms
+	depends = xdg-desktop-portal-gtk
 	depends = aqueous-integration-dms=1.0.2-1
 	depends = dms-shell
 	conflicts = aqueous-git
@@ -205,6 +210,7 @@ pkgname = aqueous-shell-dms
 
 pkgname = aqueous-shell-noctalia
 	pkgdesc = Aqueous aqueous-shell-noctalia
+	depends = xdg-desktop-portal-gtk
 	depends = aqueous-integration-noctalia=1.0.2-1
 	depends = noctalia
 	conflicts = aqueous-git
@@ -214,6 +220,8 @@ pkgname = aqueous-shell-noctalia
 
 pkgname = aqueous-shell-pearl
 	pkgdesc = Aqueous aqueous-shell-pearl
+	depends = xdg-desktop-portal-pearl
+	depends = xdg-desktop-portal-aqueous=1.0.2-1
 	depends = aqueous-integration-pearl=1.0.2-1
 	depends = pearl
 	conflicts = aqueous-git
@@ -224,6 +232,7 @@ pkgname = aqueous-shell-pearl
 pkgname = aqueous-desktop
 	pkgdesc = Complete stable Aqueous desktop (shell selected through welcome)
 	install = aqueous-desktop.install
+	depends = aqueous-shell-none=1.0.2-1
 	depends = aqueous-core=1.0.2-1
 	depends = aqueous-session=1.0.2-1
 	depends = aqueous-welcome=1.0.2-1
