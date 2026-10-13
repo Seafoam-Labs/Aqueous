@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared makepkg implementation; metadata stays in each standalone PKGBUILD.
+# Core build and staging for the aqueous-git split PKGBUILD.
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 case ${2:-} in git) channel=$2;; *) echo 'Usage: build.sh build|check|package git' >&2; exit 2;; esac

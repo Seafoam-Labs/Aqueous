@@ -1,7 +1,7 @@
 pkgbase = aqueous
 	pkgdesc = Aqueous single-process Wayland compositor
 	pkgver = 1.0.2
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = x86_64
 	arch = aarch64
@@ -97,7 +97,7 @@ pkgname = aqueous-core
 	depends = xcb-util-renderutil
 	depends = brightnessctl
 	depends = playerctl
-	conflicts = aqueous-git
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = aqueous-core-bin
@@ -106,7 +106,7 @@ pkgname = aqueous-core
 
 pkgname = aqueous-session
 	pkgdesc = Aqueous session
-	depends = aqueous-core=1.0.2-1
+	depends = aqueous-core=1.0.2-2
 	depends = bash
 	depends = jq
 	depends = coreutils
@@ -120,7 +120,7 @@ pkgname = aqueous-session
 	depends = libnotify
 	depends = xdg-desktop-portal
 	depends = xdg-desktop-portal-gtk
-	conflicts = aqueous-git
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = aqueous-session-bin
@@ -134,11 +134,11 @@ pkgname = aqueous-session
 
 pkgname = aqueous-welcome
 	pkgdesc = Aqueous welcome
-	depends = aqueous-session=1.0.2-1
+	depends = aqueous-session=1.0.2-2
 	depends = gtk4
 	depends = shelly
 	depends = sudo
-	conflicts = aqueous-git
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = aqueous-welcome-bin
@@ -153,7 +153,7 @@ pkgname = xdg-desktop-portal-aqueous
 	depends = wayland
 	depends = systemd-libs
 	depends = xdg-desktop-portal
-	conflicts = aqueous-git
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = xdg-desktop-portal-aqueous-bin
@@ -162,9 +162,9 @@ pkgname = xdg-desktop-portal-aqueous
 
 pkgname = aqueous-integration-dms
 	pkgdesc = Aqueous integration-dms
-	depends = aqueous-session=1.0.2-1
-	depends = xdg-desktop-portal-aqueous=1.0.2-1
-	conflicts = aqueous-git
+	depends = aqueous-session=1.0.2-2
+	depends = xdg-desktop-portal-aqueous=1.0.2-2
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = aqueous-integration-dms-bin
@@ -173,8 +173,8 @@ pkgname = aqueous-integration-dms
 
 pkgname = aqueous-integration-noctalia
 	pkgdesc = Aqueous integration-noctalia
-	depends = aqueous-session=1.0.2-1
-	conflicts = aqueous-git
+	depends = aqueous-session=1.0.2-2
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = aqueous-integration-noctalia-bin
@@ -183,8 +183,8 @@ pkgname = aqueous-integration-noctalia
 
 pkgname = aqueous-integration-pearl
 	pkgdesc = Aqueous integration-pearl
-	depends = aqueous-session=1.0.2-1
-	conflicts = aqueous-git
+	depends = aqueous-session=1.0.2-2
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = aqueous-integration-pearl-bin
@@ -193,27 +193,27 @@ pkgname = aqueous-integration-pearl
 
 pkgname = aqueous-shell-dms
 	pkgdesc = Aqueous aqueous-shell-dms
-	depends = aqueous-integration-dms=1.0.2-1
+	depends = aqueous-integration-dms=1.0.2-2
 	depends = dms-shell
-	conflicts = aqueous-git
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = aqueous-shell-dms-bin
 
 pkgname = aqueous-shell-noctalia
 	pkgdesc = Aqueous aqueous-shell-noctalia
-	depends = aqueous-integration-noctalia=1.0.2-1
+	depends = aqueous-integration-noctalia=1.0.2-2
 	depends = noctalia
-	conflicts = aqueous-git
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = aqueous-shell-noctalia-bin
 
 pkgname = aqueous-shell-pearl
 	pkgdesc = Aqueous aqueous-shell-pearl
-	depends = aqueous-integration-pearl=1.0.2-1
+	depends = aqueous-integration-pearl=1.0.2-2
 	depends = pearl
-	conflicts = aqueous-git
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = aqueous-shell-pearl-bin
@@ -221,14 +221,14 @@ pkgname = aqueous-shell-pearl
 pkgname = aqueous
 	pkgdesc = Aqueous aqueous
 	install = aqueous.install
-	depends = aqueous-core=1.0.2-1
-	depends = aqueous-session=1.0.2-1
-	depends = aqueous-welcome=1.0.2-1
-	depends = xdg-desktop-portal-aqueous=1.0.2-1
-	depends = aqueous-integration-dms=1.0.2-1
-	depends = aqueous-integration-noctalia=1.0.2-1
-	depends = aqueous-integration-pearl=1.0.2-1
-	conflicts = aqueous-git
+	depends = aqueous-core=1.0.2-2
+	depends = aqueous-session=1.0.2-2
+	depends = aqueous-welcome=1.0.2-2
+	depends = xdg-desktop-portal-aqueous=1.0.2-2
+	depends = aqueous-integration-dms=1.0.2-2
+	depends = aqueous-integration-noctalia=1.0.2-2
+	depends = aqueous-integration-pearl=1.0.2-2
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = aqueous-bin

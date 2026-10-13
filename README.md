@@ -352,17 +352,21 @@ Arch source packages and x86_64 release binaries target **x86-64-v3**, shared by
 supported Intel and AMD CPUs. Older CPUs without v3 support cannot run these
 builds. The aarch64 source packages retain their baseline CPU target.
 
-For development tools that coexist with stable, build `aqueous-core-git`
-from `packaging/arch/`. It installs suffixed commands,
-private libraries and separate configuration defaults. See the
-[Git package guide](docs/git-packages.md) for building and running them.
+For the Git compositor and desktop, use the single split recipe
+[`packaging/arch/aqueous-git/PKGBUILD`](packaging/arch/aqueous-git/PKGBUILD):
 
-`aqueous-desktop-git` adds the matching login
-session, private portal and optional shell integrations.
-Git packages do not include Welcome or a standalone portal picker; select the shell in `aqueous-git/session.toml`
-and log out and back in. Follow
-the [Git desktop installation guide](docs/git-desktop-packages.md) to install a
-complete Git desktop alongside stable Aqueous.
+```sh
+cd packaging/arch/aqueous-git
+makepkg -s
+```
+
+It builds `aqueous-core-git`, the session, portal, shell integrations, optional
+presets and the `aqueous-git` desktop meta package together. The core includes
+`aqueousctl-git` and can be installed independently. Pearl, DMS and Noctalia are
+optional; Welcome and the standalone portal picker are excluded.
+See the [Git desktop guide](docs/git-desktop-packages.md) for the filtered install
+command and upgrades from the former `aqueous-desktop-git` package. See the
+[Git core guide](docs/git-packages.md) for standalone core use.
 
 Fedora users can build and install the latest Git `master` as a local RPM:
 

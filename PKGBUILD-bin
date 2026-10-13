@@ -4,7 +4,7 @@
 pkgbase=aqueous-bin
 pkgname=(aqueous-core-bin aqueous-session-bin aqueous-welcome-bin xdg-desktop-portal-aqueous-bin aqueous-integration-dms-bin aqueous-integration-noctalia-bin aqueous-integration-pearl-bin aqueous-shell-dms-bin aqueous-shell-noctalia-bin aqueous-shell-pearl-bin aqueous-bin)
 pkgver=1.0.2
-pkgrel=1
+pkgrel=2
 # Keep tested binary/library bytes and component manifests stable.
 options=('!strip' '!debug' '!zipman')
 pkgdesc="Aqueous component packages (prebuilt release)"
@@ -33,7 +33,7 @@ package_aqueous-core-bin() {
     # The staged core root carries all four compositor/LICENSES/* texts.
     license=('GPL-3.0-only' 'MIT' '0BSD' 'CC-BY-SA-4.0')
     depends=("freetype2" "wayland" "libxkbcommon" "libinput" "pixman" "libpng" "libdrm" "libevdev" "libdecor" "xorg-xwayland" "pipewire" "glib2" "fontconfig" "mesa" "systemd-libs" "seatd" "libdisplay-info" "libliftoff" "lcms2" "vulkan-icd-loader" "libxcb" "xcb-util-errors" "xcb-util-wm" "xcb-util-renderutil" "brightnessctl" "playerctl")
-    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-core' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    conflicts=('aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-core' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
     provides=("aqueous-core=$pkgver-$pkgrel")
     _stage_component core
 }
@@ -41,7 +41,7 @@ package_aqueous-core-bin() {
 package_aqueous-session-bin() {
     pkgdesc="Aqueous session (prebuilt)"
     depends=("aqueous-core-bin=$pkgver-$pkgrel" "bash" "jq" "coreutils" "uwsm" "dbus" "systemd" "ghostty" "grim" "slurp" "wl-clipboard" "libnotify" "xdg-desktop-portal" "xdg-desktop-portal-gtk")
-    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-session' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    conflicts=('aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-session' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
     provides=("aqueous-session=$pkgver-$pkgrel")
     backup=('etc/xdg/aqueous/wm.toml' 'etc/xdg/aqueous/outputs.toml' 'etc/xdg/uwsm/env-aqueous' 'etc/xdg/menus/aqueous-applications.menu' 'etc/xdg/xdg-desktop-portal-aqueous/config')
     _stage_component session
@@ -50,7 +50,7 @@ package_aqueous-session-bin() {
 package_aqueous-welcome-bin() {
     pkgdesc="Aqueous welcome (prebuilt)"
     depends=("aqueous-session-bin=$pkgver-$pkgrel" "gtk4" "shelly" "sudo")
-    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-welcome' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    conflicts=('aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-welcome' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
     provides=("aqueous-welcome=$pkgver-$pkgrel")
     _stage_component welcome
 }
@@ -58,7 +58,7 @@ package_aqueous-welcome-bin() {
 package_xdg-desktop-portal-aqueous-bin() {
     pkgdesc="Aqueous portal (prebuilt)"
     depends=("gtk4" "libinih" "pipewire" "wayland" "systemd-libs" "xdg-desktop-portal")
-    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'xdg-desktop-portal-aqueous' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    conflicts=('aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'xdg-desktop-portal-aqueous' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
     provides=("xdg-desktop-portal-aqueous=$pkgver-$pkgrel")
     _stage_component portal
 }
@@ -66,7 +66,7 @@ package_xdg-desktop-portal-aqueous-bin() {
 package_aqueous-integration-dms-bin() {
     pkgdesc="Aqueous integration-dms (prebuilt)"
     depends=("aqueous-session-bin=$pkgver-$pkgrel" "xdg-desktop-portal-aqueous-bin=$pkgver-$pkgrel")
-    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-integration-dms' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    conflicts=('aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-integration-dms' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
     provides=("aqueous-integration-dms=$pkgver-$pkgrel")
     _stage_component integration-dms
 }
@@ -74,7 +74,7 @@ package_aqueous-integration-dms-bin() {
 package_aqueous-integration-noctalia-bin() {
     pkgdesc="Aqueous integration-noctalia (prebuilt)"
     depends=("aqueous-session-bin=$pkgver-$pkgrel")
-    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-integration-noctalia' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    conflicts=('aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-integration-noctalia' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
     provides=("aqueous-integration-noctalia=$pkgver-$pkgrel")
     _stage_component integration-noctalia
 }
@@ -82,7 +82,7 @@ package_aqueous-integration-noctalia-bin() {
 package_aqueous-integration-pearl-bin() {
     pkgdesc="Aqueous integration-pearl (prebuilt)"
     depends=("aqueous-session-bin=$pkgver-$pkgrel")
-    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-integration-pearl' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    conflicts=('aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-integration-pearl' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
     provides=("aqueous-integration-pearl=$pkgver-$pkgrel")
     _stage_component integration-pearl
 }
@@ -90,7 +90,7 @@ package_aqueous-integration-pearl-bin() {
 package_aqueous-shell-dms-bin() {
     pkgdesc="Aqueous aqueous-shell-dms (prebuilt)"
     depends=("aqueous-integration-dms-bin=$pkgver-$pkgrel" "dms-shell")
-    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-shell-dms')
+    conflicts=('aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-shell-dms')
     provides=("aqueous-shell-dms=$pkgver-$pkgrel")
     : # Dependency-only preset.
 }
@@ -98,7 +98,7 @@ package_aqueous-shell-dms-bin() {
 package_aqueous-shell-noctalia-bin() {
     pkgdesc="Aqueous aqueous-shell-noctalia (prebuilt)"
     depends=("aqueous-integration-noctalia-bin=$pkgver-$pkgrel" "noctalia")
-    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-shell-noctalia')
+    conflicts=('aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-shell-noctalia')
     provides=("aqueous-shell-noctalia=$pkgver-$pkgrel")
     : # Dependency-only preset.
 }
@@ -106,7 +106,7 @@ package_aqueous-shell-noctalia-bin() {
 package_aqueous-shell-pearl-bin() {
     pkgdesc="Aqueous aqueous-shell-pearl (prebuilt)"
     depends=("aqueous-integration-pearl-bin=$pkgver-$pkgrel" "pearl")
-    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-shell-pearl')
+    conflicts=('aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-shell-pearl')
     provides=("aqueous-shell-pearl=$pkgver-$pkgrel")
     : # Dependency-only preset.
 }
@@ -114,7 +114,7 @@ package_aqueous-shell-pearl-bin() {
 package_aqueous-bin() {
     pkgdesc="Aqueous aqueous (prebuilt)"
     depends=("aqueous-core-bin=$pkgver-$pkgrel" "aqueous-session-bin=$pkgver-$pkgrel" "aqueous-welcome-bin=$pkgver-$pkgrel" "xdg-desktop-portal-aqueous-bin=$pkgver-$pkgrel" "aqueous-integration-dms-bin=$pkgver-$pkgrel" "aqueous-integration-noctalia-bin=$pkgver-$pkgrel" "aqueous-integration-pearl-bin=$pkgver-$pkgrel")
-    conflicts=('aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous')
+    conflicts=('aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous')
     provides=("aqueous=$pkgver-$pkgrel")
     install=aqueous.install
     : # Dependency-only preset.

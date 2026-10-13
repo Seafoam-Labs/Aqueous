@@ -1,7 +1,7 @@
 pkgbase = aqueous-devario
 	pkgdesc = Aqueous components for the Devario Pearl desktop
 	pkgver = 1.0.2
-	pkgrel = 2
+	pkgrel = 3
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = x86_64
 	arch = aarch64
@@ -100,7 +100,7 @@ pkgname = aqueous-core
 	provides = aqueous=1.0.2
 	conflicts = aqueous
 	conflicts = aqueous-bin
-	conflicts = aqueous-git
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = aqueous-core-bin
@@ -108,7 +108,7 @@ pkgname = aqueous-core
 pkgname = aqueous-session
 	pkgdesc = Aqueous login session and shell-neutral desktop configuration
 	arch = any
-	depends = aqueous-core=1.0.2-2
+	depends = aqueous-core=1.0.2-3
 	depends = bash
 	depends = jq
 	depends = coreutils
@@ -121,7 +121,7 @@ pkgname = aqueous-session
 	depends = wl-clipboard
 	depends = libnotify
 	depends = xdg-desktop-portal
-	conflicts = aqueous-git
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = aqueous-session-bin
@@ -136,8 +136,8 @@ pkgname = aqueous-session
 pkgname = aqueous-integration-pearl
 	pkgdesc = Pearl shell integration for the Aqueous session
 	arch = any
-	depends = aqueous-session=1.0.2-2
-	conflicts = aqueous-git
+	depends = aqueous-session=1.0.2-3
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = aqueous-integration-pearl-bin
@@ -148,10 +148,10 @@ pkgname = aqueous-shell-pearl
 	pkgdesc = Pearl shell dependency preset for Aqueous
 	arch = any
 	depends = pearl-capture-picker>=1
-	depends = xdg-desktop-portal-aqueous=1.0.2-2
-	depends = aqueous-integration-pearl=1.0.2-2
+	depends = xdg-desktop-portal-aqueous=1.0.2-3
+	depends = aqueous-integration-pearl=1.0.2-3
 	depends = pearl
-	conflicts = aqueous-git
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = aqueous-shell-pearl-bin
@@ -164,7 +164,7 @@ pkgname = xdg-desktop-portal-aqueous
 	depends = wayland
 	depends = systemd-libs
 	depends = xdg-desktop-portal
-	conflicts = aqueous-git
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = xdg-desktop-portal-aqueous-bin

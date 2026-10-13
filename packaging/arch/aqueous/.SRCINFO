@@ -1,7 +1,7 @@
 pkgbase = aqueous
 	pkgdesc = Aqueous Wayland compositor (stable, compositor only)
 	pkgver = 1.0.2
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = x86_64
 	arch = aarch64
@@ -52,7 +52,7 @@ pkgbase = aqueous
 	conflicts = aqueous-bin
 	conflicts = aqueous-core
 	conflicts = aqueous-core-bin
-	conflicts = aqueous-git
+	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	options = !strip

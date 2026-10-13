@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "legacy_packages": [
-    "aqueous-git",
+    "aqueous-git<1.0.2.r6",
     "aqueous-git-intel"
   ],
   "components": {

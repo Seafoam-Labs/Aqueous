@@ -71,18 +71,21 @@ for channel in git; do
     [[ -f $pearl_units/pearl-git.service.d/60-$instance-selection.conf ]]
     grep -qx 'pearl_binary=pearl-git' "$runtime"
     grep -qx 'pearl_control=pearlctl-git' "$runtime"
-    recipe=$root/packaging/arch/aqueous-desktop-$channel/PKGBUILD
+    recipe=$root/packaging/arch/aqueous-$channel/PKGBUILD
     bash -c 'set -eu; source "$1"; "package_aqueous-shell-pearl-$2"; [[ ${#depends[@]} == 4 && ${depends[0]} == "pearl-capture-picker-git>=1" && ${depends[1]} == "xdg-desktop-portal-aqueous-git=$pkgver-$pkgrel" && ${depends[2]} == "aqueous-integration-pearl-git=$pkgver-$pkgrel" && ${depends[3]} == pearl-git ]]' _ "$recipe" "$channel"
     bash -c '
         set -eu
         source "$1"
         _stage() { :; }
+        _stage_core() { :; }
+        [[ $pkgbase == aqueous-git && ${#pkgname[@]} == 11 ]]
+        [[ " ${pkgname[*]} " == *" aqueous-core-git "* ]]
         [[ " ${pkgname[*]} " != *welcome* ]]
         for dep in "${makedepends[@]}"; do
-            case $dep in zig*|gtk4) exit 1;; esac
+            case $dep in gtk4) exit 1;; esac
         done
         ! declare -F package_aqueous-welcome-git >/dev/null
-        # Every split component must replace only its own retired Intel package.
+        # Only the renamed desktop meta package replaces a previous package.
         for package in "${pkgname[@]}"; do
             (
                 unset replaces
@@ -90,24 +93,30 @@ for channel in git; do
                 for dep in "${depends[@]}"; do
                     case $dep in *welcome*|shelly|sudo|gtk4) exit 1;; esac
                 done
-                if [[ $package == aqueous-shell-none-git ]]; then
-                    [[ ! -v replaces ]] # New preset has no retired Intel package.
+                if [[ $package == aqueous-git ]]; then
+                    [[ ${replaces[*]} == aqueous-desktop-git ]]
                 else
-                    [[ ${#replaces[@]} == 1 && ${replaces[0]} == "${package%-git}-intel-git" ]]
+                    [[ ! -v replaces ]]
                 fi
+                for dep in "${depends[@]}"; do
+                    case $dep in
+                        aqueous-*-git=*|xdg-desktop-portal-aqueous-git=*)
+                            [[ " ${pkgname[*]} " == *" ${dep%%=*} "* ]]
+                            [[ $dep == *"=$pkgver-$pkgrel" ]];;
+                    esac
+                done
             )
         done
-        # Review sees the placeholder; the final build sees a VCS revision.
-        # Neither may tie an independently published core to that version.
-        for version in "$pkgver" 0.7.0.r999.gabcdef0; do
+        # All components must resolve within the split at review and build time.
+        for version in "$pkgver" 1.0.2.r999.gabcdef0; do
             pkgver=$version
             "package_aqueous-session-$2"
-            [[ ${depends[0]} == "aqueous-core-$2>=0.7.0" ]]
+            [[ ${depends[0]} == "aqueous-core-$2=$pkgver-$pkgrel" ]]
             [[ ${conflicts[*]} == aqueous-welcome-git ]]
             unset conflicts
-            "package_aqueous-desktop-$2"
-            [[ ${provides+x} != x && ${conflicts+x} != x && ${install+x} != x ]]
-            [[ ${#depends[@]} == 7 && ${depends[0]} == "aqueous-shell-none-$2=$pkgver-$pkgrel" && ${depends[1]} == "aqueous-core-$2>=0.7.0" ]]
+            "package_aqueous-$2"
+            [[ ${provides[*]} == "aqueous-desktop-git=$pkgver-$pkgrel" && ${conflicts[*]} == aqueous-desktop-git && ${install+x} != x ]]
+            [[ ${#depends[@]} == 7 && ${depends[0]} == "aqueous-shell-none-$2=$pkgver-$pkgrel" && ${depends[1]} == "aqueous-core-$2=$pkgver-$pkgrel" ]]
             for dep in "${depends[@]:2}"; do [[ $dep == *"-$2=$pkgver-$pkgrel" ]]; done
         done
     ' _ "$recipe" "$channel"

@@ -11,7 +11,7 @@ All components use version `0.9.1-1` and exact component dependencies.
 | --- | --- |
 | `packaging/arch/aqueous` | Minimal stable compositor for a greeter or other compositor-only use |
 | `packaging/arch/aqueous-desktop` | Stable compositor, configuration helper and full desktop session |
-| `packaging/arch/aqueous-core-git` + `aqueous-desktop-git` | Development core and desktop with separate commands and session identity |
+| `packaging/arch/aqueous-git` | Development core and desktop with separate commands and session identity |
 
 The portal component includes `aqueous-portal-picker`; it requires GTK4 but does
 not require Welcome. Devario can install the portal and Pearl without setup UI.

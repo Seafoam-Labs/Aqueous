@@ -2,7 +2,7 @@
 # Minimal stable compositor for consumers such as pearl-greeter.
 pkgname=aqueous
 pkgver=1.0.2
-pkgrel=1
+pkgrel=2
 pkgdesc='Aqueous Wayland compositor (stable, compositor only)'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Seafoam-Labs/Aqueous'
@@ -19,7 +19,7 @@ provides=("aqueous=$pkgver")
 # These packages own the same unsuffixed binary/private library.
 # The suffixed aqueous-core-git package can coexist.
 conflicts=('aqueous-bin' 'aqueous-core' 'aqueous-core-bin'
-           'aqueous-git' 'aqueous-git-intel' 'aqueous-git-dms')
+           'aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms')
 options=('!strip' '!debug')
 source=("aqueous::git+${url}.git#tag=v${pkgver}"
         'wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz')

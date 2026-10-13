@@ -1,46 +1,65 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
-pkgbase=aqueous-desktop-git
-pkgname=(aqueous-shell-none-git aqueous-session-git xdg-desktop-portal-aqueous-git
+pkgbase=aqueous-git
+pkgname=(aqueous-core-git aqueous-shell-none-git aqueous-session-git xdg-desktop-portal-aqueous-git
          aqueous-integration-dms-git aqueous-integration-noctalia-git aqueous-integration-pearl-git
-         aqueous-shell-dms-git aqueous-shell-noctalia-git aqueous-shell-pearl-git aqueous-desktop-git)
+         aqueous-shell-dms-git aqueous-shell-noctalia-git aqueous-shell-pearl-git aqueous-git)
 _channel=git
-pkgver=0.7.0.r0.g0000000
-pkgrel=4
-pkgdesc='Aqueous Git desktop components and optional shell presets (co-installable with stable)'
+pkgver=1.0.2.r6.g354a5328
+pkgrel=5
+pkgdesc='Aqueous Git compositor, desktop components and optional shell presets (co-installable with stable)'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Seafoam-Labs/Aqueous'
 license=('GPL-3.0-only' 'MIT')
 options=('!strip' '!debug' '!zipman')
-makedepends=('git' 'patch' 'libinih' 'pipewire' 'wayland' 'wayland-protocols'
-             'systemd-libs' 'libdrm' 'mesa' 'meson' 'ninja' 'pkgconf' 'jq')
-checkdepends=('jq' 'ripgrep')
+makedepends=('git' 'curl' 'patch' 'scdoc' 'jq' 'python' 'shaderc' 'clang' 'lld' 'llvm'
+             'wayland-protocols>=1.49' 'pkgconf' 'meson' 'ninja' 'glslang'
+             'vulkan-headers' 'hwdata' 'zig>=0.16' 'libinih' 'freetype2' 'wayland'
+             'libxkbcommon' 'libinput' 'pixman' 'libpng' 'libdrm' 'libevdev' 'libdecor'
+             'xorg-xwayland' 'pipewire' 'glib2' 'fontconfig' 'mesa' 'systemd-libs'
+             'seatd' 'libdisplay-info' 'libliftoff' 'lcms2' 'vulkan-icd-loader'
+             'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil')
+checkdepends=('jq' 'ripgrep' 'gsettings-desktop-schemas')
 source=("aqueous::git+${url}.git"
+        'wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz'
         'xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz')
-sha256sums=('SKIP' '3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400')
-# Each component replaces its retired Intel counterpart; stable remains independent.
+sha256sums=('SKIP' '972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343'
+            '3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400')
 pkgver() {
     cd "$srcdir/aqueous"
     local version
     version=$(git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g')
-    if [[ -z $version ]]; then version="0.7.0.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"; fi
+    if [[ -z $version ]]; then version="1.0.2.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"; fi
     printf '%s\n' "$version"
 }
 build() {
+    srcdir="$srcdir" pkgver="$pkgver" bash "$srcdir/aqueous/packaging/git/build.sh" build "$_channel"
     srcdir="$srcdir" pkgver="$pkgver" bash "$srcdir/aqueous/packaging/git/desktop-build.sh" build "$_channel"
 }
 check() {
+    srcdir="$srcdir" pkgver="$pkgver" bash "$srcdir/aqueous/packaging/git/build.sh" check "$_channel"
     srcdir="$srcdir" pkgver="$pkgver" bash "$srcdir/aqueous/packaging/git/desktop-build.sh" check "$_channel"
+}
+_stage_core() {
+    srcdir="$srcdir" pkgdir="$pkgdir" pkgver="$pkgver" bash "$srcdir/aqueous/packaging/git/build.sh" package "$_channel"
 }
 _stage() {
     srcdir="$srcdir" pkgdir="$pkgdir" pkgver="$pkgver" bash "$srcdir/aqueous/packaging/git/desktop-build.sh" package "$_channel" "$1"
 }
+package_aqueous-core-git() {
+    pkgdesc='Aqueous development compositor, helper and control client (co-installable with stable)'
+    license=('GPL-3.0-only' 'MIT' '0BSD' 'CC-BY-SA-4.0')
+    depends=('bash' 'freetype2' 'wayland' 'libxkbcommon' 'libinput' 'pixman' 'libpng'
+             'libdrm' 'libevdev' 'libdecor' 'xorg-xwayland' 'pipewire' 'glib2' 'fontconfig'
+             'mesa' 'systemd-libs' 'seatd' 'libdisplay-info' 'libliftoff' 'lcms2'
+             'vulkan-icd-loader' 'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil'
+             'brightnessctl' 'playerctl')
+    _stage_core
+}
 package_aqueous-session-git() {
-    replaces=('aqueous-session-intel-git')
     pkgdesc='Aqueous Git login session and runtime'
     # Remove the obsolete worker/autostart package when upgrading the session.
     conflicts=('aqueous-welcome-git')
-    # Core is built by a separate VCS recipe. Review occurs before pkgver().
-    depends=("aqueous-core-$_channel>=0.7.0" 'bash' 'jq' 'coreutils' 'uwsm' 'dbus' 'systemd'
+    depends=("aqueous-core-$_channel=$pkgver-$pkgrel" 'bash' 'jq' 'coreutils' 'uwsm' 'dbus' 'systemd'
              'ghostty' 'grim' 'slurp' 'wl-clipboard' 'libnotify' 'xdg-desktop-portal')
     backup=('etc/xdg/aqueous-git/wm.toml' 'etc/xdg/aqueous-git/outputs.toml'
             'etc/xdg/uwsm/env-aqueous-git' 'etc/xdg/menus/aqueous-git-applications.menu'
@@ -48,48 +67,43 @@ package_aqueous-session-git() {
     _stage session
 }
 package_xdg-desktop-portal-aqueous-git() {
-    replaces=('xdg-desktop-portal-aqueous-intel-git')
     pkgdesc='Aqueous Git screen capture portal'
     depends=('libinih' 'pipewire' 'wayland' 'systemd-libs' 'libdrm' 'mesa' 'xdg-desktop-portal')
     _stage portal
 }
 package_aqueous-integration-dms-git() {
-    replaces=('aqueous-integration-dms-intel-git')
     pkgdesc='DMS integration for Aqueous Git'
     depends=("aqueous-session-$_channel=$pkgver-$pkgrel" "xdg-desktop-portal-aqueous-$_channel=$pkgver-$pkgrel")
     _stage integration-dms
 }
 package_aqueous-integration-noctalia-git() {
-    replaces=('aqueous-integration-noctalia-intel-git')
     pkgdesc='Noctalia integration for Aqueous Git'
     depends=("aqueous-session-$_channel=$pkgver-$pkgrel")
     _stage integration-noctalia
 }
 package_aqueous-integration-pearl-git() {
-    replaces=('aqueous-integration-pearl-intel-git')
     pkgdesc='Pearl integration for Aqueous Git'
     depends=("aqueous-session-$_channel=$pkgver-$pkgrel")
     _stage integration-pearl
 }
 package_aqueous-shell-dms-git() {
-    replaces=('aqueous-shell-dms-intel-git')
     pkgdesc='Optional DMS shell preset for Aqueous Git'
     depends=("xdg-desktop-portal-gtk" "aqueous-integration-dms-$_channel=$pkgver-$pkgrel" 'dms-shell')
 }
 package_aqueous-shell-noctalia-git() {
-    replaces=('aqueous-shell-noctalia-intel-git')
     pkgdesc='Optional Noctalia shell preset for Aqueous Git'
     depends=("xdg-desktop-portal-gtk" "aqueous-integration-noctalia-$_channel=$pkgver-$pkgrel" 'noctalia')
 }
 package_aqueous-shell-pearl-git() {
-    replaces=('aqueous-shell-pearl-intel-git')
     pkgdesc='Optional Pearl shell preset for Aqueous Git'
     depends=("pearl-capture-picker-git>=1" "xdg-desktop-portal-aqueous-git=$pkgver-$pkgrel" "aqueous-integration-pearl-$_channel=$pkgver-$pkgrel" 'pearl-git')
 }
-package_aqueous-desktop-git() {
-    replaces=('aqueous-desktop-intel-git')
+package_aqueous-git() {
+    replaces=('aqueous-desktop-git')
+    conflicts=('aqueous-desktop-git')
+    provides=("aqueous-desktop-git=$pkgver-$pkgrel")
     pkgdesc='Aqueous Git desktop with optional shell presets'
-    depends=("aqueous-shell-none-git=$pkgver-$pkgrel" "aqueous-core-$_channel>=0.7.0" "aqueous-session-$_channel=$pkgver-$pkgrel"
+    depends=("aqueous-shell-none-git=$pkgver-$pkgrel" "aqueous-core-$_channel=$pkgver-$pkgrel" "aqueous-session-$_channel=$pkgver-$pkgrel"
              "xdg-desktop-portal-aqueous-$_channel=$pkgver-$pkgrel"
              "aqueous-integration-dms-$_channel=$pkgver-$pkgrel" "aqueous-integration-noctalia-$_channel=$pkgver-$pkgrel"
              "aqueous-integration-pearl-$_channel=$pkgver-$pkgrel")

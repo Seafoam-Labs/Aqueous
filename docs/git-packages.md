@@ -1,12 +1,11 @@
 # Co-installable Git core packages
 
 For the complete desktop and login entries, use the optional
-[`aqueous-desktop-git` meta package](git-desktop-packages.md).
-The core packages below remain available independently.
+[`aqueous-git` meta package](git-desktop-packages.md).
+The core output remains independently installable from the same split build.
 
 These packages install development compositor/helper tools alongside stable
-Aqueous and the existing combined legacy packages. `aqueous-core-git` declares
-`replaces=('aqueous-core-intel-git')` for the retired Intel variant. It does not
+Aqueous. `aqueous-core-git` does not
 replace stable packages, claim stable package provisions, install session entries
 or enable shell services.
 
@@ -24,18 +23,28 @@ aarch64. On x86_64, all package builds target x86-64-v3 for both Intel and AMD
 CPUs; aarch64 retains its baseline target. The separate Intel recipes are retired.
 CPUs without x86-64-v3 support require a custom build with a lower CPU target.
 
-The original `aqueous-git` and `aqueous-git-intel` **package names** refer to
-previously published combined desktop packages; their recipes have been retired.
-The `aqueous-git` **command** belongs to `aqueous-core-git`. Existing legacy
-installations use the unsuffixed `aqueous` command and are not automatically
-renamed or replaced.
+The `aqueous-git` command belongs to `aqueous-core-git`; the `aqueous-git`
+package is now the desktop meta package from the same split recipe. See the
+[upgrade notes](git-desktop-packages.md#upgrade-and-coexistence) for installations
+of the old combined package with that name.
 
 ## Building
 
-Run `makepkg -si` from `packaging/arch/aqueous-core-git`. The recipe fetches the current upstream
-Git source and pinned wlroots archive. Publish the source changes before using
-these recipes against upstream. Checks require a normal Arch build environment;
-GTK, welcome, DMS and a portal backend are not built by these core recipes.
+Build the single recipe, then install only the core archive:
+
+```bash
+cd packaging/arch/aqueous-git
+makepkg -s
+# After the build succeeds:
+mapfile -t packages < <(makepkg --packagelist | awk '/\/aqueous-core-git-/')
+sudo pacman -U "${packages[@]}"
+```
+
+The recipe builds the compositor, configuration helper, client and portal from
+one upstream checkout with pinned wlroots/portal archives. It does not build
+Welcome or the standalone picker. Installing only the core does not pull in
+session components, GTK, or a desktop shell. Publish source changes before
+building against upstream.
 
 The shared build invokes Zig with `-Dinstance-name=aqueous-git` and
 `-Dcpu=x86_64_v3` (or `-Dcpu=baseline` on aarch64) for both compositor and helper. Omitting the instance

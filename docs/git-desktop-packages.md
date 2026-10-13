@@ -1,74 +1,73 @@
-# Git desktop meta packages
+# Aqueous Git split package
 
-`aqueous-desktop-git` installs a complete optional desktop around its matching
-[Git core](git-packages.md). It coexists with stable Aqueous and the legacy
-combined packages. x86_64 builds require x86-64-v3 on Intel or AMD; aarch64
-builds retain the baseline CPU target. The separate Intel recipes are retired. The package names
-`aqueous-git` and `aqueous-git-intel` belong to previously published legacy
-desktop packages whose recipes have been retired.
+`packaging/arch/aqueous-git/PKGBUILD` is the single source recipe for the Git
+compositor and desktop. Its package base and desktop meta package are both
+named `aqueous-git`. One build produces eleven packages: core, session, portal,
+three shell integrations, four shell presets (including `none`), and the meta
+package. Every internal dependency uses the same version and release.
 
-| Meta package | Core dependency | Login entry |
-| --- | --- | --- |
-| `aqueous-desktop-git` | `aqueous-core-git` | Aqueous-Git |
+Installing `aqueous-git` pulls in the core, session, portal, integrations and
+shell-free preset. Pearl, DMS and Noctalia remain optional. Welcome and the
+standalone portal picker are neither built nor installed. Existing shell
+selections are retained; a fresh session starts without a shell.
 
-Each meta package pulls in session, a private screen capture
-portal, and DMS/Noctalia/Pearl integration packages for its channel. Integrations
-contain conditional services, not the shells themselves. Installing the meta
-package does not choose a shell, enable DMS, replace the login manager, or modify
-personal configuration. Welcome is no longer built or installed. Existing shell
-selections are retained; a fresh session starts without a shell. Select a shell
-as described below. The session conflicts with the obsolete `aqueous-welcome-git`
-package so upgrades remove its worker and system autostart entry.
+The `aqueous-core-git` output can still be installed independently. It provides
+`aqueous-git`, `aqueousctl-git`, and `aqueous-config-git` commands under private
+paths. The desktop login entry is **Aqueous-Git**. x86_64 builds require
+x86-64-v3 on Intel or AMD; aarch64 retains the baseline CPU target.
 
 ## Build and install from source
 
-The recipes fetch upstream Git. Publish these source changes first. The desktop
-requires its matching Git core at version `0.7.0` or newer. Core is a separate
-VCS recipe, so it does not need to have the desktop's commit/version. Components
-within the desktop recipe retain exact version/release dependencies. Use a normal Arch build environment with
-base-devel and the declared dependencies; any selected shell must
-also be available to the package manager. These recipes have not automatically
-been published to the AUR or a binary repository.
-
-From the repository root, in Bash:
+Use an Arch build environment with `base-devel` and the declared dependencies.
+The recipe fetches upstream Git; publish source changes before building against
+upstream. Shell packages are only required when installing their optional
+presets. From the repository root:
 
 ```bash
-channel=git
-repo=$PWD
-core="$repo/packaging/arch/aqueous-core-$channel"
-desktop="$repo/packaging/arch/aqueous-desktop-$channel"
-
-(cd "$core" && makepkg -s)
-(cd "$desktop" && makepkg -s)
-
-# Install the core and desktop cohort together. Shell presets remain optional.
-mapfile -t core_packages < <(cd "$core" && makepkg --packagelist)
-mapfile -t desktop_packages < <(
-    cd "$desktop" && makepkg --packagelist | awk '!/\/aqueous-shell-(dms|noctalia|pearl)-git-/'
-)
-sudo pacman -U "${core_packages[@]}" "${desktop_packages[@]}"
+cd packaging/arch/aqueous-git
+makepkg -s
 ```
 
-Stop if either build fails. Install all desktop components from the same build.
-Do not use `makepkg -si` in the desktop
-split recipe: it would request all its optional shell preset packages as well.
+After a successful build, install the default desktop packages together:
 
-Once the packages are published in a configured binary repository, the entry
-point becomes `sudo pacman -S aqueous-desktop-git`. An AUR publication likewise
-requires publishing the
-matching core recipe; dependency solving must be able to find both package bases.
+```bash
+mapfile -t packages < <(
+    makepkg --packagelist | awk '!/\/aqueous-shell-(dms|noctalia|pearl)-git-/'
+)
+sudo pacman -U "${packages[@]}"
+```
 
-For Remora/Shelly isolated builds, publish the core in a configured repository
-before queuing the desktop. An exact dependency on the desktop's `$pkgver` would
-ask for its placeholder version during pre-build review, before `pkgver()` runs.
-If Shelly reports `IsolatedAurDependencyUnsupported` for the core, check that
-the uploaded desktop recipe has the minimum-version dependency above and that
-the core is present in the repository database used by the build server.
+The filter includes `aqueous-shell-none-git` and excludes the three optional
+shell presets. `makepkg -si` would install every split output, including all
+three shells. Keep components from the same build together.
 
-After installation, log out and select **Aqueous-Git**.
-The stable login entry continues to launch stable Aqueous. The session starts
-through UWSM and finalizes the live Git toolchain and compositor endpoints before
-graphical services start. No manual service enabling is required.
+For AUR or Remora/Shelly builds, publish this directory's `PKGBUILD` and
+`.SRCINFO` under the single `aqueous-git` package base. There is no separate core
+recipe to build or publish first. Once all split outputs are available in a
+configured binary repository, install with `sudo pacman -S aqueous-git`.
+These changes do not themselves publish packages.
+
+Log out and select **Aqueous-Git**. The session starts through UWSM and exports
+its private toolchain and compositor endpoints before graphical services start.
+No manual service enabling is required.
+
+## Upgrade and coexistence
+
+`aqueous-git` replaces and provides the former `aqueous-desktop-git` meta
+package. The old core and desktop recipe directories are retired; their
+component package names stay the same. The session conflicts with obsolete
+`aqueous-welcome-git`, allowing its worker and system autostart entry to be
+removed during the upgrade.
+
+The `aqueous-git` name was previously used by a combined legacy package with
+unsuffixed files. Starting at `1.0.2.r6`, it names this split desktop meta
+package. Upgrading that legacy package removes its old payload and installs
+the suffixed Git components. Select **Aqueous-Git** and configure its private
+session; personal stable configuration is retained but not migrated.
+
+Stable recipes now limit their legacy conflict to `aqueous-git<1.0.2.r6`.
+Installed stable packages with an older, unversioned conflict need updated
+package metadata before they can coexist with the new meta package.
 
 ## Optional shell presets
 
@@ -124,11 +123,6 @@ application's XDG directories.
   starting a second copy within that Git session.
 - The core's private PATH and library path are exported to session services so
   unsuffixed tool calls inside the Git desktop reach its matching core binaries.
-- Each Git component declares `replaces` for its corresponding retired
-  `-intel-git` package, including the desktop meta package and shell presets.
-  Stable and older combined legacy packages remain independent.
-- Package replacement does not migrate Intel configuration or state from
-  `aqueous-intel-git` to `aqueous-git`; the login entry is now **Aqueous-Git**.
 
 The supported workflow is choosing one graphical desktop per user login. This
 does not promise simultaneous full desktops on one user's shared systemd/D-Bus
@@ -137,6 +131,8 @@ session manager. Standalone nested core experiments remain a separate workflow.
 ## Verification
 
 ```sh
+python3 packaging/tests/test-arch-git-split.py
+bash packaging/tests/test-git-packages.sh
 bash packaging/tests/test-git-desktop.sh
 bash packaging/tests/test-git-desktop.sh PORTAL_DIST git PORTAL_LICENSE
 ```

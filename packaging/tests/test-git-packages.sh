@@ -52,8 +52,8 @@ SH
     AQUEOUS_INSTANCE=aqueous AQUEOUS_GIT_CONFIG=/explicit/wm.toml AQUEOUS_GIT_SOCKET=/explicit/ipc.sock AQUEOUS_GIT_WAYLAND_DISPLAY=explicit-display \
         "$base/prefix-$channel/bin/aqueous-config-$channel" > "$base/routing.json"
     jq -e '.config=="/explicit/wm.toml" and .socket=="/explicit/ipc.sock" and .display=="explicit-display"' "$base/routing.json" >/dev/null
-    recipe=$root/packaging/arch/aqueous-core-$channel/PKGBUILD
-    bash -c 'set -eu; source "$1"; [[ ${provides+x} != x && ${conflicts+x} != x && ${install+x} != x ]]; [[ $pkgname == "$2" ]]; [[ ${#replaces[@]} == 1 && ${replaces[0]} == aqueous-core-intel-git ]]; for dep in "${depends[@]}"; do case $dep in dms*|noctalia*|pearl*|aqueous|aqueous-core) exit 1;; esac; done' _ "$recipe" "aqueous-core-$channel"
+    recipe=$root/packaging/arch/aqueous-$channel/PKGBUILD
+    bash -c 'set -eu; source "$1"; _stage_core() { :; }; "package_$2"; [[ ${provides+x} != x && ${conflicts+x} != x && ${install+x} != x ]]; [[ " ${pkgname[*]} " == *" $2 "* ]]; [[ ${replaces+x} != x ]]; for dep in "${depends[@]}"; do case $dep in dms*|noctalia*|pearl*|aqueous|aqueous-core) exit 1;; esac; done' _ "$recipe" "aqueous-core-$channel"
     reject env DESTDIR="$base/reused-$channel" PREFIX=/usr AQUEOUS_CONFIG_DIST="$base/missing" "$root/packaging/git/stage.sh" "$channel"
 done
 printf '{"schema":1,"instance":"aqueous"}\n' > "$build/share/aqueous/build-instance.json"
