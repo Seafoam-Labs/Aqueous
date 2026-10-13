@@ -7,16 +7,18 @@ builds retain the baseline CPU target. The separate Intel recipes are retired. T
 `aqueous-git` and `aqueous-git-intel` belong to previously published legacy
 desktop packages whose recipes have been retired.
 
-| Meta package | Core dependency | Login entry | Welcome command |
-| --- | --- | --- | --- |
-| `aqueous-desktop-git` | `aqueous-core-git` | Aqueous-Git | `aqueous-welcome-git` |
+| Meta package | Core dependency | Login entry |
+| --- | --- | --- |
+| `aqueous-desktop-git` | `aqueous-core-git` | Aqueous-Git |
 
-Each meta package pulls in session, native welcome, a private screen capture
+Each meta package pulls in session, a private screen capture
 portal, and DMS/Noctalia/Pearl integration packages for its channel. Integrations
 contain conditional services, not the shells themselves. Installing the meta
 package does not choose a shell, enable DMS, replace the login manager, or modify
-personal configuration. At first login, welcome offers Pearl, DMS, Noctalia or
-Nothing. Existing selections and personal files are retained.
+personal configuration. Welcome is no longer built or installed. Existing shell
+selections are retained; a fresh session starts without a shell. Select a shell
+as described below. The session conflicts with the obsolete `aqueous-welcome-git`
+package so upgrades remove its worker and system autostart entry.
 
 ## Build and install from source
 
@@ -24,7 +26,7 @@ The recipes fetch upstream Git. Publish these source changes first. The desktop
 requires its matching Git core at version `0.7.0` or newer. Core is a separate
 VCS recipe, so it does not need to have the desktop's commit/version. Components
 within the desktop recipe retain exact version/release dependencies. Use a normal Arch build environment with
-base-devel and the declared dependencies; Shelly and any selected shell must
+base-devel and the declared dependencies; any selected shell must
 also be available to the package manager. These recipes have not automatically
 been published to the AUR or a binary repository.
 
@@ -42,7 +44,7 @@ desktop="$repo/packaging/arch/aqueous-desktop-$channel"
 # Install the core and desktop cohort together. Shell presets remain optional.
 mapfile -t core_packages < <(cd "$core" && makepkg --packagelist)
 mapfile -t desktop_packages < <(
-    cd "$desktop" && makepkg --packagelist | awk '!/\/aqueous-shell-/'
+    cd "$desktop" && makepkg --packagelist | awk '!/\/aqueous-shell-(dms|noctalia|pearl)-git-/'
 )
 sudo pacman -U "${core_packages[@]}" "${desktop_packages[@]}"
 ```
@@ -78,17 +80,32 @@ Each recipe also builds these dependency-only presets:
 | DMS | `aqueous-shell-dms-git` |
 | Noctalia | `aqueous-shell-noctalia-git` |
 
-Install a chosen preset archive with `pacman -U`, or make the preset available
-through your repository for welcome's reviewed installation flow. Installing a
-preset makes a shell available; welcome selects it for the next login. Git
-welcome requests both the shell package and the suffixed preset, and uses the
-suffixed canonical helper. For Pearl, that means `pearl-git` plus
-`aqueous-shell-pearl-git`. Setup verifies that both are installed before saving
-the selection. Git uses `pearl-git`; stable Aqueous uses `pearl`.
+Install the chosen preset and its runtime dependencies through your package
+manager. Pearl requires `pearl-git`; DMS requires `dms-shell`; Noctalia requires
+`noctalia`. Installing the desktop alone does not require any of these shells.
 
-Git screen sharing uses the portal package's `aqueous-portal-picker-git` for
-DMS, Pearl and Nothing, and
-Noctalia's picker when Noctalia is selected. The Git DMS integration does not
+Create or edit `$XDG_CONFIG_HOME/aqueous-git/session.toml`
+(default `~/.config/aqueous-git/session.toml`):
+
+```toml
+version = 1
+shell = "pearl"
+```
+
+Valid values are `pearl`, `dms`, `noctalia`, and `none`. Log out and back in after
+changing the selection. Shell-specific settings are preserved. Live
+`aqueousctl-git shell switch` is retired with Welcome; it reports these manual
+selection instructions. With no shell selected, the launcher action opens
+Ghostty and no screen locker is configured.
+
+Git packages do not build or install `aqueous-portal-picker-git`. Pearl uses its
+own capture picker and Noctalia uses its own picker. DMS and shell-free sessions
+have no default screen-sharing chooser: requests return no capture source until
+you configure one. Set `chooser_type=dmenu` and `chooser_cmd` in
+`${XDG_CONFIG_HOME:-$HOME/.config}/xdg-desktop-portal-aqueous-git/config` to a
+command that reads the source list from stdin and prints the selected original
+line. This file overrides the system portal config; retain any other settings
+you need. Restart the Git portal or log out and back in after changing it. The Git DMS integration does not
 install or enable the stable DMS portal/appearance plugins. Existing shell and
 application preferences are shared with their normal installations and retained;
 the Git packages isolate Aqueous-owned configuration rather than changing every
@@ -96,9 +113,9 @@ application's XDG directories.
 
 ## Coexistence contract
 
-- Configuration and welcome state use `aqueous-git` under
-  the normal XDG config/state roots. Setup does not migrate stable selections.
-- Login entries, UWSM defaults, welcome application/autostart identities, shell
+- Configuration uses `aqueous-git` under the normal XDG config root.
+  Stable shell selections are not migrated.
+- Login entries, UWSM defaults, shell
   units and desktop-specific portal preference files have separate names.
 - The portals own separate D-Bus names, executables and config directories:
   `org.freedesktop.impl.portal.desktop.aqueous_git` is the Git portal identity.
@@ -121,14 +138,14 @@ session manager. Standalone nested core experiments remain a separate workflow.
 
 ```sh
 bash packaging/tests/test-git-desktop.sh
-zig build --build-file welcome/build.zig test -Dcpu=baseline -Doptimize=ReleaseSafe
-bash packaging/tests/test-git-desktop.sh WELCOME_DIST PORTAL_DIST git PORTAL_LICENSE
+bash packaging/tests/test-git-desktop.sh PORTAL_DIST git PORTAL_LICENSE
 ```
 
 The tests compare component ownership with stable and Git, check
-meta dependencies and desktop identities, exercise shell selection, and run the
-real welcome worker against isolated helper fixtures. Real artifact checks also
-verify the compiled portal identity and exercise session startup with mocked
+meta dependencies and desktop identities, exercise shell selection, and verify
+that Welcome and the standalone picker are absent from package output, and
+that unsupported chooser requests produce no capture source. Real artifact
+checks verify the compiled portal identity and exercise session startup with mocked
 compositor/service commands. No host packages or services are changed by these
 tests. Real display-manager login, hardware capture and third-party shell
 acceptance remain separate release checks.

@@ -358,7 +358,9 @@ private libraries and separate configuration defaults. See the
 [Git package guide](docs/git-packages.md) for building and running them.
 
 `aqueous-desktop-git` adds the matching login
-session, native welcome, private portal and optional shell integrations. Follow
+session, private portal and optional shell integrations.
+Git packages do not include Welcome or a standalone portal picker; select the shell in `aqueous-git/session.toml`
+and log out and back in. Follow
 the [Git desktop installation guide](docs/git-desktop-packages.md) to install a
 complete Git desktop alongside stable Aqueous.
 
@@ -377,7 +379,7 @@ and workspace-layout client, plus the session launcher, environment hook,
 default TOML configuration, desktop entry, and systemd user units.
 Arch packages also provide `/etc/xdg/menus/aqueous-applications.menu` for
 application menus in sessions using `XDG_MENU_PREFIX=aqueous-`.
-Full Arch desktop packages and the combined release archive include the GTK welcome app,
+Stable Arch desktop packages and the combined release archive include the GTK welcome app,
 Shelly, and a terminal without requiring a desktop shell. On first login, choose
 Pearl (`pearl`), DMS (`dms-shell`), Noctalia, or Nothing. Welcome answers
 Shelly's password request through a GTK popup and selects all optional dependencies.

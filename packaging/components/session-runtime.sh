@@ -7,6 +7,7 @@ share=${AQUEOUS_SHARE_DIR:-/usr/share/aqueous}
 units=${AQUEOUS_UNIT_DIR:-/usr/lib/systemd/user}
 snapshot=${XDG_RUNTIME_DIR:-/nonexistent}/aqueous/welcome-session.json
 fail() { printf 'Aqueous session: %s\n' "$*" >&2; return 1; }
+setup_command=aqueous-welcome
 pearl_binary=pearl
 pearl_control=pearlctl
 pearl_capture_picker=/usr/lib/pearl/pearl-capture-picker
@@ -18,7 +19,7 @@ in_aqueous() { local desktop=${XDG_CURRENT_DESKTOP:-}; case :${desktop,,}: in *:
 bounded() { [[ ! -L $1 && -f $1 && $(stat -c %s -- "$1") -le 1048576 ]]; }
 selection_file() {
     bounded "$1" || { fail "Not a bounded regular selection file: $1"; return 1; }
-    # session.toml is a versioned two-field document written by welcome/Nix.
+    # session.toml is a versioned two-field document shared by setup tools and manual configuration.
     # Accept comments, whitespace and either TOML string delimiter. Fail closed
     # on duplicate fields or syntax outside this contract; never source it.
     awk '
@@ -30,7 +31,7 @@ selection_file() {
         }
         { bad=1 }
         END { if (bad || version != 1 || shell != 1) exit 1; print value }
-    ' "$1" || fail "Invalid session selection in $1; review it in aqueous-welcome."
+    ' "$1" || fail "Invalid session selection in $1; edit session.toml."
 }
 selection() {
     local path=$config_home/aqueous/session.toml found=() shell command
@@ -48,7 +49,7 @@ selection() {
     case ${#found[@]} in
         0) printf 'none\n';;
         1) printf '%s\n' "${found[0]}";;
-        *) fail 'Ambiguous legacy shell selection; review it in aqueous-welcome.';;
+        *) fail 'Ambiguous legacy shell selection; edit session.toml.';;
     esac
 }
 active_selection() {
@@ -60,8 +61,8 @@ active_selection() {
 }
 recover() {
     printf 'Aqueous session: %s\n' "$1" >&2
-    if command -v aqueous-welcome >/dev/null; then
-        aqueous-welcome --message "$1" </dev/null >/dev/null 2>&1 &
+    if [[ -n $setup_command ]] && command -v "$setup_command" >/dev/null; then
+        "$setup_command" --message "$1" </dev/null >/dev/null 2>&1 &
     fi
     return 0
 }
@@ -90,7 +91,7 @@ prepare_session() {
         if [[ $selected == none ]] || { command -v "$(shell_command "$selected")" >/dev/null && [[ -f $units/aqueous-$selected.service ]]; }; then
             shell=$selected
         else recover 'The selected shell or its Aqueous integration is missing. Install its aqueous-shell preset or review setup.'; fi
-    else recover 'Invalid or ambiguous shell selection; review session.toml or run aqueous-welcome.'; fi
+    else recover 'Invalid or ambiguous shell selection; review session.toml.'; fi
     [[ -n ${XDG_RUNTIME_DIR:-} ]] || { fail 'XDG_RUNTIME_DIR is required'; return 1; }
     jq -n --arg shell "$shell" --arg display "${WAYLAND_DISPLAY:-}" '{shell:$shell,display:$display}' | atomic "$snapshot"
     if [[ $shell == noctalia && ! -e $config_home/noctalia/config.toml && -f $share/noctalia/config.toml ]]; then
@@ -121,8 +122,12 @@ action() {
         dms:lock) exec dms ipc call lock lock;;
         noctalia:launcher) exec noctalia msg panel-toggle launcher;;
         noctalia:lock) exec noctalia msg lock;;
-        none:launcher) exec aqueous-welcome;;
-        none:lock) exec aqueous-welcome --message 'No screen locker is configured for this shell-free session.';;
+        none:launcher)
+            if [[ -n $setup_command ]]; then exec "$setup_command"; fi
+            exec ghostty;;
+        none:lock)
+            if [[ -n $setup_command ]]; then exec "$setup_command" --message 'No screen locker is configured for this shell-free session.'; fi
+            fail 'No screen locker is configured for this shell-free session.';;
         *) fail "Unknown action: $1";;
     esac
 }
@@ -150,6 +155,6 @@ case ${1:-} in
     external-condition) ! in_aqueous;;
     condition) in_aqueous && [[ ${AQUEOUS_NESTED:-0} != 1 ]] && valid_shell "${2:-}" && [[ $(active_selection) == "$2" ]];;
     action) action "${2:-}";;
-    recover) recover 'Your desktop shell failed to start. Review its journal or run aqueous-welcome.';;
+    recover) recover 'Your desktop shell failed to start. Review its journal and session.toml.';;
     *) fail 'Usage: session-runtime.sh portal-identity|portal-backend|selection|active-selection|prepare-session|condition SHELL|external-condition|action NAME|recover';;
 esac

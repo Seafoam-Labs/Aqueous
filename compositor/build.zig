@@ -332,7 +332,7 @@ pub fn build(b: *Build) !void {
 
     const shell_switch_test = b.addSystemCommand(&.{"python3"});
     shell_switch_test.addFileArg(b.path("scripts/test-aqueousctl-shell-switch.py"));
-    b.step("test-shell-switch", "Test Git-only desktop shell command dispatch").dependOn(&shell_switch_test.step);
+    b.step("test-shell-switch", "Test retired shell-switch command migration errors").dependOn(&shell_switch_test.step);
     {
         const aqueousctl = b.addExecutable(.{
             .name = "aqueousctl",

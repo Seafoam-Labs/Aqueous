@@ -363,71 +363,17 @@ confirm the result; `pending: true` means the pen must leave proximity first.
 See [Tablet configuration](tablet-configuration.md) for HUION/Wacom setup,
 matching and sidecar precedence, desktop/disabled rules, and troubleshooting.
 
-## Switch desktop shells (Git sessions only)
+## Select desktop shells (Git sessions)
 
-```sh
-aqueousctl-git shell switch pearl
-aqueousctl-git shell switch dms
-aqueousctl-git shell switch noctalia --json
-```
+Welcome and its live `aqueousctl-git shell switch` command are retired from the
+Git desktop packages. The old command returns an error with manual selection
+instructions; it does not invoke a setup worker or change the current session.
 
-The private `aqueousctl` in a Git session supports the same command; stable builds do
-not expose it. Run it inside the matching, non-nested Git desktop session.
-
-The command immediately switches the managed shell and saves the choice in
-`$XDG_CONFIG_HOME/<instance>/session.toml` for future logins. Open applications
-remain running. All Pearl, DMS, and Noctalia configurations and customizations
-are preserved, including settings for inactive shells. The command does not
-seed defaults, reset settings, install packages, or uninstall shells.
-
-Install the matching `aqueous-welcome-git` worker
-and the target's `aqueous-shell-<shell>-git`
-preset first. Pearl uses `pearl-git`; DMS uses `dms-shell`; Noctalia uses
-`noctalia`. Missing dependencies are reported before stopping the current shell.
-
-Selecting the already active and saved shell is a no-op. If activation fails,
-the command restores the previous selection, runtime snapshot, and stopped
-shell services. Concurrent welcome setup/switch operations and mismatched
-service-manager sessions are rejected. `--json` returns an object with `ok`,
-`message`, and, on success, `shell`; errors exit nonzero.
-
-If switching prints `Usage: session-runtime.sh selection|active-selection|...`,
-the installed welcome worker is older than the CLI. Rebuild/update
-`aqueous-welcome-git` from the current `aqueous-desktop-git` package base,
-alongside the core package. Updating only
-`aqueous-core-git` does not update the separately built desktop worker. Newer
-CLIs check worker compatibility and report the required update before switching.
-
-If the journal reports `Two services allocated for the same bus name
-org.freedesktop.Notifications`, older Aqueous DMS units conflict with upstream
-`dms.service` during systemd unit loading. Update `aqueous-integration-dms-git`. The corrected Aqueous units use `Type=exec` without
-`BusName=`; DMS itself continues to provide notifications. `Type=exec` confirms
-process execution rather than waiting for notification-bus readiness; see the
-[systemd service documentation](https://github.com/systemd/systemd/blob/main/man/systemd.service.xml).
-
-For an already-installed unit, run
-`systemctl --user edit --full aqueous-git-dms.service`. In the full service file,
-change `Type=dbus` to `Type=exec` and remove the
-`BusName=org.freedesktop.Notifications` line entirely. An empty `BusName=` in a
-drop-in is rejected by systemd and does not clear the old declaration.
-
-Save, then run `systemctl --user daemon-reload` and retry
-`aqueousctl-git shell switch dms`. This changes the service definition only;
-shell configurations are preserved. The full user override takes precedence
-over future packaged unit updates until that override is removed.
-
-Switching stops unselected managed shell services even when they are starting,
-restarting, or stopping, and checks that they are no longer running or starting
-before starting the next shell. DMS and Noctalia units explicitly use `KillMode=control-group`
-with `SendSIGKILL=yes`: shutdown covers their child processes, including DMS's
-Quickshell UI, with forced cleanup after the stop timeout. See
-[systemd's process cleanup documentation](https://github.com/systemd/systemd/blob/main/man/systemd.kill.xml).
-
-A separately launched `dms.service` or manual Quickshell process is outside the
-instance's managed shell services. If one remains after a switch, inspect
-`systemctl --user status aqueous-git-dms.service dms.service --no-pager` and the
-process's service/cgroup ownership before stopping it. Shell switching does not
-kill all processes named `qs`, since other applications can use Quickshell too.
+Install the desired `aqueous-shell-<shell>-git` preset, then set
+`version = 1` and `shell = "pearl"`, `"dms"`, `"noctalia"`, or `"none"` in
+`$XDG_CONFIG_HOME/aqueous-git/session.toml` (default
+`~/.config/aqueous-git/session.toml`). Log out and back in to apply the choice.
+See the [Git desktop guide](git-desktop-packages.md#optional-shell-presets).
 
 ## Window switcher IPC
 

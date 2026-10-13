@@ -15,8 +15,6 @@ const io = Io.Threaded.global_single_threaded.io();
 const allocator = std.heap.c_allocator;
 
 const instance_name = @import("build_options").instance_name;
-const git_shell_switch = mem.eql(u8, instance_name, "aqueous-git") or mem.eql(u8, instance_name, "aqueous-intel-git");
-const switch_usage = if (git_shell_switch) "       aqueousctl shell switch pearl|dms|noctalia [--json]\n" else "";
 
 const usage =
     \\usage: aqueousctl windows [--json]
@@ -269,22 +267,6 @@ const State = struct {
     }
 };
 
-// Core and desktop are separate VCS packages: never assume the installed
-// welcome worker was updated together with aqueousctl.
-fn supportsShellSwitch(process_io: Io, worker: []const u8) bool {
-    const result = std.process.run(allocator, process_io, .{
-        .argv = &.{ worker, "--worker", "shell-switch-capability" },
-        .expand_arg0 = .expand,
-        .stdout_limit = .limited(4096),
-        .stderr_limit = .limited(4096),
-        .timeout = .{ .duration = .{ .raw = .fromSeconds(5), .clock = .awake } },
-    }) catch return false;
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
-    return result.term == .exited and result.term.exited == 0 and
-        mem.eql(u8, result.stdout, "shell-switch-v1 " ++ instance_name ++ "\n");
-}
-
 pub fn main(init: std.process.Init) !void {
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
@@ -306,44 +288,18 @@ pub fn main(init: std.process.Init) !void {
         return;
     }
 
-    if (git_shell_switch and args.len >= 3 and mem.eql(u8, args[1], "shell") and mem.eql(u8, args[2], "switch")) {
-        const json = args.len >= 4 and mem.eql(u8, args[args.len - 1], "--json");
-        const valid = (args.len == 4 or (args.len == 5 and json)) and
-            (mem.eql(u8, args[3], "pearl") or mem.eql(u8, args[3], "dms") or mem.eql(u8, args[3], "noctalia"));
-        if (!valid) {
-            if (json) {
-                try stdout.writeAll("{\"ok\":false,\"message\":\"Usage: shell switch pearl|dms|noctalia [--json]\"}\n");
-                try stdout.flush();
-            } else {
-                try stderr.writeAll(switch_usage);
-                try stderr.flush();
-            }
-            std.process.exit(2);
-        }
-        const worker = if (mem.eql(u8, instance_name, "aqueous-intel-git")) "aqueous-welcome-intel-git" else "aqueous-welcome-git";
-        if (!supportsShellSwitch(init.io, worker)) {
-            const package_base = if (mem.eql(u8, instance_name, "aqueous-intel-git")) "aqueous-desktop-intel-git" else "aqueous-desktop-git";
-            const message = try std.fmt.allocPrint(arena_state.allocator(), "Cannot verify shell-switch support in {s}. Rebuild/update {s} from the current {s} package base alongside aqueous-core-{s}; updating core alone is insufficient.", .{ worker, worker, package_base, if (mem.eql(u8, instance_name, "aqueous-intel-git")) "intel-git" else "git" });
-            if (json) {
-                const output = try std.json.Stringify.valueAlloc(arena_state.allocator(), .{ .ok = false, .message = message }, .{});
-                try stdout.print("{s}\n", .{output});
-                try stdout.flush();
-            } else {
-                try stderr.print("aqueousctl: {s}\n", .{message});
-                try stderr.flush();
-            }
-            std.process.exit(1);
-        }
-        const argv = [_][]const u8{ worker, "--worker", "switch-shell", args[3], "--json" };
-        const err = std.process.replace(init.io, .{ .argv = argv[0..if (json) 5 else 4], .expand_arg0 = .expand });
-        if (json) {
-            try stdout.writeAll("{\"ok\":false,\"message\":\"Cannot launch the matching aqueous-welcome Git worker; install its desktop package\"}\n");
+    // Give callers of the retired Welcome-backed command a useful migration error.
+    if (args.len >= 3 and mem.eql(u8, args[1], "shell") and mem.eql(u8, args[2], "switch")) {
+        const message = "Live shell switching is no longer provided. Select a shell in $XDG_CONFIG_HOME/" ++ instance_name ++ "/session.toml (default ~/.config/" ++ instance_name ++ "/session.toml), then log out and back in.";
+        if (mem.eql(u8, args[args.len - 1], "--json")) {
+            const output = try std.json.Stringify.valueAlloc(arena_state.allocator(), .{ .ok = false, .message = message }, .{});
+            try stdout.print("{s}\n", .{output});
             try stdout.flush();
         } else {
-            try stderr.print("aqueousctl: cannot launch {s}: {s}; install its desktop package\n", .{ worker, @errorName(err) });
+            try stderr.print("aqueousctl: {s}\n", .{message});
             try stderr.flush();
         }
-        std.process.exit(1);
+        std.process.exit(2);
     }
 
     if (@import("Shell.zig").handles(args)) {
@@ -356,7 +312,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     const mode = parseMode(args) orelse {
-        try stderr.writeAll(usage ++ switch_usage);
+        try stderr.writeAll(usage);
         try stderr.flush();
         std.process.exit(2);
     };

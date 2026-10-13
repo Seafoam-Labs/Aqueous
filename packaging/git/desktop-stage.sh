@@ -3,7 +3,7 @@
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 source "$root/packaging/components/common.sh"
-case ${1:-} in git) desktop=Aqueous-Git; app=org.aqueous.Git.Welcome;; intel-git) desktop=Aqueous-Intel-Git; app=org.aqueous.IntelGit.Welcome;; *) aq_die 'Expected git|intel-git COMPONENT';; esac
+case ${1:-} in git) desktop=Aqueous-Git;; intel-git) desktop=Aqueous-Intel-Git;; *) aq_die 'Expected git|intel-git COMPONENT';; esac
 channel=$1
 component=${2:?Missing component}
 instance=aqueous-$channel
@@ -24,8 +24,7 @@ copy() { install -Dm"${3:-644}" -- "$1" "$destination$2"; }
 # renaming an already suffixed command. User configuration is never input here.
 transform() {
     sed -E -e 's/aqueous/@INSTANCE@/g' -e 's/Aqueous/@DESKTOP@/g' \
-        -e "s/org\.@INSTANCE@\.Welcome/$app/g" \
-        -e "s/@INSTANCE@-(init|wm|welcome|shell-action|portal-picker)\b/aqueous-\1-$channel/g" \
+        -e "s/@INSTANCE@-(init|wm|shell-action|portal-picker)\b/aqueous-\1-$channel/g" \
         -e "s/@INSTANCE@ctl/aqueousctl-$channel/g" \
         -e "s/@INSTANCE@/$instance/g" -e "s/@DESKTOP@/$desktop/g" \
         -e "/^#!/!s|/usr/|$prefix/|g" -e "s|/etc/|$sysconf/|g" \
@@ -44,9 +43,14 @@ session)
             *) transform < "$file" | write "$target" "$(stat -c %a -- "$file")";;
         esac
     done < <(find "$work/session" -type f -print0 | sort -z)
-    # Each Git session uses the Aqueous picker for DMS/None. Avoid global
-    # DMS plugin discovery paths owned by the stable and legacy integrations.
-    sed -i -E 's@dms\) exec .*;;@dms) exec aqueous-portal-picker-'"$channel"';;@' "$destination$private/session-runtime.sh"
+    # Git sessions have no setup application; preserve stable runtime defaults.
+    sed -i 's/^setup_command=.*/setup_command=/' "$destination$private/session-runtime.sh"
+    # No bundled picker for DMS or shell-free sessions. An explicit dmenu
+    # command in the portal config can provide one; never select a source here.
+    sed -i -E \
+        -e 's@dms\) exec .*;;@dms) fail "No screen-sharing chooser configured for this shell; configure chooser_cmd in the portal config.";;@' \
+        -e 's@\*\) exec aqueous-portal-picker-'"$channel"';;@*) fail "No screen-sharing chooser configured for this shell; configure chooser_cmd in the portal config.";;@' \
+        "$destination$private/session-runtime.sh"
     # Git Pearl ships suffixed binaries; retain "pearl" as the selection ID.
     sed -i -e 's/^pearl_binary=pearl$/pearl_binary=pearl-git/' \
         -e 's/^pearl_control=pearlctl$/pearl_control=pearlctl-git/' "$destination$private/session-runtime.sh"
@@ -63,27 +67,7 @@ session)
     # An explicit native init should not shut down legacy output services.
     sed -i '/^systemctl --user stop .*outputd.service/d' "$destination$prefix/bin/aqueous-wm-$channel"
     ;;
-welcome)
-    build=${AQUEOUS_WELCOME_DIST:?Set AQUEOUS_WELCOME_DIST}
-    jq -e --arg instance "$instance" '. == {schema:1,instance:$instance,test_hooks:false}' "$build/share/aqueous/build-instance.json" >/dev/null || aq_die 'Wrong welcome build identity or test hooks enabled'
-    copy "$build/bin/aqueous-welcome" "$private/bin/aqueous-welcome" 755
-    # Keep the current display for GTK when setup is opened from another
-    # desktop. The native worker invokes the suffixed helper, which isolates IPC.
-    write "$prefix/bin/aqueous-welcome-$channel" 755 <<EOF
-#!/bin/sh
-export AQUEOUS_SESSION_RUNTIME="$private/session-runtime.sh"
-export AQUEOUS_SHARE_DIR="$prefix/share/$instance"
-export AQUEOUS_SYSCONFDIR="$sysconf"
-export AQUEOUS_UNIT_DIR="$prefix/lib/systemd/user"
-exec "$private/bin/aqueous-welcome" "\$@"
-EOF
-    transform < "$root/packaging/aqueous-welcome.desktop" | write "$prefix/share/applications/$app.desktop"
-    transform < "$root/packaging/aqueous-welcome-autostart.desktop" | write "$sysconf/xdg/autostart/$app.desktop"
-    ;;
 portal)
-    picker_build=${AQUEOUS_WELCOME_DIST:?Set AQUEOUS_WELCOME_DIST}
-    jq -e --arg instance "$instance" '. == {schema:1,instance:$instance,test_hooks:false}' "$picker_build/share/aqueous/build-instance.json" >/dev/null || aq_die 'Wrong picker build identity or test hooks enabled'
-    copy "$picker_build/bin/aqueous-portal-picker" "$prefix/bin/aqueous-portal-picker-$channel" 755
     build=${AQUEOUS_PORTAL_DIST:?Set AQUEOUS_PORTAL_DIST}
     jq -e --arg instance "$instance" '. == {schema:1,instance:$instance}' "$build/build-instance.json" >/dev/null || aq_die 'Wrong portal build identity'
     copy "$build/xdg-desktop-portal-$instance" "$private/xdg-desktop-portal-$instance" 755

@@ -193,24 +193,13 @@ The full wire contract and schema are installed under
 _share/aqueous-protocols/stable/aqueous-shell-v1.md_ and
 _share/aqueous-protocols/stable/aqueous-shell-v1.schema.json_.
 
-# GIT DESKTOP SHELL SWITCHING
+# GIT DESKTOP SHELL SELECTION
 
-*aqueousctl-git shell switch* pearl|dms|noctalia [*--json*]
-
-Switch the managed desktop shell immediately and save the choice for future
-logins. The private Git
-*aqueousctl* supports the same command; stable builds do not expose it.
-Requires the matching non-nested Git desktop session, welcome worker, and target
-shell preset. Missing dependencies are reported before stopping the old shell.
-Pearl uses *pearl-git*. No packages are installed or removed.
-
-All shells' configurations and customizations are preserved. Only Aqueous's
-shell selection, runtime snapshot, and managed shell services change. Open
-applications remain running. Switching to the active, saved shell is a no-op.
-Failures restore the previous selection, snapshot, and stopped services;
-incomplete recovery is reported. *--json* returns *ok*, *message*, and on
-success *shell*. Errors exit nonzero.
-
+Live desktop shell switching is no longer provided. Install the desired shell
+preset and select *pearl*, *dms*, *noctalia*, or *none* in
+_$XDG_CONFIG_HOME/aqueous-git/session.toml_ (default
+_~/.config/aqueous-git/session.toml_), using *version = 1* and *shell = "NAME"*.
+Log out and back in to apply the selection. Existing shell settings are retained.
 
 # SECURITY
 

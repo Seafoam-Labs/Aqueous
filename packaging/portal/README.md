@@ -20,13 +20,19 @@ The desktop portal router is configured by `packaging/aqueous-portals.conf` to
 use this backend only for ScreenCast and Screenshot. GTK continues to handle
 the remaining portal interfaces.
 
-Arch packages use `aqueous-shell-action chooser`, which follows the active
+Stable Arch packages use `aqueous-shell-action chooser`, which follows the active
 session selected in Welcome to Aqueous. DMS uses the existing Zig bridge and
 `aqueousPortal` plugin; Noctalia uses `noctalia dmenu`. Pearl uses its bundled `/usr/lib/pearl/pearl-capture-picker` (the Git
 session uses `/usr/lib/pearl-git/pearl-capture-picker`). Nothing uses
 `aqueous-portal-picker`, a standalone GTK picker shipped by the portal package.
 It reads the source list from stdin and has no Welcome/setup dependency. All use `chooser_type=dmenu`
 and return the selected original source line, with no output on cancellation.
+
+Git desktop packages ship the portal backend without Welcome or the standalone
+Aqueous picker. Their dispatcher keeps Pearl and Noctalia's own pickers. DMS and
+shell-free sessions return no capture source unless a custom `chooser_cmd` is
+configured in the Git portal config. See the
+[Git desktop guide](../../docs/git-desktop-packages.md#optional-shell-presets).
 
 Installing another shell does not change an active session. Welcome writes the
 next-login selection and preserves custom portal overrides. It updates recognized

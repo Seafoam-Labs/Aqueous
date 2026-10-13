@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
-# Private staging, mock services, and optional real native worker checks.
+# Private staging, mock services, and optional real portal artifact checks.
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 base=$(mktemp -d /tmp/aqueous-git-desktop-test.XXXXXXXX)
 trap 'rm -rf -- "$base"' EXIT
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 files() { find "$1" \( -type f -o -type l \) -printf '%P\n' | sort; }
-components=(session welcome portal integration-dms integration-noctalia integration-pearl)
-mkdir -p "$base/fixture/bin" "$base/fixture/share/aqueous"
-printf '#!/bin/sh\nexit 0\n' > "$base/fixture/bin/aqueous-welcome"
-chmod +x "$base/fixture/bin/aqueous-welcome"
-cp "$base/fixture/bin/aqueous-welcome" "$base/fixture/bin/aqueous-portal-picker"
+components=(session portal integration-dms integration-noctalia integration-pearl)
+mkdir -p "$base/fixture/bin"
+printf '#!/bin/sh\nexit 0\n' > "$base/fixture/bin/fixture-tool"
+chmod +x "$base/fixture/bin/fixture-tool"
 printf 'fixture license\n' > "$base/LICENSE"
-export AQUEOUS_PICKER_BINARY=$base/fixture/bin/aqueous-portal-picker
-export AQUEOUS_WELCOME_BINARY=$base/fixture/bin/aqueous-welcome AQUEOUS_PORTAL_BINARY=$base/fixture/bin/aqueous-welcome
-export AQUEOUS_PORTAL_CHOOSER_BINARY=$base/fixture/bin/aqueous-welcome AQUEOUS_PORTAL_LICENSE=$base/LICENSE
+export AQUEOUS_PICKER_BINARY=$base/fixture/bin/fixture-tool
+export AQUEOUS_PORTAL_BINARY=$base/fixture/bin/fixture-tool
+export AQUEOUS_PORTAL_CHOOSER_BINARY=$base/fixture/bin/fixture-tool AQUEOUS_PORTAL_LICENSE=$base/LICENSE
 for component in "${components[@]}"; do
     DESTDIR="$base/stable-$component" "$root/packaging/stage-component.sh" "$component"
     files "$base/stable-$component"
@@ -22,30 +21,37 @@ done | sort -u > "$base/stable.files"
 for channel in git; do
     instance=aqueous-$channel
     if [[ $channel == git ]]; then desktop=Aqueous-Git; app=org.aqueous.Git.Welcome; else desktop=Aqueous-Intel-Git; app=org.aqueous.IntelGit.Welcome; fi
-    cp "$base/fixture/bin/aqueous-welcome" "$base/fixture/xdg-desktop-portal-$instance"
+    cp "$base/fixture/bin/fixture-tool" "$base/fixture/xdg-desktop-portal-$instance"
     jq -n --arg instance "$instance" '{schema:1,instance:$instance}' > "$base/fixture/build-instance.json"
-    jq '. + {test_hooks:false}' "$base/fixture/build-instance.json" > "$base/fixture/share/aqueous/build-instance.json"
     : > "$base/$channel.files"
     for component in "${components[@]}"; do
-        DESTDIR="$base/$channel-$component" AQUEOUS_WELCOME_DIST="$base/fixture" AQUEOUS_PORTAL_DIST="$base/fixture" \
+        DESTDIR="$base/$channel-$component" AQUEOUS_PORTAL_DIST="$base/fixture" \
             "$root/packaging/git/desktop-stage.sh" "$channel" "$component"
         files "$base/$channel-$component" >> "$base/$channel.files"
     done
+    # Reject portal builds from another instance, even without picker metadata.
+    printf '{"schema":1,"instance":"aqueous"}\n' > "$base/fixture/build-instance.json"
+    if DESTDIR="$base/rejected" AQUEOUS_PORTAL_DIST="$base/fixture" \
+        "$root/packaging/git/desktop-stage.sh" "$channel" portal > "$base/rejected.log" 2>&1; then
+        fail 'Accepted mismatched portal metadata'
+    fi
+    grep -q 'Wrong portal build identity' "$base/rejected.log"
+    jq -n --arg instance "$instance" '{schema:1,instance:$instance}' > "$base/fixture/build-instance.json"
     [[ -z $(sort "$base/$channel.files" | uniq -d) ]] || fail 'Desktop components share files'
     sort -o "$base/$channel.files" "$base/$channel.files"
     [[ -z $(comm -12 "$base/stable.files" "$base/$channel.files") ]] || fail 'Stable desktop file conflict'
     session=$base/$channel-session
     runtime=$session/usr/lib/$instance/session-runtime.sh
     bash -n "$runtime"
-    test -x "$base/$channel-portal/usr/bin/aqueous-portal-picker-$channel"
-    test ! -e "$base/$channel-welcome/usr/bin/aqueous-portal-picker-$channel"
-    grep -q "exec aqueous-portal-picker-$channel" "$runtime"
+    test ! -e "$base/$channel-portal/usr/bin/aqueous-portal-picker-$channel"
+    ! grep -qE 'aqueous-welcome|Welcome\.desktop|aqueous-portal-picker' "$base/$channel.files" || fail 'Retired UI was staged'
+    grep -qx 'setup_command=' "$runtime"
+    ! grep -q aqueous-portal-picker "$runtime"
     grep -q "^pearl_capture_picker=/usr/lib/pearl-git/pearl-capture-picker$" "$runtime"
     ! grep -q -- "--choose" "$runtime"
     for command in wm init shell-action; do sh -n "$session/usr/bin/aqueous-$command-$channel"; done
     grep -q "Exec=uwsm start -- aqueous-wm-$channel" "$session/usr/share/wayland-sessions/$instance.desktop"
     grep -q "DesktopNames=$desktop" "$session/usr/share/wayland-sessions/$instance.desktop"
-    grep -q "OnlyShowIn=$desktop;" "$base/$channel-welcome/etc/xdg/autostart/$app.desktop"
     grep -q "desktop.${instance//-/_}" "$base/$channel-portal/usr/share/xdg-desktop-portal/portals/$instance.portal"
     grep -q 'AQUEOUS_SOCKET AQUEOUS_INSTANCE PATH LD_LIBRARY_PATH' "$session/usr/bin/aqueous-init-$channel"
     [[ ! -e $base/$channel-integration-dms/etc/xdg/quickshell ]] || fail 'Git installed global DMS plugins'
@@ -71,11 +77,19 @@ for channel in git; do
         set -eu
         source "$1"
         _stage() { :; }
+        [[ " ${pkgname[*]} " != *welcome* ]]
+        for dep in "${makedepends[@]}"; do
+            case $dep in zig*|gtk4) exit 1;; esac
+        done
+        ! declare -F package_aqueous-welcome-git >/dev/null
         # Every split component must replace only its own retired Intel package.
         for package in "${pkgname[@]}"; do
             (
                 unset replaces
                 "package_$package"
+                for dep in "${depends[@]}"; do
+                    case $dep in *welcome*|shelly|sudo|gtk4) exit 1;; esac
+                done
                 if [[ $package == aqueous-shell-none-git ]]; then
                     [[ ! -v replaces ]] # New preset has no retired Intel package.
                 else
@@ -89,9 +103,11 @@ for channel in git; do
             pkgver=$version
             "package_aqueous-session-$2"
             [[ ${depends[0]} == "aqueous-core-$2>=0.7.0" ]]
+            [[ ${conflicts[*]} == aqueous-welcome-git ]]
+            unset conflicts
             "package_aqueous-desktop-$2"
             [[ ${provides+x} != x && ${conflicts+x} != x && ${install+x} != x ]]
-            [[ ${#depends[@]} == 8 && ${depends[0]} == "aqueous-shell-none-$2=$pkgver-$pkgrel" && ${depends[1]} == "aqueous-core-$2>=0.7.0" ]]
+            [[ ${#depends[@]} == 7 && ${depends[0]} == "aqueous-shell-none-$2=$pkgver-$pkgrel" && ${depends[1]} == "aqueous-core-$2>=0.7.0" ]]
             for dep in "${depends[@]:2}"; do [[ $dep == *"-$2=$pkgver-$pkgrel" ]]; done
         done
     ' _ "$recipe" "$channel"
@@ -110,11 +126,27 @@ for channel in git; do
         export XDG_CURRENT_DESKTOP=$desktop
         "$runtime" prepare-session
         "$runtime" condition dms
+        if "$runtime" action chooser > "$base/chooser.out" 2> "$base/chooser.err"; then fail 'DMS selected a source without a chooser'; fi
+        [[ ! -s $base/chooser.out ]]
+        grep -q 'No screen-sharing chooser configured' "$base/chooser.err"
         if "$runtime" condition pearl; then fail 'Unselected shell starts'; fi
         [[ -e $XDG_RUNTIME_DIR/$instance/welcome-session.json && ! -e $XDG_RUNTIME_DIR/aqueous ]]
         printf 'version=1\nshell="none"\n' > "$XDG_CONFIG_HOME/$instance/session.toml"
         [[ $($runtime active-selection) == dms && $($runtime selection) == none ]]
         AQUEOUS_NESTED=1 "$runtime" prepare-session
+        "$runtime" prepare-session
+        printf '#!/bin/sh\nprintf "terminal\\n"\n' > "$base/bin/ghostty"
+        chmod +x "$base/bin/ghostty"
+        printf '#!/bin/sh\ntouch "%s"\n' "$base/unexpected-welcome" > "$base/bin/aqueous-welcome-$channel"
+        chmod +x "$base/bin/aqueous-welcome-$channel"
+        [[ $("$runtime" action launcher) == terminal ]]
+        if "$runtime" action chooser > "$base/chooser.out" 2> "$base/chooser.err"; then fail 'Shell-free session selected a source'; fi
+        [[ ! -s $base/chooser.out ]]
+        grep -q 'No screen-sharing chooser configured' "$base/chooser.err"
+        if "$runtime" action lock > "$base/lock.log" 2>&1; then fail 'Missing locker reported success'; fi
+        "$runtime" recover 2> "$base/recovery.log"
+        [[ ! -e $base/unexpected-welcome ]] || fail 'Runtime launched retired Welcome'
+        ! grep -q aqueous-welcome "$base/recovery.log"
         # Pearl Git alone must satisfy selection; never rely on host pearl.
         command() {
             if [[ $1 == -v && $2 == pearl ]]; then return 1; fi
@@ -135,19 +167,17 @@ for channel in git; do
 done
 printf 'PASS: desktop ownership, meta dependencies, login/portal identities, shell selection and session snapshots\n'
 [[ $# != 0 ]] || exit 0
-[[ $# == 4 ]] || fail 'Expected welcome-dist portal-dist channel portal-license'
-welcome=$(realpath "$1"); portal=$(realpath "$2"); channel=$3; license=$(realpath "$4")
+[[ $# == 3 ]] || fail 'Expected portal-dist channel portal-license'
+portal=$(realpath "$1"); channel=$2; license=$(realpath "$3")
 case $channel in git) app=org.aqueous.Git.Welcome;; intel-git) app=org.aqueous.IntelGit.Welcome;; *) exit 2;; esac
 instance=aqueous-$channel
 prefix=$base/real-prefix
-for component in session welcome portal; do
-    DESTDIR="$base/real-$component" PREFIX="$prefix" SYSCONFDIR="$prefix/etc" AQUEOUS_WELCOME_DIST="$welcome" AQUEOUS_PORTAL_DIST="$portal" AQUEOUS_PORTAL_LICENSE="$license" \
+for component in session portal; do
+    DESTDIR="$base/real-$component" PREFIX="$prefix" SYSCONFDIR="$prefix/etc" AQUEOUS_PORTAL_DIST="$portal" AQUEOUS_PORTAL_LICENSE="$license" \
         "$root/packaging/git/desktop-stage.sh" "$channel" "$component"
     mkdir -p "$prefix"
     cp -a "$base/real-$component$prefix/." "$prefix/"
 done
-# Metadata mismatch and test builds must never stage into a production package.
-if DESTDIR="$base/bad" AQUEOUS_WELCOME_DIST="$welcome" "$root/packaging/git/desktop-stage.sh" "$(if [[ $channel == git ]]; then echo intel-git; else echo git; fi)" welcome >/dev/null 2>&1; then fail 'Accepted wrong welcome identity'; fi
 strings "$prefix/lib/$instance/xdg-desktop-portal-$instance" > "$base/portal.strings"
 grep -qx "org.freedesktop.impl.portal.desktop.${instance//-/_}" "$base/portal.strings"
 grep -qx "xdg-desktop-portal-$instance" "$base/portal.strings"
@@ -156,10 +186,6 @@ export XDG_CURRENT_DESKTOP=Aqueous WAYLAND_DISPLAY=fixture AQUEOUS_NESTED=0
 mkdir -p "$HOME" "$XDG_CONFIG_HOME/aqueous" "$XDG_CONFIG_HOME/$instance" "$XDG_RUNTIME_DIR"
 printf 'version=1\nshell="dms"\n' > "$XDG_CONFIG_HOME/aqueous/session.toml"
 printf 'version=1\nshell="none"\n' > "$XDG_CONFIG_HOME/$instance/session.toml"
-binary=$prefix/bin/aqueous-welcome-$channel
-# --first-run on stable must exit before GTK tries to connect to any display.
-"$binary" --first-run
-[[ $("$binary" --worker selection) == none ]]
 export PATH=$prefix/bin:$PATH FIXTURE_ROOT=$base
 export SERVICE_LOG=$base/service-log
 for command in systemctl uwsm dbus-update-activation-environment; do
@@ -187,81 +213,7 @@ grep -q "xdg-desktop-portal-$instance.service" "$SERVICE_LOG"
 if grep -q 'xdg-desktop-portal-aqueous.service\|aqueous-outputd.service' "$SERVICE_LOG"; then fail 'Git launcher controls a stable service'; fi
 [[ -f $XDG_CONFIG_HOME/$instance/wm.toml && ! -e $XDG_CONFIG_HOME/aqueous/wm.toml ]]
 [[ $(cat "$XDG_CONFIG_HOME/ghostty/config.ghostty") == '# existing terminal settings' ]]
-cat > "$prefix/bin/aqueous-config-$channel" <<'SH'
-#!/bin/sh
-case $1 in
- snapshot) printf '{"ok":true,"generation":"g","fields":[{"id":"actions.screenshot","value":"dms screenshot region"}],"raw_files":{},"capabilities":["shell_none","schema_fields","validate","generation_check","stdin_requests","apply_result_v1","operation_receipts_v1","candidate_impact_v1","recoverable_commit_v1"]}\n';;
- validate|apply) cat > "$FIXTURE_ROOT/request"; printf '{"ok":true,"raw_files":{}}\n';;
- *) exit 1;;
-esac
-SH
-chmod +x "$prefix/bin/aqueous-config-$channel"
-printf '{"accept":true}\n' | "$binary" --worker setup none > "$base/events"
-jq -e 'select(.kind=="done")' "$base/events" >/dev/null
-jq -e --arg command "aqueous-shell-action-$channel screenshot" '.changes[0].value==$command' "$base/request" >/dev/null
-[[ -e $XDG_STATE_HOME/$instance/welcome-v1 && ! -e $XDG_STATE_HOME/aqueous ]]
-[[ -e $XDG_CONFIG_HOME/autostart/$app.desktop && ! -e $XDG_CONFIG_HOME/autostart/org.aqueous.Welcome.desktop ]]
-grep -q "aqueous-shell-action-$channel chooser" "$XDG_CONFIG_HOME/xdg-desktop-portal-$instance/config"
+grep -q "aqueous-shell-action-$channel chooser" "$prefix/etc/xdg/xdg-desktop-portal-$instance/config"
 grep -q 'shell="dms"' "$XDG_CONFIG_HOME/aqueous/session.toml"
-printf 'PASS: real welcome worker isolation, helper routing, completion, portal configuration and compiled portal identity\n'
-cat > "$prefix/bin/sudo" <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-[[ $1 == -p && $2 == '[sudo] password for %p: ' && $3 == -- && $4 == shelly ]]
-shift 3
-export FIXTURE_ELEVATED=1
-exec "$@"
-SH
-chmod +x "$prefix/bin/sudo"
-cat > "$prefix/bin/shelly" <<'SH'
-#!/usr/bin/env bash
-set -euo pipefail
-if [[ $1 == list ]]; then
-    if [[ -f $FIXTURE_ROOT/packages ]]; then cat "$FIXTURE_ROOT/packages"; else printf '[]\n'; fi
-    exit
-fi
-[[ $1 == install && $2 == standard ]]
-[[ ${FIXTURE_ELEVATED:-0} == 1 ]]
-printf '%s\n' "$*" > "$FIXTURE_ROOT/install-log"
-jq -n --args '$ARGS.positional | map(select(. != "--ui-mode") | {Name:.,Id:.})' -- "${@:3}" > "$FIXTURE_ROOT/packages"
-if [[ ${OMIT_PEARL:-0} == 1 ]]; then
-    jq 'map(select(.Name != "pearl-git"))' "$FIXTURE_ROOT/packages" > "$FIXTURE_ROOT/packages-next"
-    mv "$FIXTURE_ROOT/packages-next" "$FIXTURE_ROOT/packages"
-fi
-printf '[JSON]%s[/JSON]\n' "$(printf '%s' '{"$kind":"alpm.info","EventType":"TransactionDone"}' | base64 -w0)"
-SH
-chmod +x "$prefix/bin/shelly"
-printf '#!/bin/sh\nexit 0\n' > "$prefix/bin/pearl-git"
-chmod +x "$prefix/bin/pearl-git"
-pearl_setup() {
-    local pid output input event status=0
-    # Keep the UI transport open until the install completes; EOF is cancellation.
-    coproc WORKER { timeout 20 "$1" --worker setup pearl; }
-    pid=$WORKER_PID
-    exec {output}<&"${WORKER[0]}" {input}>&"${WORKER[1]}"
-    : > "$base/events"
-    while IFS= read -r -u "$output" event; do
-        printf '%s\n' "$event" >> "$base/events"
-        if [[ $(jq -r .kind <<< "$event") == review ]]; then printf '{"accept":true}\n' >&"$input"; fi
-    done
-    exec {output}<&- {input}>&-
-    wait "$pid" || status=$?
-    return "$status"
-}
-for runtime_mode in installed missing; do
-    if [[ $runtime_mode == installed ]]; then setup_binary=$binary
-    else
-        setup_binary=$prefix/lib/$instance/bin/aqueous-welcome
-        export AQUEOUS_SESSION_RUNTIME=$base/missing-runtime
-    fi
-    pearl_setup "$setup_binary" || { cat "$base/events" >&2; exit 1; }
-    grep -qx "install standard pearl-git aqueous-shell-pearl-$channel --ui-mode" "$base/install-log"
-    jq -e 'select(.kind=="done")' "$base/events" >/dev/null
-    [[ $("$setup_binary" --worker selection) == pearl ]]
-done
-# A leftover executable plus an installed preset is not proof Pearl installed.
-printf 'version=1\nshell="none"\n' > "$XDG_CONFIG_HOME/$instance/session.toml"
-rm "$XDG_STATE_HOME/$instance/welcome-v1"
-if OMIT_PEARL=1 pearl_setup "$binary"; then fail 'Accepted a missing Pearl package'; fi
-[[ $("$binary" --worker selection) == none && ! -e $XDG_STATE_HOME/$instance/welcome-v1 ]]
-printf 'PASS: Pearl and matching Git preset requested and verified, including missing-runtime recovery\n'
+[[ ! -e $prefix/bin/aqueous-welcome-$channel && ! -d $prefix/etc/xdg/autostart ]]
+printf 'PASS: compiled portal identity and session startup without bundled UI\n'

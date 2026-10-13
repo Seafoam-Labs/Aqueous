@@ -102,10 +102,8 @@ installed desktop integration until explicitly changed by the user.
 
 ## Switching the desktop shell
 
-Inside a complete Git desktop session, run
-`aqueousctl-git shell switch pearl|dms|noctalia` (choose one shell).
-This requires the matching welcome worker
-and the selected shell preset. The switch takes effect immediately and persists
-across logins. Every shell's existing configuration is preserved. See the
-[command reference](aqueousctl-command-reference.md#switch-desktop-shells-git-sessions-only)
-for prerequisites, JSON output, and failure recovery.
+Select the shell in `~/.config/aqueous-git/session.toml` (or beneath
+`$XDG_CONFIG_HOME`), then log out and back in. Install its matching shell preset
+first. See the [Git desktop guide](git-desktop-packages.md#optional-shell-presets)
+for the file format and dependencies. Live shell switching through Welcome is
+no longer provided.
