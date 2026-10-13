@@ -1,0 +1,162 @@
+pkgbase = aqueous-git
+	pkgdesc = Devario Pearl desktop with Aqueous Git (co-installable with stable)
+	pkgver = 1.0.2.r8.gab632f2b
+	pkgrel = 1
+	url = https://github.com/Seafoam-Labs/Aqueous
+	arch = x86_64
+	arch = aarch64
+	license = GPL-3.0-only
+	license = MIT
+	checkdepends = jq
+	checkdepends = ripgrep
+	checkdepends = gsettings-desktop-schemas
+	makedepends = patchelf
+	makedepends = git
+	makedepends = curl
+	makedepends = patch
+	makedepends = scdoc
+	makedepends = jq
+	makedepends = python
+	makedepends = shaderc
+	makedepends = clang
+	makedepends = lld
+	makedepends = llvm
+	makedepends = wayland-protocols>=1.49
+	makedepends = pkgconf
+	makedepends = meson
+	makedepends = ninja
+	makedepends = glslang
+	makedepends = vulkan-headers
+	makedepends = hwdata
+	makedepends = zig=0.16.0
+	makedepends = libinih
+	makedepends = freetype2
+	makedepends = wayland
+	makedepends = libxkbcommon
+	makedepends = libinput
+	makedepends = pixman
+	makedepends = libpng
+	makedepends = libdrm
+	makedepends = libevdev
+	makedepends = libdecor
+	makedepends = xorg-xwayland
+	makedepends = pipewire
+	makedepends = glib2
+	makedepends = fontconfig
+	makedepends = mesa
+	makedepends = systemd-libs
+	makedepends = seatd
+	makedepends = libdisplay-info
+	makedepends = libliftoff
+	makedepends = lcms2
+	makedepends = vulkan-icd-loader
+	makedepends = libxcb
+	makedepends = xcb-util-errors
+	makedepends = xcb-util-wm
+	makedepends = xcb-util-renderutil
+	options = !strip
+	options = !debug
+	options = !zipman
+	source = session.toml
+	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git
+	source = wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz
+	source = xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz
+	sha256sums = 2cecdd6b68deaedc81997669b26ddfb705c458c8de9d8fdd465aaae35eba845b
+	sha256sums = SKIP
+	sha256sums = 972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343
+	sha256sums = 3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400
+
+pkgname = aqueous-core-git
+	pkgdesc = Aqueous development compositor, helper and control client (co-installable with stable)
+	license = GPL-3.0-only
+	license = MIT
+	license = 0BSD
+	license = CC-BY-SA-4.0
+	depends = bash
+	depends = freetype2
+	depends = wayland
+	depends = libxkbcommon
+	depends = libinput
+	depends = pixman
+	depends = libpng
+	depends = libdrm
+	depends = libevdev
+	depends = libdecor
+	depends = xorg-xwayland
+	depends = pipewire
+	depends = glib2
+	depends = fontconfig
+	depends = mesa
+	depends = systemd-libs
+	depends = seatd
+	depends = libdisplay-info
+	depends = libliftoff
+	depends = lcms2
+	depends = vulkan-icd-loader
+	depends = libxcb
+	depends = xcb-util-errors
+	depends = xcb-util-wm
+	depends = xcb-util-renderutil
+	depends = brightnessctl
+	depends = playerctl
+
+pkgname = aqueous-session-git
+	pkgdesc = Aqueous Git login session and runtime
+	arch = any
+	depends = aqueous-core-git=1.0.2.r8.gab632f2b-1
+	depends = bash
+	depends = jq
+	depends = coreutils
+	depends = uwsm
+	depends = dbus
+	depends = systemd
+	depends = ghostty
+	depends = grim
+	depends = slurp
+	depends = wl-clipboard
+	depends = libnotify
+	depends = xdg-desktop-portal
+	conflicts = aqueous-welcome-git
+	backup = etc/xdg/aqueous-git/wm.toml
+	backup = etc/xdg/aqueous-git/outputs.toml
+	backup = etc/xdg/uwsm/env-aqueous-git
+	backup = etc/xdg/menus/aqueous-git-applications.menu
+	backup = etc/xdg/xdg-desktop-portal-aqueous-git/config
+
+pkgname = xdg-desktop-portal-aqueous-git
+	pkgdesc = Aqueous Git screen capture portal
+	depends = libinih
+	depends = pipewire
+	depends = wayland
+	depends = systemd-libs
+	depends = libdrm
+	depends = mesa
+	depends = xdg-desktop-portal
+
+pkgname = aqueous-integration-pearl-git
+	pkgdesc = Pearl integration for Aqueous Git
+	arch = any
+	depends = aqueous-session-git=1.0.2.r8.gab632f2b-1
+
+pkgname = aqueous-shell-pearl-git
+	pkgdesc = Optional Pearl shell preset for Aqueous Git
+	arch = any
+	depends = pearl-capture-picker-git>=1
+	depends = xdg-desktop-portal-aqueous-git=1.0.2.r8.gab632f2b-1
+	depends = aqueous-integration-pearl-git=1.0.2.r8.gab632f2b-1
+	depends = pearl-git
+
+pkgname = aqueous-git
+	pkgdesc = Devario Pearl desktop with Aqueous Git and Pearl Greeter
+	arch = any
+	depends = aqueous-core-git=1.0.2.r8.gab632f2b-1
+	depends = aqueous-session-git=1.0.2.r8.gab632f2b-1
+	depends = xdg-desktop-portal-aqueous-git=1.0.2.r8.gab632f2b-1
+	depends = aqueous-integration-pearl-git=1.0.2.r8.gab632f2b-1
+	depends = aqueous-shell-pearl-git=1.0.2.r8.gab632f2b-1
+	depends = pearl-git
+	depends = pearl-greeter
+	provides = aqueous-desktop-git=1.0.2.r8.gab632f2b-1
+	conflicts = aqueous-desktop-git
+	replaces = aqueous-desktop-git
+	backup = etc/xdg/aqueous-git/session.toml

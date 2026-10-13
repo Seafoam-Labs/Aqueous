@@ -1,10 +1,10 @@
 # Maintainer: Devario maintainers
-# Build all five outputs with Shelly's native builder.
-pkgbase=aqueous-devario
+# Build all six outputs with Shelly's native builder.
+pkgbase=aqueous-desktop
 pkgname=(aqueous-core aqueous-session aqueous-integration-pearl aqueous-shell-pearl
-         xdg-desktop-portal-aqueous)
+         xdg-desktop-portal-aqueous devario-desktop)
 pkgver=1.0.3
-pkgrel=1
+pkgrel=2
 pkgdesc='Aqueous components for the Devario Pearl desktop'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Seafoam-Labs/Aqueous'
@@ -21,10 +21,12 @@ makedepends=('patchelf' 'git' 'curl' 'patch' 'scdoc' 'jq' 'python' 'shaderc' 'cl
              'gtk4' 'libinih')
 checkdepends=('libarchive' 'ripgrep' 'gsettings-desktop-schemas')
 options=('!strip' '!debug' '!zipman')
-source=("aqueous::git+${url}.git#tag=v${pkgver}"
+source=('session.toml'
+        "aqueous::git+${url}.git#tag=v${pkgver}"
         'wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz'
         'xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz')
-sha256sums=('SKIP'
+sha256sums=('2cecdd6b68deaedc81997669b26ddfb705c458c8de9d8fdd465aaae35eba845b'
+            'SKIP'
             '972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343'
             '3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400')
 
@@ -178,4 +180,17 @@ package_xdg-desktop-portal-aqueous() {
     AQUEOUS_PORTAL_BINARY="$srcdir/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" \
     AQUEOUS_PORTAL_LICENSE="$srcdir/xdg-desktop-portal-wlr-0.8.4/LICENSE" \
         DESTDIR="$pkgdir" PREFIX=/usr bash "$srcdir/aqueous/packaging/stage-component.sh" portal
+}
+
+package_devario-desktop() {
+    pkgdesc='Devario desktop with stable Aqueous, Pearl and Pearl Greeter'
+    arch=('any')
+    license=('GPL-3.0-only')
+    depends=("aqueous-core=$pkgver-$pkgrel" "aqueous-session=$pkgver-$pkgrel"
+             "xdg-desktop-portal-aqueous=$pkgver-$pkgrel"
+             "aqueous-integration-pearl=$pkgver-$pkgrel" "aqueous-shell-pearl=$pkgver-$pkgrel"
+             'pearl' 'pearl-greeter')
+    conflicts=('aqueous-desktop' 'devario-aqueous-desktop')
+    backup=('etc/xdg/aqueous/session.toml')
+    install -Dm644 "$srcdir/session.toml" "$pkgdir/etc/xdg/aqueous/session.toml"
 }

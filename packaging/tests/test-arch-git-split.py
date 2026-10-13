@@ -95,7 +95,7 @@ done
 assert int(subprocess.check_output(['vercmp', version, '1.0.2.r6'], text=True)) >= 0
 for path in (ROOT / '.SRCINFO', ROOT / 'packaging/arch/aqueous/.SRCINFO',
              ROOT / 'packaging/arch/aqueous-desktop/.SRCINFO',
-             ROOT / 'packaging/devario/aqueous-devario/.SRCINFO'):
+             ROOT / 'packaging/devario/aqueous-desktop/.SRCINFO'):
     text = path.read_text()
     assert '\tconflicts = aqueous-git\n' not in text, path
     assert '\tconflicts = aqueous-git<1.0.2.r6\n' in text, path

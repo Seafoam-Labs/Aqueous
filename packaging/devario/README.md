@@ -1,100 +1,97 @@
-# Devario desktop
+# Devario packages
 
-`devario-desktop` installs stable Aqueous `1.0.3` with Pearl and Pearl Greeter. It depends directly
-on the core, session, portal and Pearl integration/preset packages,
-without Welcome, the general `aqueous-desktop` meta package or DMS/Noctalia
-integrations, presets or shells.
+This directory follows the three-recipe layout in `packaging/arch`, with
+Devario maintainers, Shelly builds, Zig `0.16.0` and Pearl desktop defaults.
+Each recipe has its own `PKGBUILD` and `.SRCINFO`.
 
-The portal package includes `aqueous-portal-picker`, a standalone GTK source
-picker. Pearl screen sharing and normal session startup do not require Welcome.
-The component recipe uses the `picker` build target from `v1.0.3`; it does not build
-or install the Welcome app.
+| Recipe | Outputs | Purpose |
+| --- | --- | --- |
+| `aqueous/` | `aqueous` | Minimal stable compositor, including the dependency used by Pearl Greeter |
+| `aqueous-desktop/` | `aqueous-core`, `aqueous-session`, `xdg-desktop-portal-aqueous`, `aqueous-integration-pearl`, `aqueous-shell-pearl`, `devario-desktop` | Complete stable Devario Pearl desktop |
+| `aqueous-git/` | `aqueous-core-git`, `aqueous-session-git`, `xdg-desktop-portal-aqueous-git`, `aqueous-integration-pearl-git`, `aqueous-shell-pearl-git`, `aqueous-git` | Separate development desktop using Pearl Git |
 
-The package installs `/etc/xdg/aqueous/session.toml` selecting Pearl. Aqueous uses
-this default when a user has no `~/.config/aqueous/session.toml`; existing user
-choices take precedence. Package backup metadata preserves edits to the system
-default during upgrades. The desktop preset has no service activation hook.
-Its Pearl Greeter dependency selects the greeter for the next boot through its
-own install hook, without restarting the running session. Select the **Aqueous**
-session at login.
+The stable recipes fetch `v1.0.3`; publish that tag before building them.
+`aqueous` is compositor-only. `aqueous-core` provides `aqueous` and conflicts
+with the minimal package because they own the same compositor files. Git uses
+suffixed commands, private libraries, services and configuration paths so it
+can coexist with either stable installation.
 
-`aqueous-devario/PKGBUILD` is one split-package recipe for Shelly's native
-builder. It fetches the upstream `v1.0.3` tag once and builds the compositor,
-configuration helper, portal and standalone picker in a shared build lifecycle.
-The tag must be published before fetching the release. Each output has its own
-package function, runtime dependencies and file ownership. The dependency-only
-Pearl preset has an empty payload. No recipe sources a neighboring recipe.
+The desktop builds contain no Welcome app, DMS or Noctalia outputs. Stable
+builds retain the standalone GTK screen-sharing picker. Pearl uses its own
+`pearl-capture-picker`; the Git preset requires `pearl-capture-picker-git` and
+`pearl-git`. Both desktop presets depend on the stable `pearl-greeter` package.
+Its stable compositor dependency is satisfied by `aqueous` or `aqueous-core`;
+`aqueous-core-git` does not provide the unsuffixed compositor.
 
-| Output package | Contents |
-| --- | --- |
-| `aqueous-core` | Compositor, private patched wlroots, `aqueousctl`, `aqueous-config`, protocols and manuals |
-| `aqueous-session` | UWSM login session, shell runtime, desktop configuration and wallpapers |
-| `aqueous-integration-pearl` | Conditional Pearl user service and selection integration |
-| `aqueous-shell-pearl` | Dependency preset pulling in Pearl and its Aqueous integration |
-| `xdg-desktop-portal-aqueous` | Screen-sharing backend and standalone GTK source picker |
+## Build with Shelly
 
-From this directory, generate metadata and build all five outputs with Shelly:
+Run these commands from `packaging/devario` to generate stable metadata and
+build the complete stable desktop:
 
 ```sh
-shelly build --makesrcinfo --reviewed aqueous-devario/PKGBUILD > aqueous-devario/.SRCINFO
-shelly build --isolated --sync-deps --check --json aqueous-devario/PKGBUILD > build-result.json
+shelly build --makesrcinfo --reviewed aqueous-desktop/PKGBUILD > aqueous-desktop/.SRCINFO
+shelly build --isolated --sync-deps --check --json aqueous-desktop/PKGBUILD > build-result.json
 ```
 
-Shelly uses global `makedepends` and `checkdepends` for the shared build.
-Dependencies between outputs, and the runtime-only Pearl dependency, live in
-the individual package functions; building the set does not require previously
-published Aqueous components or Pearl. The builder emits all five archives.
+Use `aqueous/PKGBUILD` for the minimal stable compositor or
+`aqueous-git/PKGBUILD` for the development desktop. Shelly's
+`--makesrcinfo` prepares VCS sources and updates `pkgver()` for the Git recipe,
+so refreshing Git metadata requires source access. For an offline comparison
+of its checked-in version, use `makepkg --printsrcinfo` from `aqueous-git/`.
+The Git version follows the most recent tag and commit count, rather than the
+stable manifest version.
 
-Repository automation should register one `aqueous-devario` build job in place
-of the five former component jobs. Use `shelly --version --json` to check the
-worker's build capabilities, and collect every entry in the successful result's
-`artifacts` array. A `pkgbase` is a build
-identity, not a sixth installable package. Publish all five outputs together;
-do not assume one archive per job or filter out the `any` packages.
+Shelly resolves shared `makedepends` and `checkdepends` before executing package
+functions. Sibling dependencies and Pearl runtime dependencies are declared in
+individual package functions; the shared build does not require published
+Aqueous siblings or Pearl. Each desktop build produces six archives. Collect
+every entry in the successful JSON result's `artifacts` array, including the
+architecture-independent packages, and publish the complete set together.
 
-Publish `pearl` and `pearl-greeter` before building the separate top-level
-`devario-desktop` preset. Their recipes are maintained in Pearl's
-`packaging/Devario/pearl` and `packaging/Devario/pearl-greeter` directories.
+Publish `pearl`, `pearl-capture-picker` and `pearl-greeter` before installing
+the stable desktop; publish `pearl-git` and `pearl-capture-picker-git` for the
+Git desktop. Standard build and runtime dependencies come from configured
+Devario repositories. These recipes do not rebuild those dependencies.
 
-Core, session, portal, Pearl integration/preset and `devario-desktop` are
-`1.0.3-1`, consolidating the former standalone recipes while retaining their
-installed package names. Existing `1.0.2-1` installations upgrade normally.
-Core removes the temporary wlroots build path from the installed compositor's RUNPATH using
-`patchelf`, then verifies that only `$ORIGIN/../lib/aqueous` remains. Exact
-component dependency pins require the whole cohort to move together; rebuild
-and publish all five together. When changing the component version or release,
-update `pkgver` or `_component_pkgrel` in the desktop preset and regenerate both
-`.SRCINFO` files with Shelly. The desktop preset's own `pkgrel` can advance
-independently for configuration changes.
-Core and portal use Zig `0.16.0` and
-target x86-64-v3 on x86_64, with baseline aarch64 support. The configuration-only
-packages are architecture independent. Pearl's current recipes support x86_64,
-so the complete Devario Pearl desktop currently targets x86_64.
+Compiled packages target x86-64-v3 on x86_64 and baseline aarch64. Configuration
+and dependency-only packages use `any`. Pearl's recipes currently support
+x86_64, so the complete Pearl desktop targets x86_64. The core package functions
+remove temporary build paths from the installed compositor's RUNPATH with
+`patchelf` and verify `$ORIGIN/../lib/aqueous`.
 
-Standard runtime and build dependencies (including UWSM, greetd, GTK, PipeWire
-and the generic XDG portals) come from configured repositories. They are not
-rebuilt by these component recipes. None of these recipes depends on
-`aqueous-welcome`, DMS or Noctalia.
+## Defaults and migration
 
-Build the desktop preset from this directory after publishing its dependencies:
+`devario-desktop` owns `/etc/xdg/aqueous/session.toml`; `aqueous-git` owns
+`/etc/xdg/aqueous-git/session.toml`. Both select Pearl, preserve user overrides
+and register the system file as a package backup. Their package functions do
+not activate services. Pearl Greeter handles its own greeter setup. Select
+**Aqueous** or **Aqueous-Git** at login.
+
+Replace the former `aqueous-devario/PKGBUILD` and top-level `PKGBUILD` build
+jobs with one `aqueous-desktop/PKGBUILD` job. Its package base is
+`aqueous-desktop`, while the installed desktop preset remains
+`devario-desktop`. The six existing package names now share version `1.0.3-2`
+and exact sibling dependency pins. The package base is a build identity;
+there is no separate `aqueous-desktop` output on Devario. Update `pkgver` or
+`pkgrel` once in this recipe and regenerate its `.SRCINFO` when releasing the
+stable desktop. The minimal and Git recipes have independent revisions.
+
+## Validation
+
+From the repository root, check metadata and preset configuration ownership:
 
 ```sh
-shelly build --makesrcinfo --reviewed PKGBUILD > .SRCINFO
-shelly build --isolated --sync-deps --check PKGBUILD
+python3 packaging/tests/test-devario-packages.py
 ```
 
-This recipe packages only the default configuration; it does not rebuild
-Aqueous or Pearl. It replaces the role of the
-general `aqueous-desktop` or older `devario-aqueous-desktop` meta package, which
-are declared conflicts.
-
-From the repository root, validate Shelly-generated metadata and all five
-archives before publication (requires Shelly, Python, `bsdtar` and `patchelf`):
+This requires Shelly, makepkg and Python. To also validate the six stable
+archives from a Shelly build, pass the JSON result (also requires `bsdtar` and
+`patchelf`):
 
 ```sh
 python3 packaging/tests/test-devario-packages.py packaging/devario/build-result.json
 ```
 
-Omit the JSON argument to check only metadata. Archive validation checks names,
-versions, architectures, dependencies, backups, required files, duplicate file
-ownership and the compositor's installed RUNPATH. It does not install packages.
+Archive validation checks names, versions, architectures, dependencies,
+backups, required files, duplicate ownership and the installed compositor's
+RUNPATH. It does not install packages.
