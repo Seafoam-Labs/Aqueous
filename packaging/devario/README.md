@@ -10,7 +10,7 @@ Each recipe has its own `PKGBUILD` and `.SRCINFO`.
 | `aqueous-desktop/` | `aqueous-core`, `aqueous-session`, `xdg-desktop-portal-aqueous`, `aqueous-integration-pearl`, `aqueous-shell-pearl`, `devario-desktop` | Complete stable Devario Pearl desktop |
 | `aqueous-git/` | `aqueous-core-git`, `aqueous-session-git`, `xdg-desktop-portal-aqueous-git`, `aqueous-integration-pearl-git`, `aqueous-shell-pearl-git`, `aqueous-git` | Separate development desktop using Pearl Git |
 
-The stable recipes fetch `v1.0.3`; publish that tag before building them.
+The stable recipes fetch `v1.0.4`; publish that tag before building them.
 `aqueous` is compositor-only. `aqueous-core` provides `aqueous` and conflicts
 with the minimal package because they own the same compositor files. Git uses
 suffixed commands, private libraries, services and configuration paths so it
@@ -70,7 +70,7 @@ not activate services. Pearl Greeter handles its own greeter setup. Select
 Replace the former `aqueous-devario/PKGBUILD` and top-level `PKGBUILD` build
 jobs with one `aqueous-desktop/PKGBUILD` job. Its package base is
 `aqueous-desktop`, while the installed desktop preset remains
-`devario-desktop`. The six existing package names now share version `1.0.3-2`
+`devario-desktop`. The six existing package names now share version `1.0.4-1`
 and exact sibling dependency pins. The package base is a build identity;
 there is no separate `aqueous-desktop` output on Devario. Update `pkgver` or
 `pkgrel` once in this recipe and regenerate its `.SRCINFO` when releasing the

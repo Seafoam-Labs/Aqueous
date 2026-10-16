@@ -1,6 +1,6 @@
 pkgbase = aqueous-git
 	pkgdesc = Devario Pearl desktop with Aqueous Git (co-installable with stable)
-	pkgver = 1.0.2.r8.gab632f2b
+	pkgver = 1.0.3.r1.g19ffb0c2
 	pkgrel = 1
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = x86_64
@@ -103,7 +103,7 @@ pkgname = aqueous-core-git
 pkgname = aqueous-session-git
 	pkgdesc = Aqueous Git login session and runtime
 	arch = any
-	depends = aqueous-core-git=1.0.2.r8.gab632f2b-1
+	depends = aqueous-core-git=1.0.3.r1.g19ffb0c2-1
 	depends = bash
 	depends = jq
 	depends = coreutils
@@ -136,27 +136,27 @@ pkgname = xdg-desktop-portal-aqueous-git
 pkgname = aqueous-integration-pearl-git
 	pkgdesc = Pearl integration for Aqueous Git
 	arch = any
-	depends = aqueous-session-git=1.0.2.r8.gab632f2b-1
+	depends = aqueous-session-git=1.0.3.r1.g19ffb0c2-1
 
 pkgname = aqueous-shell-pearl-git
 	pkgdesc = Optional Pearl shell preset for Aqueous Git
 	arch = any
 	depends = pearl-capture-picker-git>=1
-	depends = xdg-desktop-portal-aqueous-git=1.0.2.r8.gab632f2b-1
-	depends = aqueous-integration-pearl-git=1.0.2.r8.gab632f2b-1
+	depends = xdg-desktop-portal-aqueous-git=1.0.3.r1.g19ffb0c2-1
+	depends = aqueous-integration-pearl-git=1.0.3.r1.g19ffb0c2-1
 	depends = pearl-git
 
 pkgname = aqueous-git
 	pkgdesc = Devario Pearl desktop with Aqueous Git and Pearl Greeter
 	arch = any
-	depends = aqueous-core-git=1.0.2.r8.gab632f2b-1
-	depends = aqueous-session-git=1.0.2.r8.gab632f2b-1
-	depends = xdg-desktop-portal-aqueous-git=1.0.2.r8.gab632f2b-1
-	depends = aqueous-integration-pearl-git=1.0.2.r8.gab632f2b-1
-	depends = aqueous-shell-pearl-git=1.0.2.r8.gab632f2b-1
+	depends = aqueous-core-git=1.0.3.r1.g19ffb0c2-1
+	depends = aqueous-session-git=1.0.3.r1.g19ffb0c2-1
+	depends = xdg-desktop-portal-aqueous-git=1.0.3.r1.g19ffb0c2-1
+	depends = aqueous-integration-pearl-git=1.0.3.r1.g19ffb0c2-1
+	depends = aqueous-shell-pearl-git=1.0.3.r1.g19ffb0c2-1
 	depends = pearl-git
 	depends = pearl-greeter
-	provides = aqueous-desktop-git=1.0.2.r8.gab632f2b-1
+	provides = aqueous-desktop-git=1.0.3.r1.g19ffb0c2-1
 	conflicts = aqueous-desktop-git
 	replaces = aqueous-desktop-git
 	backup = etc/xdg/aqueous-git/session.toml
