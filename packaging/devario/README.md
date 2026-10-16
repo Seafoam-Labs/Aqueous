@@ -70,8 +70,11 @@ not activate services. Pearl Greeter handles its own greeter setup. Select
 Replace the former `aqueous-devario/PKGBUILD` and top-level `PKGBUILD` build
 jobs with one `aqueous-desktop/PKGBUILD` job. Its package base is
 `aqueous-desktop`, while the installed desktop preset remains
-`devario-desktop`. The six existing package names now share version `1.0.4-1`
-and exact sibling dependency pins. The package base is a build identity;
+`devario-desktop`. The six existing package names now share version `1.0.4-2`.
+The Aqueous components use exact sibling dependency pins. `devario-desktop`
+requires those components at its build version or newer (currently `>=1.0.4-2`),
+so an installed desktop preset accepts future Aqueous releases. Publish the
+updated preset once to replace its previous exact pins. The package base is a build identity;
 there is no separate `aqueous-desktop` output on Devario. Update `pkgver` or
 `pkgrel` once in this recipe and regenerate its `.SRCINFO` when releasing the
 stable desktop. The minimal and Git recipes have independent revisions.

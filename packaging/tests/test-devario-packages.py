@@ -68,7 +68,7 @@ def check_metadata():
     assert packages["aqueous-integration-pearl"]["depends"] == [f"aqueous-session={version}"]
     assert packages["aqueous-shell-pearl"]["depends"] == ["pearl-capture-picker>=1", f"xdg-desktop-portal-aqueous={version}", f"aqueous-integration-pearl={version}", "pearl"]
     desktop = packages
-    assert set(desktop["devario-desktop"]["depends"]) == {f"{name}={version}" for name in NAMES - {"devario-desktop"}} | {"pearl", "pearl-greeter"}
+    assert set(desktop["devario-desktop"]["depends"]) == {f"{name}>={version}" for name in NAMES - {"devario-desktop"}} | {"pearl", "pearl-greeter"}
     assert desktop["devario-desktop"]["backup"] == ["etc/xdg/aqueous/session.toml"]
     assert "install" not in desktop["devario-desktop"]
     minimal_base, minimal = metadata(DEVARIO / "aqueous")
@@ -92,12 +92,13 @@ def check_metadata():
         assert not any(dep.startswith(("aqueous", "pearl", "xdg-desktop-portal-aqueous"))
                        for dep in recipe_base["makedepends"] + recipe_base.get("checkdepends", []))
         full_version = recipe_base["pkgver"][0] + "-" + recipe_base["pkgrel"][0]
-        for package in outputs.values():
+        for name, package in outputs.items():
             for dependency in package.get("depends", []):
                 assert not any(shell in dependency for shell in ("welcome", "dms", "noctalia"))
                 target = re.split(r"[<>=]", dependency)[0]
                 if target in outputs:
-                    assert dependency == f"{target}={full_version}"
+                    operator = ">=" if name == "devario-desktop" else "="
+                    assert dependency == f"{target}{operator}{full_version}"
     for directory in (DEVARIO / "aqueous-desktop", DEVARIO / "aqueous-git"):
         recipe_base = base if directory.name == "aqueous-desktop" else git_base
         index = recipe_base["source"].index("session.toml")
