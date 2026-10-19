@@ -853,6 +853,11 @@ pub fn build(b: *Build) !void {
         const activity_test = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("aqueous/input_activity.zig"), .target = target, .optimize = optimize }) });
         test_step.dependOn(&b.addRunArtifact(activity_test).step);
         test_step.dependOn(&run_preview_policy_test.step);
+        const panel_orientation_test = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("aqueous/panel_orientation.zig"), .target = target, .optimize = optimize }) });
+        panel_orientation_test.root_module.addImport("wayland", wayland);
+        const run_panel_orientation_test = b.addRunArtifact(panel_orientation_test);
+        test_step.dependOn(&run_panel_orientation_test.step);
+        b.step("test-panel-orientation", "Test built-in panel orientation quirks").dependOn(&run_panel_orientation_test.step);
         const tablet_test = b.addTest(.{ .root_module = tablet });
         const run_tablet_test = b.addRunArtifact(tablet_test);
         test_step.dependOn(&run_tablet_test.step);

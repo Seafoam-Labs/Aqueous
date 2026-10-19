@@ -26,6 +26,7 @@ const scaling = @import("scaling");
 const render_metrics = @import("render_metrics.zig");
 const overlay_planes = @import("overlay_planes.zig");
 const output_retry = @import("output_retry.zig");
+const panel_orientation = @import("panel_orientation.zig");
 const visual_state = @import("visual_state.zig");
 pub const hdr = @import("output_hdr.zig");
 const auto_hdr = @import("auto_hdr.zig");
@@ -664,8 +665,25 @@ pub fn create(wlr_output: *wlr.Output) !void {
         // https://gitlab.freedesktop.org/wlroots/wlroots/-/merge_requests/4963
         output.scheduled.mode = .{ .custom = .{ .width = 1280, .height = 720, .refresh = 0 } };
     }
+    output.scheduled.transform = defaultTransform(wlr_output);
 
     server.wm.dirtyWindowing();
+}
+
+/// Rotate built-in panels that are mounted sideways in the chassis. Explicit
+/// output configuration still overrides this.
+fn defaultTransform(wlr_output: *wlr.Output) wl.Output.Transform {
+    if (!wlr_output.isDrm()) return .normal;
+    const kernel: wl.Output.Transform =
+        @enumFromInt(c.wlr_drm_connector_get_panel_orientation(@ptrCast(wlr_output)));
+    if (kernel != .normal) {
+        log.info("output {s}: using kernel panel orientation {s}", .{ wlr_output.name, @tagName(kernel) });
+        return kernel;
+    }
+    if (!panel_orientation.isInternalConnector(mem.span(wlr_output.name))) return .normal;
+    const quirk = panel_orientation.dmiTransform() orelse return .normal;
+    log.info("output {s}: using DMI panel orientation quirk {s}", .{ wlr_output.name, @tagName(quirk) });
+    return quirk;
 }
 
 fn roundedBufferHook(
