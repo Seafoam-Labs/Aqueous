@@ -162,12 +162,17 @@ gaps_inner = 4
 split_ratio = 0.5
 # First split: vertical = left/right; horizontal = top/bottom.
 start_axis = "vertical" # vertical | horizontal
+# Split the focused window when a new one opens, along its longer side, instead
+# of always splitting the last window. Closing a window gives its space to the
+# other side of its split. start_axis then only breaks ties for square areas.
+split_focused = false
 
 [layout.options.reverse-dwindle]
 # Horizontal mirror of dwindle: vertical splits start on the right while
 # horizontal splits still start at the top.
 split_ratio = 0.5
 start_axis = "vertical" # vertical | horizontal
+split_focused = false
 
 [layout.options.scrolling]
 # Width of each scrolling column as a fraction of the usable output.

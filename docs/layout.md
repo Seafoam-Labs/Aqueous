@@ -6,7 +6,8 @@ Aqueous ships ten in-process layout modes:
 - `monocle` — one window fills the usable area.
 - `grid` — balanced rows and columns.
 - `rows` — horizontal rows.
-- `dwindle` — alternating recursive splits.
+- `dwindle` — alternating recursive splits. With `split_focused = true` in
+  `[layout.options.dwindle]`, each new window instead splits the focused window.
 - `reverse-dwindle` — a horizontal mirror of dwindle, splitting from the right and top.
 - `scrolling` — horizontally scrolling columns.
 - `float` / `stacking` — a full stacking layout with remembered geometry,
