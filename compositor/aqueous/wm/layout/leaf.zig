@@ -78,11 +78,15 @@ pub fn arrange(
         .dwindle => dwindle.arrange(allocator, &state.dwindle, area, windows, options, .{
             .start_vertical = snapshot.dwindle_start_vertical,
             .split_ratio = snapshot.dwindle_split_ratio,
+            .split_focused = snapshot.dwindle_split_focused,
+            .focused = focused,
         }),
         .reverse_dwindle => dwindle.arrange(allocator, &state.reverse_dwindle, area, windows, options, .{
             .start_vertical = snapshot.reverse_dwindle_start_vertical,
             .split_ratio = snapshot.reverse_dwindle_split_ratio,
             .reverse = true,
+            .split_focused = snapshot.reverse_dwindle_split_focused,
+            .focused = focused,
         }),
         .scrolling => scrolling.arrange(allocator, &state.scrolling, area, windows, focused, options, .{
             .column_width = snapshot.scrolling_column_fraction,
@@ -116,8 +120,8 @@ pub fn swap(state: *State, a: types.Handle, b: types.Handle) bool {
     if (state.monocle.order.swap(a, b)) changed = true;
     if (state.grid.order.swap(a, b)) changed = true;
     if (state.rows.order.swap(a, b)) changed = true;
-    if (state.dwindle.order.swap(a, b)) changed = true;
-    if (state.reverse_dwindle.order.swap(a, b)) changed = true;
+    if (dwindle.swap(&state.dwindle, a, b)) changed = true;
+    if (dwindle.swap(&state.reverse_dwindle, a, b)) changed = true;
     if (scrolling.swap(&state.scrolling, a, b)) changed = true;
     if (game_mode.swap(&state.game_mode, a, b)) changed = true;
     return changed;

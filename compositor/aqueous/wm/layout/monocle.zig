@@ -27,8 +27,12 @@ pub fn arrange(allocator: std.mem.Allocator, state: *State, usable_area: types.R
         state.current = null;
         return result;
     }
-    if (state.current == null or !contains(windows, state.current.?)) {
-        state.current = if (focused != null and contains(windows, focused.?)) focused else windows[0].handle;
+    // Show whichever tiled window has focus. Focus on something outside this
+    // layout (a dialog, a floating window, the bar) keeps the current one.
+    if (focused != null and contains(windows, focused.?)) {
+        state.current = focused;
+    } else if (state.current == null or !contains(windows, state.current.?)) {
+        state.current = windows[0].handle;
     }
     const area = math.shrink(usable_area, options.gaps_outer);
     for (result, windows) |*placement, window| {
@@ -59,4 +63,16 @@ test "monocle shows the focused window and hides the rest" {
     try std.testing.expect(!placements[0].visible);
     try std.testing.expect(placements[1].visible);
     try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .width = 80, .height = 60 }, placements[1].geometry);
+}
+test "monocle follows focus and keeps its window when focus leaves the layout" {
+    const a = std.testing.allocator;
+    var state: State = .{};
+    defer state.deinit(a);
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 80, .height = 60 };
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+    for ([_]?types.Handle{ 1, 3, 99, null, 2 }, [_]types.Handle{ 1, 3, 3, 3, 2 }) |focused, shown| {
+        const placements = try arrange(a, &state, area, &windows, focused, .{ .gaps_outer = 0 }, .{});
+        defer a.free(placements);
+        for (placements) |placement| try std.testing.expectEqual(placement.handle == shown, placement.visible);
+    }
 }

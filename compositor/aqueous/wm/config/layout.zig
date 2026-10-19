@@ -155,8 +155,10 @@ pub const Snapshot = struct {
     scrolling_focus_follows_mouse_delay_ms: i32 = 0,
     dwindle_split_ratio: f64 = 0.5,
     dwindle_start_vertical: bool = true,
+    dwindle_split_focused: bool = false,
     reverse_dwindle_split_ratio: f64 = 0.5,
     reverse_dwindle_start_vertical: bool = true,
+    reverse_dwindle_split_focused: bool = false,
     monocle_hide_others: bool = true,
     monocle_show_borders: bool = false,
 
@@ -397,6 +399,7 @@ fn applyOptions(snapshot: *Snapshot, id: LayoutId, key: []const u8, value: []con
         },
         .dwindle => {
             if (std.mem.eql(u8, key, "split_ratio")) snapshot.dwindle_split_ratio = parseRatio(plain) orelse snapshot.dwindle_split_ratio;
+            if (std.mem.eql(u8, key, "split_focused")) snapshot.dwindle_split_focused = parseBool(plain) orelse snapshot.dwindle_split_focused;
             if (std.mem.eql(u8, key, "start_axis")) {
                 if (std.mem.eql(u8, plain, "vertical")) snapshot.dwindle_start_vertical = true;
                 if (std.mem.eql(u8, plain, "horizontal")) snapshot.dwindle_start_vertical = false;
@@ -404,6 +407,7 @@ fn applyOptions(snapshot: *Snapshot, id: LayoutId, key: []const u8, value: []con
         },
         .reverse_dwindle => {
             if (std.mem.eql(u8, key, "split_ratio")) snapshot.reverse_dwindle_split_ratio = parseRatio(plain) orelse snapshot.reverse_dwindle_split_ratio;
+            if (std.mem.eql(u8, key, "split_focused")) snapshot.reverse_dwindle_split_focused = parseBool(plain) orelse snapshot.reverse_dwindle_split_focused;
             if (std.mem.eql(u8, key, "start_axis")) {
                 if (std.mem.eql(u8, plain, "vertical")) snapshot.reverse_dwindle_start_vertical = true;
                 if (std.mem.eql(u8, plain, "horizontal")) snapshot.reverse_dwindle_start_vertical = false;
@@ -544,6 +548,7 @@ test "layout config parses defaults, aliases, extras, and colors" {
         \\focus_follows_mouse_delay_ms = 150
         \\[layout.options.dwindle]
         \\start_axis = "horizontal"
+        \\split_focused = true
         \\[layout.options.reverse-dwindle]
         \\split_ratio = "0.3"
         \\start_axis = "horizontal"
@@ -567,6 +572,8 @@ test "layout config parses defaults, aliases, extras, and colors" {
     try std.testing.expect(!snapshot.scrolling_center_focused);
     try std.testing.expectEqual(@as(i32, 150), snapshot.scrolling_focus_follows_mouse_delay_ms);
     try std.testing.expect(!snapshot.dwindle_start_vertical);
+    try std.testing.expect(snapshot.dwindle_split_focused);
+    try std.testing.expect(!snapshot.reverse_dwindle_split_focused);
     try std.testing.expectEqual(@as(f64, 0.3), snapshot.reverse_dwindle_split_ratio);
     try std.testing.expect(!snapshot.reverse_dwindle_start_vertical);
     try std.testing.expectEqual(types.FloatingPlacement.minimal_overlap, snapshot.layoutOptions(.floating).floating_placement);
