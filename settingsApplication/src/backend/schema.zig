@@ -184,6 +184,7 @@ pub const fields = [_]Field{
     b("input.focus_follows_mouse", .input, "Focus follows pointer", "Focus a window when the pointer enters it.", .input, "input", "focus_follows_mouse", false),
     b("input.mouse_follows_focus", .input, "Move pointer with focus", "Move the pointer into newly focused windows, including keyboard and wheel bindings. Hover and click focus do not move it. Output navigation still moves the pointer when disabled.", .input, "input", "mouse_follows_focus", false),
     b("input.focus_new_windows", .input, "Focus new windows", "Give keyboard focus to a newly opened focusable window.", .input, "input", "focus_new_windows", false),
+    b("input.focus_crosses_workspaces", .input, "Focus across workspaces", "Moving focus left or right past the last window continues into the previous or next workspace, wrapping between the last workspace and workspace 1.", .input, "input", "focus_crosses_workspaces", true),
     b("input.raise_on_focus", .input, "Raise focused windows", "Raise a freeform window when it receives focus.", .input, "input", "raise_on_focus", true),
     f("input.raise_on_focus_delay_ms", .input, "Focus raise delay", "Milliseconds to wait before raising a newly focused freeform window.", .input, "input", "raise_on_focus_delay_ms", .integer, "0", 0, 10000),
     b("input.pointer_acceleration", .input, "Pointer acceleration", "Select adaptive pointer acceleration globally.", .input, "input", "pointer_acceleration", false),

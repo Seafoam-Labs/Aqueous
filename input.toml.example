@@ -32,6 +32,9 @@ focus_follows_mouse = false
 # Output navigation still moves the pointer when this is disabled.
 mouse_follows_focus = false
 focus_new_windows = false
+# Moving focus left/right past the last window continues into the previous/next
+# workspace, wrapping between the last workspace and workspace 1.
+focus_crosses_workspaces = true
 # Focus and raising are independent. A nonzero delay is especially useful with
 # focus_follows_mouse, where briefly crossing a window should not restack it.
 raise_on_focus = true

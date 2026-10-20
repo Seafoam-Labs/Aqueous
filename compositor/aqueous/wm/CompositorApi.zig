@@ -530,6 +530,52 @@ pub fn directionalNeighbor(_: CompositorApi, handle: layout.Handle, dx: i32, dy:
     return best;
 }
 
+/// Number of workspaces on an output.
+pub fn workspaceCount(_: CompositorApi, output_id: u64) u32 {
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| if (output.policyId() == output_id) {
+        var count: u32 = 0;
+        var workspaces = output.workspaces.iterator(.forward);
+        while (workspaces.next()) |_| count += 1;
+        return count;
+    };
+    return 0;
+}
+
+/// Return the valid window of a workspace nearest its left (dx < 0) or right
+/// (dx > 0) edge, preferring the topmost one on ties.
+pub fn edgeWindow(
+    _: CompositorApi,
+    output_id: u64,
+    number: u32,
+    dx: i32,
+    context: anytype,
+    comptime is_valid: fn (@TypeOf(context), layout.Handle) bool,
+) ?layout.Handle {
+    var outputs = server.om.outputs.iterator(.forward);
+    const workspace = while (outputs.next()) |output| {
+        if (output.policyId() == output_id) break output.policyWorkspaceAt(number) orelse return null;
+    } else return null;
+    var best: ?layout.Handle = null;
+    var best_x: i32 = 0;
+    var best_y: i32 = 0;
+    var windows = workspace.windows.iterator(.forward);
+    while (windows.next()) |window| {
+        if (window.state == .closing or window.state == .init) continue;
+        const handle: layout.Handle = @bitCast(window.ref);
+        if (!is_valid(context, handle)) continue;
+        const cx = window.box.x + @divTrunc(window.box.width, 2);
+        const cy = window.box.y + @divTrunc(window.box.height, 2);
+        const closer = if (dx < 0) cx < best_x else cx > best_x;
+        if (best == null or closer or (cx == best_x and cy < best_y)) {
+            best = handle;
+            best_x = cx;
+            best_y = cy;
+        }
+    }
+    return best;
+}
+
 pub fn activateWorkspace(_: CompositorApi, output_id: u64, number: u32) bool {
     var outputs = server.om.outputs.iterator(.forward);
     while (outputs.next()) |output| if (output.policyId() == output_id) {

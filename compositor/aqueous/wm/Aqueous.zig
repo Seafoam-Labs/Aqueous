@@ -35,6 +35,7 @@ const WorkspaceStack = @import("state/stack.zig");
 const transient = @import("state/transient.zig");
 const OutputService = @import("output/Service.zig");
 const output_navigation = @import("output/navigation.zig");
+const workspace_navigation = @import("workspaces/navigation.zig");
 const overview_model = @import("overview/model.zig");
 const rules_config = @import("rules/config.zig");
 const Rules = @import("rules/engine.zig");
@@ -2378,8 +2379,25 @@ fn cycleFocus(aqueous: *Aqueous, delta: i32) void {
 }
 
 fn directionalFocus(aqueous: *Aqueous, dx: i32, dy: i32) void {
-    const focused = aqueous.api.focusedWindow() orelse return;
-    if (aqueous.api.directionalNeighbor(focused, dx, dy)) |target| aqueous.requestFocus(target);
+    if (aqueous.api.focusedWindow()) |focused| {
+        if (aqueous.api.directionalNeighbor(focused, dx, dy)) |target| return aqueous.requestFocus(target);
+    }
+    if (dx != 0 and aqueous.config.wm.input.focus_crosses_workspaces) aqueous.focusAdjacentWorkspace(dx);
+}
+
+/// Continue horizontal focus into the neighboring workspace, landing on the
+/// window nearest the edge focus entered from.
+fn focusAdjacentWorkspace(aqueous: *Aqueous, dx: i32) void {
+    const context = aqueous.api.workspaceContext() orelse return;
+    const output_id = context.output.policyId();
+    const count = aqueous.api.workspaceCount(output_id);
+    const target = workspace_navigation.adjacent(context.workspace_number, dx, count) orelse return;
+    const candidates: EdgeFocusContext = .{ .aqueous = aqueous, .output_id = output_id, .workspace_number = target };
+    // Focus recovery after the switch picks the most recent history entry.
+    if (aqueous.api.edgeWindow(output_id, target, -dx, candidates, edgeFocusCandidateValid)) |handle| {
+        aqueous.focus_history.record(workspaceKey(output_id, target), handle) catch {};
+    }
+    aqueous.focusWorkspace(target);
 }
 
 fn focusComposableSlot(aqueous: *Aqueous, slot: u8) void {
@@ -3217,6 +3235,19 @@ fn outputFocusCandidateValid(context: OutputFocusContext, handle: layout_types.H
     const state = context.aqueous.window_states.get(handle) orelse return false;
     // Otherwise cycling from a dialog can repeatedly select its blocked
     // parent and resolve straight back to the same dialog.
+    if (context.aqueous.api.resolveModalHandle(handle) != handle) return false;
+    return state.kind() != .minimized and state.focus_allowed and !state.skip_switcher;
+}
+
+const EdgeFocusContext = struct {
+    aqueous: *Aqueous,
+    output_id: u64,
+    workspace_number: u32,
+};
+
+fn edgeFocusCandidateValid(context: EdgeFocusContext, handle: layout_types.Handle) bool {
+    if (!context.aqueous.api.windowOnWorkspace(handle, context.output_id, context.workspace_number)) return false;
+    const state = context.aqueous.window_states.get(handle) orelse return false;
     if (context.aqueous.api.resolveModalHandle(handle) != handle) return false;
     return state.kind() != .minimized and state.focus_allowed and !state.skip_switcher;
 }
