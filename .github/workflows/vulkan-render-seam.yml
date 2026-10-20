@@ -194,7 +194,7 @@ jobs:
           python3 compositor/scripts/test-presentation-policy.py compositor/zig-out/bin/aqueous
           cd compositor
           PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
-            zig build -Doutput-retry-testing=true -Dllvm=true -Dcpu=baseline \
+            zig build -Dxwayland=true -Doutput-retry-testing=true -Dllvm=true -Dcpu=baseline \
               -Doptimize=ReleaseSafe --prefix "$RUNNER_TEMP/aqueous-presentation-test"
           python3 scripts/test-presentation-policy.py \
             "$RUNNER_TEMP/aqueous-presentation-test/bin/aqueous"
