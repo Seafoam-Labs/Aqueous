@@ -786,6 +786,17 @@ pub fn build(b: *Build) !void {
         });
         const run_workspaces_test = b.addRunArtifact(workspaces_test);
 
+        const workspace_navigation_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/wm/workspaces/navigation.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_workspace_navigation_test = b.addRunArtifact(workspace_navigation_test);
+
         const ipc_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("aqueous/IpcProtocol.zig"),
@@ -947,6 +958,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_output_navigation_test.step);
         test_step.dependOn(&run_input_drag_test.step);
         test_step.dependOn(&run_workspaces_test.step);
+        test_step.dependOn(&run_workspace_navigation_test.step);
         test_step.dependOn(&run_aqueousctl_test.step);
         test_step.dependOn(&shell_switch_test.step);
         test_step.dependOn(&run_ipc_test.step);

@@ -571,6 +571,15 @@ Example: Super+2 on `DP-1` records workspace 1 as previous, activates workspace
 previous-workspace action can then return to workspace 1 without consulting a
 global workspace stack.
 
+By default, `focus_left` and `focus_right` continue into the neighboring
+workspace when the focused window has no neighbor in that direction, or when
+the workspace is empty. Every workspace is a stop, including empty ones, and
+navigation wraps between the last workspace and workspace 1. The window
+nearest the entry edge is recorded in the target's focus history before the
+switch, so focus recovery lands on the leftmost window when moving right and
+the rightmost window when moving left. Set `[input] focus_crosses_workspaces =
+false` to keep directional focus within the current workspace.
+
 ## Layer shell and Noctalia
 
 Noctalia panels are layer-shell surfaces, not managed application windows.

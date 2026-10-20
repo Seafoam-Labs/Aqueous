@@ -146,6 +146,9 @@ rollback_seconds = 0
 # Output navigation still moves the pointer when this is disabled.
 # mouse_follows_focus = false
 # focus_new_windows = false
+# Super+H/L past the last window continue into the previous/next workspace,
+# wrapping between the last workspace and workspace 1.
+# focus_crosses_workspaces = true
 # raise_on_focus = true
 # raise_on_focus_delay_ms = 0
 # pointer_acceleration = false

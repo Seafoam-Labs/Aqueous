@@ -613,6 +613,10 @@ fn mergeInput(base: *wm.Input, overlay: wm.Input) void {
         base.focus_new_windows = overlay.focus_new_windows;
         base.focus_new_windows_set = true;
     }
+    if (overlay.focus_crosses_workspaces_set) {
+        base.focus_crosses_workspaces = overlay.focus_crosses_workspaces;
+        base.focus_crosses_workspaces_set = true;
+    }
     if (overlay.raise_on_focus_set) {
         base.raise_on_focus = overlay.raise_on_focus;
         base.raise_on_focus_set = true;

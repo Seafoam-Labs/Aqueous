@@ -64,6 +64,10 @@ pub const Input = struct {
     mouse_follows_focus_set: bool = false,
     focus_new_windows: bool = false,
     focus_new_windows_set: bool = false,
+    /// Horizontal directional focus continues into the neighboring workspace
+    /// when it runs out of windows, wrapping between the last and the first.
+    focus_crosses_workspaces: bool = true,
+    focus_crosses_workspaces_set: bool = false,
     /// Focus and visual stacking are independent. This defaults to the current
     /// Aqueous click-to-raise behavior but may be disabled for sloppy focus.
     raise_on_focus: bool = true,
@@ -317,6 +321,10 @@ fn applyInput(input: *Input, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "focus_new_windows")) if (parseBool(value)) |parsed| {
         input.focus_new_windows = parsed;
         input.focus_new_windows_set = true;
+    };
+    if (std.mem.eql(u8, key, "focus_crosses_workspaces")) if (parseBool(value)) |parsed| {
+        input.focus_crosses_workspaces = parsed;
+        input.focus_crosses_workspaces_set = true;
     };
     if (std.mem.eql(u8, key, "raise_on_focus")) if (parseBool(value)) |parsed| {
         input.raise_on_focus = parsed;
