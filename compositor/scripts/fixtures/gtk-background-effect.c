@@ -30,6 +30,8 @@ static void activate(GtkApplication *app, gpointer data) {
 }
 
 int main(int argc, char **argv) {
+    /* Keep the Wayland app_id stable even without a session bus. */
+    g_set_prgname("org.aqueous.GtkBlurProbe");
     GtkApplication *app = gtk_application_new("org.aqueous.GtkBlurProbe", G_APPLICATION_NON_UNIQUE);
     g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
     int status = g_application_run(G_APPLICATION(app), argc, argv);

@@ -1920,10 +1920,6 @@ pub fn renderFinish(window: *Window) void {
     window.drawBorders();
     window.refreshBackdropBlur();
 
-    // While a position animation is running, applyOpacity() updates the visible
-    // animation clone and keeps the live surfaces invisible at the target so
-    // scene hit-testing / input stay correct.
-    window.applySurfaceVisualState();
     // Snap the settled animation target, not the requested layout position:
     // outgoing workspace windows keep their requested position but use an
     // off-screen box target until the transition is finalized.
@@ -1949,6 +1945,9 @@ pub fn renderFinish(window: *Window) void {
     }
 
     window.applySurfaceClip(&clip, &content_clip);
+    // During animation this keeps the live surfaces invisible at the target
+    // while updating the visible clone's opacity and preserving hit testing.
+    window.applySurfaceVisualState();
     inline for (.{ &window.decorations_above, &window.decorations_below }) |decorations| {
         var it = decorations.iterator(.forward);
         while (it.next()) |decoration| {
@@ -2337,6 +2336,7 @@ const AnimBuffer = struct {
     dest_width: i32,
     dest_height: i32,
     transform: wl.Output.Transform,
+    clip: ?fx.BufferClip,
 };
 
 const AnimBufferCapture = struct {
@@ -2352,6 +2352,7 @@ pub const OverviewBuffer = struct {
     dest_width: i32,
     dest_height: i32,
     transform: wl.Output.Transform,
+    clip: ?fx.BufferClip,
 };
 
 const OverviewBufferCapture = struct {
@@ -2419,6 +2420,7 @@ fn captureOverviewBuffer(
         .dest_width = dest_width,
         .dest_height = dest_height,
         .transform = source_buffer.transform,
+        .clip = fx.bufferClip(buffer),
     }) catch {
         capture.failed = true;
     };
@@ -2461,6 +2463,7 @@ fn captureAnimBuffer(
         .dest_width = dest_width,
         .dest_height = dest_height,
         .transform = source_buffer.transform,
+        .clip = fx.bufferClip(buffer),
     }) catch {
         capture.failed = true;
     };
@@ -2565,6 +2568,10 @@ fn updateAnimationClip(window: *Window) void {
         const crop_y = clipped.y;
         record.buffer.node.setPosition(record.x + crop_x, record.y + crop_y);
         record.buffer.setDestSize(clipped.width, clipped.height);
+        fx.setBufferClip(record.buffer, if (record.clip) |mask|
+            mask.translated(-@as(f64, @floatFromInt(crop_x)), -@as(f64, @floatFromInt(crop_y)))
+        else
+            null);
         server.background_effect_manager.cropSnapshot(record.buffer, .{ .x = crop_x, .y = crop_y, .width = clipped.width, .height = clipped.height });
 
         const transformed_width = if (transformSwapsAxes(record.transform)) record.source.height else record.source.width;
@@ -2595,6 +2602,7 @@ fn restoreAnimBuffer(record: AnimBuffer) void {
     record.buffer.node.setPosition(record.x, record.y);
     record.buffer.setDestSize(record.dest_width, record.dest_height);
     record.buffer.setSourceBox(&record.source);
+    fx.setBufferClip(record.buffer, record.clip);
 }
 
 const BorderClip = struct {
@@ -2827,6 +2835,9 @@ fn applySurfaceClip(window: *Window, a: *const wlr.Box, b: *const wlr.Box) void 
     if (!window.surfaces.tree.children.empty()) {
         window.surfaces.tree.node.subsurfaceTreeSetClip(&surface_clip);
     }
+    // Subsurface clipping changes both node origins and destination extents.
+    // Refresh masks after those changes, including temporary unclips for clones.
+    fx.setTreeClip(window.surfaces.tree, window.surfaceMask(b));
 }
 
 /// Returns null if the window is currently being destroyed and no longer has
@@ -3060,14 +3071,18 @@ pub fn applyOpacity(window: *Window) void {
 }
 
 pub fn applySurfaceVisualState(window: *Window) void {
-    const radius = if (window.wm_requested.fullscreen != null)
-        0
-    else
-        window.rendering_requested.border.corner_radius;
-    fx.setTreeRadius(window.surfaces.tree, radius);
-    fx.setTreeRadius(window.surfaces.saved_tree, radius);
-    if (window.anim_snapshot) fx.setTreeRadius(window.anim_tree, radius);
+    fx.setTreeClip(window.surfaces.tree, window.surfaceMask(&window.rendering_requested.content_clip));
+    // Saved transaction buffers and animation buffers own frozen masks. In
+    // particular, a later live resize must not change a snapshot's silhouette.
     window.applyOpacity();
+}
+
+fn surfaceMask(window: *const Window, content_clip: *const wlr.Box) ?fx.BufferClip {
+    const radius = window.rendering_requested.border.corner_radius;
+    if (window.wm_requested.fullscreen != null or radius == 0) return null;
+    var content: wlr.Box = .{ .x = 0, .y = 0, .width = window.box.width, .height = window.box.height };
+    if (!content_clip.empty()) _ = content.intersection(&content, content_clip);
+    return fx.BufferClip.init(.{ .x = content.x, .y = content.y, .width = content.width, .height = content.height }, radius);
 }
 
 /// Effective compositor opacity shared by a top-level and its popup surfaces.

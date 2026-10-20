@@ -32,10 +32,12 @@ def wait_for(check, timeout=15):
 
 
 def build_fixture():
+    protocol_dir = Path(subprocess.check_output(
+        ['pkg-config', '--variable=pkgdatadir', 'wayland-protocols'], text=True).strip())
     protocols = {
-        'background-effect': Path('/usr/share/wayland-protocols/staging/ext-background-effect/ext-background-effect-v1.xml'),
+        'background-effect': protocol_dir / 'staging/ext-background-effect/ext-background-effect-v1.xml',
         'layer-shell': ROOT / 'protocol/upstream/wlr-layer-shell-unstable-v1.xml',
-        'xdg-shell': Path('/usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml'),
+        'xdg-shell': protocol_dir / 'stable/xdg-shell/xdg-shell.xml',
     }
     sources = []
     for name, xml in protocols.items():
@@ -209,7 +211,8 @@ def run(fixture, uncached=False):
         assert client.send('dead-surface') == 'EXPECTED_ERROR'
         client.close()
         rules.write_text('[[window]]\napp_id = "aqueous.blur.client"\nfloating = true\nwidth = 320\nheight = 240\nx = 0\ny = 0\n')
-        time.sleep(.2)
+        subprocess.run([str(CTL), 'session', 'reload', '--json'], env=env,
+                       check=True, capture_output=True, timeout=10)
         for mode in ('toplevel', 'geometry', 'popup', 'app-popup', 'nested-popup'):
             role_client = Client(fixture, env, mode)
             clients.append(role_client)
@@ -461,7 +464,8 @@ def test_gtk(fixture, env, case, capture, difference, clients):
     rules = Path(env['AQUEOUS_RULES'])
     rules.write_text('[[window]]\napp_id = "org.aqueous.GtkBlurProbe"\nfloating = true\n'
                      'width = 320\nheight = 240\nx = 32\ny = 32\nopacity = 0.75\n')
-    time.sleep(.3)
+    subprocess.run([str(CTL), 'session', 'reload', '--json'], env=env,
+                   check=True, capture_output=True, timeout=10)
     background = Client(fixture, env)
     clients.append(background)
     images = []

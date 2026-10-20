@@ -127,18 +127,20 @@ void main() {
         push_data.color_rows[0].w,
         push_data.color_rows[1].w
     );
-    vec4 radii = push_data.color_rows[3];
-    float signed_distance = rounded_box_distance(
-        local_position * size,
-        size,
-        radii
-    );
-    float antialias_width = max(fwidth(signed_distance), 0.0001);
-    float coverage = 1.0 - smoothstep(
-        -antialias_width,
-        antialias_width,
-        signed_distance
-    );
+    // A negative width means no mask (e.g. an Auto-HDR-only draw). A present
+    // zero-radius mask still clips to its rectangle. The mask belongs to the
+    // window, not to this texture's extent or buffer transform.
+    float coverage = 1.0;
+    if (size.x >= 0.0) {
+        float signed_distance = rounded_box_distance(
+            gl_FragCoord.xy - push_data.color_rows[3].xy,
+            size,
+            vec4(push_data.color_rows[2].w)
+        );
+        float antialias_width = max(fwidth(signed_distance), 0.0001);
+        coverage = size.x <= 0.0 || size.y <= 0.0 ? 0.0 :
+            1.0 - smoothstep(-antialias_width, antialias_width, signed_distance);
+    }
 
     output_color = vec4(rgb * source_alpha, source_alpha);
     output_color *= push_data.alpha * coverage;

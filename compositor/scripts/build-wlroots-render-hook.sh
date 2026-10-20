@@ -38,6 +38,7 @@ patch_files=(
     "$here/patches/wlroots/0030-vulkan-presentation-copy.patch"
     "$here/patches/wlroots/0031-vulkan-device-selection.patch"
     "$here/patches/wlroots/0032-scene-empty-buffer-damage.patch"
+    "$here/patches/wlroots/0033-scene-effect-single-pixel.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
