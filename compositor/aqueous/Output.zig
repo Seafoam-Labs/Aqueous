@@ -699,15 +699,15 @@ fn roundedBufferHook(
     const effect = server.effect_metadata.bufferData(scene_buffer);
     const itm = output.autoHdrExpansion(scene_buffer);
     if (effect == null and itm == null) return false;
-    // Corner clipping with zero radii degenerates to full coverage, so an
-    // Auto-HDR-only buffer can share the rounded texture draw.
-    const radii: EffectMetadata.CornerRadii =
-        if (effect) |entry| entry.radii else EffectMetadata.CornerRadii.uniform(0);
+    const clip = if (effect) |entry| entry.clip else null;
+    const physical_clip = if (clip) |mask|
+        output.bufferEffectClip(scene_buffer, mask)
+    else
+        null;
     return server.vulkan_context.rounded_pipeline.drawTexture(
         attributes orelse return false,
         options orelse return false,
-        radii,
-        output.effectRenderState().scale,
+        physical_clip,
         output.effects_swapchain_path,
         itm,
     ) catch |err| {
@@ -746,7 +746,7 @@ fn roundedBufferNeedsComposition(
     const scene_buffer: *wlr.SceneBuffer =
         @ptrCast(@alignCast(c_scene_buffer orelse return false));
     const rounded = if (server.effect_metadata.bufferData(scene_buffer)) |effect|
-        hasRadius(effect.radii)
+        effect.clip != null
     else
         false;
     return visual_state.effectsRequireComposition(
@@ -793,6 +793,74 @@ fn isBlurMarker(scene_rect: *wlr.SceneRect) bool {
 
 fn effectRenderState(output: *const Output) *const State {
     return if (output.effects_swapchain_path) &output.sent else &output.current;
+}
+
+/// Convert a destination-local mask to framebuffer pixels. Using framebuffer
+/// coordinates keeps the mask independent of the client's texture transform.
+fn bufferEffectClip(output: *const Output, buffer: *wlr.SceneBuffer, clip: fx.BufferClip) ?fx.BufferClip {
+    const state = output.effectRenderState();
+    const box = nodeEffectBox(&buffer.node, clip, state) orelse return null;
+    return .{
+        .x = @floatFromInt(box.x),
+        .y = @floatFromInt(box.y),
+        .width = @floatFromInt(box.width),
+        .height = @floatFromInt(box.height),
+        .radius = @min(clip.radius * state.scale, @as(f64, @floatFromInt(@max(0, @min(box.width, box.height)))) / 2),
+    };
+}
+
+fn nodeEffectBox(node: *wlr.SceneNode, area: fx.BufferClip, state: *const State) ?wlr.Box {
+    var x: f64 = 0;
+    var y: f64 = 0;
+    if (!c.wlr_scene_node_coords_f64(@ptrCast(node), &x, &y)) return null;
+    x += area.x - @as(f64, @floatFromInt(state.x));
+    y += area.y - @as(f64, @floatFromInt(state.y));
+    const left: i32 = @intFromFloat(@round(x * state.scale));
+    const top: i32 = @intFromFloat(@round(y * state.scale));
+    var box: wlr.Box = .{
+        .x = left,
+        .y = top,
+        .width = @as(i32, @intFromFloat(@round((x + area.width) * state.scale))) - left,
+        .height = @as(i32, @intFromFloat(@round((y + area.height) * state.scale))) - top,
+    };
+    const width, const height = state.physicalDimensions();
+    box.transform(&box, invertTransform(state.transform), width, height);
+    return box;
+}
+
+/// Mask metadata can change without a client commit or a geometry setter.
+/// Feed that damage through the same blur provenance hook as scene changes.
+pub fn damageBufferEffects(output: *Output, buffer: *wlr.SceneBuffer) void {
+    if (comptime !build_options.vulkan_effects) return;
+    const scene_output = output.scene_output orelse return;
+    var width = buffer.dst_width;
+    var height = buffer.dst_height;
+    if (width <= 0 or height <= 0) {
+        width = buffer.private.buffer_width;
+        height = buffer.private.buffer_height;
+        if (@mod(@intFromEnum(buffer.transform), 2) != 0) mem.swap(c_int, &width, &height);
+    }
+    var box = nodeEffectBox(&buffer.node, .{
+        .x = 0,
+        .y = 0,
+        .width = @floatFromInt(width),
+        .height = @floatFromInt(height),
+        .radius = 0,
+    }, output.effectRenderState()) orelse return;
+    const render_width, const render_height = physicalDimensions(output.effectRenderState());
+    if (!box.intersection(&box, &.{ .x = 0, .y = 0, .width = render_width, .height = render_height })) return;
+    var region: pixman.Region32 = undefined;
+    region.initRect(box.x, box.y, @intCast(box.width), @intCast(box.height));
+    defer region.deinit();
+    scene_output.damage_ring.addBox(&box);
+    // Match wlroots' scene-content damage bookkeeping: presentation damage
+    // alone would omit blur-filter expansion and backend commit damage.
+    const c_output: *c.struct_wlr_scene_output = @ptrCast(scene_output);
+    const pending = &c_output.WLR_PRIVATE;
+    _ = c.pixman_region32_union(&pending.pending_commit_damage, &pending.pending_commit_damage, @ptrCast(&region));
+    _ = c.pixman_region32_union(&pending.pending_effect_damage, &pending.pending_effect_damage, @ptrCast(&region));
+    effectsDamage(@ptrCast(&buffer.node), @ptrCast(&region), output);
+    if (output.wlr_output) |wlr_output| wlr_output.scheduleFrame();
 }
 
 fn effectsRenderBegin(
@@ -1494,13 +1562,6 @@ fn transformRadii(
         .flipped_270 => .{ radii[2], radii[1], radii[0], radii[3] },
         else => radii,
     };
-}
-
-fn hasRadius(radii: EffectMetadata.CornerRadii) bool {
-    return radii.top_left != 0 or
-        radii.top_right != 0 or
-        radii.bottom_right != 0 or
-        radii.bottom_left != 0;
 }
 
 fn hasPhysicalRadius(radii: [4]f32) bool {

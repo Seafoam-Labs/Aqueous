@@ -16,6 +16,7 @@ pub const corner_radius: u31 =
     if (build_options.vulkan_effects) 15 else 0;
 
 pub const CornerRadii = EffectMetadata.CornerRadii;
+pub const BufferClip = EffectMetadata.BufferClip;
 pub const BlurAppearance = EffectMetadata.BlurAppearance;
 pub const BlurUpdate = EffectMetadata.BlurUpdate;
 pub const WindowBlur = EffectMetadata.WindowBlurHandle;
@@ -47,19 +48,29 @@ pub const workspace_slide_rate: f64 = 7.0;
 /// and snapped to its target.
 pub const anim_epsilon: f64 = 0.5;
 
-/// Set the corner radius of a single scene buffer node.
-pub fn setBufferRadius(buffer: *wlr.SceneBuffer, radius: u31) void {
+/// Apply a window mask expressed relative to this buffer's destination origin.
+pub fn setBufferClip(buffer: *wlr.SceneBuffer, clip: ?BufferClip) void {
     if (comptime build_options.vulkan_effects) {
-        metadata().setBufferRadius(buffer, radius) catch {
+        const changed = metadata().setBufferClip(buffer, clip) catch {
             std.log.err("could not store scene-buffer effect metadata: out of memory", .{});
             return;
         };
+        if (!changed) return;
         const c = @import("c");
         c.wlr_scene_buffer_set_force_blend(
             @ptrCast(buffer),
-            @intFromBool(radius != 0),
+            @intFromBool(clip != null),
         );
+        // Updating an existing mask doesn't change force_blend, so wlroots
+        // cannot otherwise observe this appearance-only scene change.
+        var outputs = @import("main.zig").server.om.outputs.iterator(.forward);
+        while (outputs.next()) |output| output.damageBufferEffects(buffer);
     }
+}
+
+pub fn bufferClip(buffer: *wlr.SceneBuffer) ?BufferClip {
+    if (comptime !build_options.vulkan_effects) return null;
+    return if (metadata().bufferData(buffer)) |data| data.clip else null;
 }
 
 /// Set the corner radius of a single scene rect node.
@@ -102,19 +113,29 @@ pub fn setRectClippedRegion(
     }
 }
 
-/// Apply the given corner radius to every buffer node in the given subtree.
-pub fn setTreeRadius(tree: *wlr.SceneTree, radius: u31) void {
+/// Each surface sees the same window silhouette, including offset subsurfaces.
+pub fn setTreeClip(tree: *wlr.SceneTree, clip: ?BufferClip) void {
     if (comptime !build_options.vulkan_effects) return;
-    // forEachBuffer passes the user data through as an opaque pointer, so the
-    // radius is forwarded by reference.
-    var r = radius;
-    tree.node.forEachBuffer(*u31, setBufferRadiusIter, &r);
+    // Walk disabled staging trees too: transaction snapshots must retain their
+    // own frozen mask, and newly enabled buffers must already have metadata.
+    setNodeClip(&tree.node, clip, 0, 0);
 }
 
-fn setBufferRadiusIter(buffer: *wlr.SceneBuffer, sx: c_int, sy: c_int, radius: *u31) void {
-    _ = sx;
-    _ = sy;
-    setBufferRadius(buffer, radius.*);
+fn setNodeClip(node: *wlr.SceneNode, clip: ?BufferClip, x: i32, y: i32) void {
+    const sx = x + node.x;
+    const sy = y + node.y;
+    switch (node.type) {
+        .tree => {
+            const tree = wlr.SceneTree.fromNode(node);
+            var it = tree.children.iterator(.forward);
+            while (it.next()) |child| setNodeClip(child, clip, sx, sy);
+        },
+        .buffer => setBufferClip(wlr.SceneBuffer.fromNode(node), if (clip) |mask|
+            mask.translated(-@as(f64, @floatFromInt(sx)), -@as(f64, @floatFromInt(sy)))
+        else
+            null),
+        .rect => {},
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -235,8 +256,7 @@ pub fn copyBufferFx(dst: *wlr.SceneBuffer, src: *wlr.SceneBuffer) void {
         };
         // Snapshot HDR policy alone does not require rounded-edge blending.
         const rounded = if (metadata().bufferData(dst)) |effect|
-            effect.radii.top_left != 0 or effect.radii.top_right != 0 or
-                effect.radii.bottom_left != 0 or effect.radii.bottom_right != 0
+            effect.clip != null
         else
             false;
         c.wlr_scene_buffer_set_force_blend(@ptrCast(dst), @intFromBool(rounded));

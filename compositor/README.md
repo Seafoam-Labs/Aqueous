@@ -69,6 +69,24 @@ against the same pinned wlroots dependency. Production builds run integrated
 policy by default. For legacy protocol compatibility testing only,
 `-Dexternal-policy=true` enables the `external` and `compare` policy modes.
 
+Rounded window content uses one mask aligned with window geometry, shared by
+the main surface and its subsurfaces. Client-side shadow padding and buffer
+transforms do not move the corners. Animation snapshots preserve the mask, and
+overview thumbnails scale it with their content. Rebuild the pinned wlroots
+dependency with patch 0033 before building Aqueous: masked single-pixel buffers
+must use the texture hook instead of the rectangle shortcut.
+
+Run `python3 scripts/test-rounded-window.py` against an effects build to check
+padded/unpadded clients, SHM and single-pixel subsurfaces, buffer transforms,
+fullscreen, resizing, overview, workspace snapshot crops, and tiled/scrolling windows.
+It covers output scales 1, 1.25, 1.5, and 2 plus rotated/reflected outputs.
+Use `--quick` for scale 1 only, `--compositor /path/to/aqueous` for an alternate
+build, or `--no-effects --quick` with the diagnostic build. The private headless
+sessions require a C compiler, Wayland development files, `wayland-scanner`,
+`grim`, and Python/Pillow; logs and screenshots remain in the printed `/tmp`
+directory. Selecting an older compositor reproduces issue #92 at the initial
+padded-corner assertion.
+
 pointer-warp-v1 is available in both renderer builds, including for sandboxed
 applications and optional external/compare policy modes. Focused applications
 can request surface-local pointer positions, including while holding a button.

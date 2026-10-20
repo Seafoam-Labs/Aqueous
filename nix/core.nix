@@ -134,6 +134,7 @@ let
       "${src}/compositor/patches/wlroots/0029-screencopy-sdr-gamma-lookup.patch"
       "${src}/compositor/patches/wlroots/0030-vulkan-presentation-copy.patch"
       "${src}/compositor/patches/wlroots/0031-vulkan-device-selection.patch"
+      "${src}/compositor/patches/wlroots/0033-scene-effect-single-pixel.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending

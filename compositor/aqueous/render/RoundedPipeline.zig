@@ -150,8 +150,7 @@ pub fn drawTexture(
     pipeline: *RoundedPipeline,
     attributes: *const c.struct_wlr_vk_render_texture_attribs,
     options: *const c.struct_wlr_render_texture_options,
-    radii: EffectMetadata.CornerRadii,
-    scale: f32,
+    clip: ?EffectMetadata.BufferClip,
     swapchain_path: bool,
     itm: ?auto_hdr.ItmParams,
 ) !bool {
@@ -165,15 +164,7 @@ pub fn drawTexture(
 
     const box = options.dst_box;
     if (box.width <= 0 or box.height <= 0) return false;
-    const physical_radii = EffectMetadata.clampedPhysicalRadii(
-        radii,
-        box.width,
-        box.height,
-        scale,
-    );
-    // Auto HDR can take over an otherwise unrounded buffer; corner clipping
-    // with zero radii degenerates to full coverage.
-    if (!hasRadius(physical_radii) and itm == null) return false;
+    if (clip == null and itm == null) return false;
 
     const texture_pipeline = try pipeline.texturePipelineFor(attributes);
     var vertex_push: TextureVertexPush = .{
@@ -188,9 +179,15 @@ pub fn drawTexture(
         .itm_peak = if (itm) |params| params.peak else 0.0,
         .itm_boost = if (itm) |params| params.boost else 0.0,
     };
-    fragment_push.color_matrix[0][3] = @floatFromInt(box.width);
-    fragment_push.color_matrix[1][3] = @floatFromInt(box.height);
-    fragment_push.color_matrix[3] = physical_radii;
+    // The color transform only uses the upper 3x3 matrix. Reuse its spare
+    // components for the framebuffer mask without increasing push constants.
+    fragment_push.color_matrix[0][3] = if (clip) |mask| @floatCast(mask.width) else -1;
+    fragment_push.color_matrix[1][3] = if (clip) |mask| @floatCast(mask.height) else -1;
+    fragment_push.color_matrix[2][3] = if (clip) |mask| @floatCast(mask.radius) else 0;
+    fragment_push.color_matrix[3] = if (clip) |mask|
+        .{ @floatCast(mask.x), @floatCast(mask.y), 0, 0 }
+    else
+        .{ 0, 0, 0, 0 };
 
     const command_buffer = attributes.render_pass.command_buffer;
     c.vkCmdBindPipeline(
@@ -661,13 +658,6 @@ fn validPass(attributes: *const c.struct_wlr_vk_render_pass_attribs) bool {
         attributes.render_pass != null and
         attributes.extent.width != 0 and
         attributes.extent.height != 0;
-}
-
-fn hasRadius(radii: [4]f32) bool {
-    for (radii) |radius| {
-        if (radius > 0) return true;
-    }
-    return false;
 }
 
 fn linearPremultiplied(channel: f32, alpha: f32) f32 {

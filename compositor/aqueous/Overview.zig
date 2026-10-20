@@ -213,6 +213,15 @@ const Entry = struct {
 
             const crop_x = clipped.x - destination.x;
             const crop_y = clipped.y - destination.y;
+            // Scale the shared window coordinates before rounding each buffer's
+            // destination. Otherwise differently sized subsurfaces can acquire
+            // masks a pixel apart at fractional thumbnail scales.
+            fx.setBufferClip(record.buffer, if (record.clip) |mask|
+                mask.translated(@floatFromInt(record.x), @floatFromInt(record.y))
+                    .scaled(scale_x, scale_y)
+                    .translated(@floatFromInt(current.x - clipped.x), @floatFromInt(current.y - clipped.y))
+            else
+                null);
             const transformed_width = if (transformSwapsAxes(record.transform)) record.source.height else record.source.width;
             const transformed_height = if (transformSwapsAxes(record.transform)) record.source.width else record.source.height;
             const transformed_crop: wlr.FBox = .{
