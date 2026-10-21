@@ -18,6 +18,7 @@
   libinput,
   libliftoff,
   libpng,
+  libxcb,
   libxkbcommon,
   linkFarm,
   makeWrapper,
@@ -193,6 +194,7 @@ stdenv.mkDerivation (finalAttrs: {
     libevdev
     libinput
     libpng
+    libxcb
     libxkbcommon
     mesa
     pixman

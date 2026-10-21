@@ -62,7 +62,7 @@ const ConfigSnapshot = @import("wm/config/loader.zig").Snapshot;
 const log = std.log;
 const linux = std.os.linux;
 
-var termination_requested = false;
+pub var termination_requested = false;
 
 /// Final, ready-to-use `KEY=VALUE` selector strings for the chosen render
 /// device. Each is NUL-terminated so it can be appended verbatim to the child
@@ -174,6 +174,7 @@ layer_shell: LayerShell,
 xwayland: if (build_options.xwayland) ?*wlr.Xwayland else void = if (build_options.xwayland) null,
 xwayland_enabled: bool,
 xwayland_scaling: xwayland_projection.Mode = .legacy,
+xwayland_dpi: @import("XwaylandScaling.zig") = .{},
 new_xsurface: if (build_options.xwayland) wl.Listener(*wlr.XwaylandSurface) else void =
     if (build_options.xwayland) .init(handleNewXwaylandSurface),
 
@@ -635,6 +636,7 @@ pub fn startXwayland(server: *Server) !void {
             server.xwayland.?.setCursor(image.getBuffer(), @intCast(image.hotspot_x), @intCast(image.hotspot_y));
         }
         wlr_output_set_client_projection_handler(handleXwaylandOutputProjection, server);
+        server.xwayland_dpi.init(server.xwayland.?);
         if (server.xwayland_scaling == .native) {
             log.info("using native-resolution embedded Xwayland scaling", .{});
         }
@@ -688,6 +690,7 @@ pub fn deinit(server: *Server) void {
     server.om.new_output.link.remove();
 
     if (build_options.xwayland) {
+        server.xwayland_dpi.deinit();
         wlr_output_set_client_projection_handler(null, null);
         if (server.xwayland) |xwayland| {
             server.new_xsurface.link.remove();

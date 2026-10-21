@@ -277,6 +277,9 @@ pub fn build(b: *Build) !void {
         river.root_module.linkSystemLibrary("libinput", .{});
         river.root_module.linkSystemLibrary("libudev", .{});
         river.root_module.linkSystemLibrary("wayland-server", .{});
+        if (xwayland) {
+            river.root_module.linkSystemLibrary("xcb", .{});
+        }
         river.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
         river.root_module.addRPathSpecial("$ORIGIN/../lib/aqueous");
         if (vulkan_effects) {
@@ -528,6 +531,26 @@ pub fn build(b: *Build) !void {
             .use_lld = use_llvm,
         });
         const run_xwayland_projection_test = b.addRunArtifact(xwayland_projection_test);
+        const dpi_policy_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/xwayland_dpi_policy.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_dpi_policy_test = b.addRunArtifact(dpi_policy_test);
+        const run_dpi_worker_test = if (xwayland) blk: {
+            const dpi_worker_test = b.addExecutable(.{
+                .name = "xwayland-dpi-unit",
+                .root_module = b.createModule(.{ .root_source_file = b.path("aqueous/xwayland_dpi_test.zig"), .target = target, .optimize = optimize, .link_libc = true }),
+                .use_llvm = use_llvm,
+                .use_lld = use_llvm,
+            });
+            dpi_worker_test.root_module.linkSystemLibrary("xcb", .{});
+            break :blk b.addRunArtifact(dpi_worker_test);
+        } else null;
 
         const visual_state_test = b.addTest(.{
             .root_module = b.createModule(.{
@@ -695,6 +718,9 @@ pub fn build(b: *Build) !void {
         keyboard_test.root_module.linkSystemLibrary("libsystemd", .{});
         keyboard_test.root_module.addCSourceFile(.{ .file = b.path("aqueous/activity_bootstrap.c"), .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" } });
         keyboard_test.root_module.addCSourceFile(.{ .file = b.path("aqueous/bell_audio.c"), .flags = &.{ "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror" } });
+        if (xwayland) {
+            keyboard_test.root_module.linkSystemLibrary("xcb", .{});
+        }
         keyboard_test.root_module.addCSourceFile(.{ .file = b.path("aqueous/icon_png.c"), .flags = &.{ "-std=c11", "-O2" } });
         if (vulkan_effects) keyboard_test.root_module.linkSystemLibrary("vulkan", .{});
         keyboard_test.root_module.addCSourceFile(.{
@@ -859,6 +885,7 @@ pub fn build(b: *Build) !void {
         b.step("test-output-warming", "Test warming handlers with private Wayland resources and headless commits").dependOn(&run_warming_test.step);
 
         const test_step = b.step("test", "Run the tests");
+        if (run_dpi_worker_test) |run| test_step.dependOn(&run.step);
         const adaptive_sync_test = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("aqueous/adaptive_sync_policy.zig"), .target = target, .optimize = optimize }) });
         test_step.dependOn(&b.addRunArtifact(adaptive_sync_test).step);
         const activity_test = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("aqueous/input_activity.zig"), .target = target, .optimize = optimize }) });
@@ -940,6 +967,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_blur_cache_test.step);
         test_step.dependOn(&run_scaling_test.step);
         test_step.dependOn(&run_xwayland_projection_test.step);
+        test_step.dependOn(&run_dpi_policy_test.step);
         test_step.dependOn(&run_visual_state_test.step);
         test_step.dependOn(&run_scene_opacity_test.step);
         test_step.dependOn(&run_cursor_lock_restore_test.step);

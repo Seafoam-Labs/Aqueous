@@ -734,6 +734,8 @@ fn sendList(service: *Service, client: *Client, ok: bool, report: ?*const Output
     }
     json.objectField("outputs") catch return;
     service.writeOutputs(&json) catch return;
+    json.objectField("xwayland_scaling") catch return;
+    server.xwayland_dpi.writeStatus(&json) catch return;
     json.endObject() catch return;
     writer.writeByte('\n') catch return;
     service.sendStatic(client, writer.buffered());

@@ -436,6 +436,46 @@ build above. Mixed-scale layouts may contain inert gaps in X11 root coordinates;
 normal window placement and pointer delivery remain aligned with the Wayland
 layout.
 
+Native mode also derives X11 application DPI automatically from the applied
+scale of the configured primary output (`96 × scale`). With no usable primary,
+it uses the enabled non-mirrored output with the alphabetically first name;
+with no usable outputs it uses 96 DPI. Focus and window movement do not change
+this global setting. No additional configuration is needed. Legacy mode leaves
+application DPI settings alone to avoid scaling twice.
+
+A supervised worker publishes `Xft.dpi` and XSettings before normal session
+autostart, with a bounded startup wait. It follows committed scale changes,
+display preview/revert, primary changes and hotplug, and recovers after worker
+or XWayland restarts. An existing XSettings manager retains ownership; the
+worker reports `external` and leaves its settings alone. Unrelated X resources
+are preserved, and shutdown restores the original DPI unless another client
+has replaced it. Malformed, oversized or continued resource databases are
+reported as publication failures rather than rewritten.
+
+X11 application DPI is global: native mode cannot guarantee identical UI sizes
+across differently scaled monitors or in applications that ignore DPI. GTK 3
+uses an integer window scale with compensated font DPI, so fractional control
+padding and fixed-size widgets can differ from native Wayland. Qt 6 can use the
+fractional DPI directly. Existing explicit toolkit overrides still apply.
+Legacy scaling remains the compatibility default.
+
+`aqueousctl outputs --json` includes a session-wide `xwayland_scaling` object on
+each output: `mode`, `dpi_status`, `target_dpi`, `published_dpi`, and
+`source_output`. `published_dpi` is null unless the worker has acknowledged
+publication; it does not claim that every running application has redrawn.
+The output service's `list` response exposes the same object at the top level.
+
+Run the worker's resource/ownership/recovery tests with
+`python3 scripts/test-xwayland-dpi.py` (Xvfb enables lifecycle coverage). Add
+`--compositor /path/to/aqueous --ctl /path/to/aqueousctl --toolkits` for private
+headless compositor tests at 100%, 125%, 150% and 200%, startup ordering,
+primary/fallback changes, XWayland restart and actual Qt 6/GTK 3 buffers. Add
+`--helper /path/to/aqueous-config` to verify actual display preview/revert.
+This requires the
+toolkits' development packages; the default renderer is Vulkan, and
+`--renderer pixman` supports a diagnostic build. Tests never use the session's
+existing X server.
+
 The same build produces `zig-out/bin/aqueousctl`. While running inside an
 Aqueous session, use `aqueousctl windows`, `aqueousctl windows --json`, or
 `aqueousctl inspect --rule` to inspect mapped native and XWayland windows.
