@@ -19,6 +19,14 @@ pub const State = struct {
     }
 };
 
+/// Include dormant layouts and composable regions so returning to a floating
+/// layout after an output move cannot restore coordinates from the old origin.
+pub fn reconfigureOutput(state: *State, before: types.Rect, after: types.Rect, usable: types.Rect) void {
+    const floating = @import("floating.zig");
+    floating.reconfigureOutput(&state.standalone.floating, before, after, usable);
+    for (&state.composite.children) |*child| floating.reconfigureOutput(&child.floating, before, after, usable);
+}
+
 pub fn arrange(allocator: std.mem.Allocator, state: *State, snapshot: *const config.Snapshot, area: types.Rect, windows: []const types.Window, focused: ?types.Handle, game_options: game_mode.Options) ![]types.Placement {
     const id = snapshot.default;
     state.active_layout = id;
@@ -996,4 +1004,22 @@ test "single window centering preserves tile resize state and composable members
     try std.testing.expectEqual(@as(?f64, 0.7), state.composite.children[0].tile.master_ratio_override);
     try std.testing.expectEqual(@as(?i32, 300), state.composite.children[0].tile.height_overrides.get(1));
     try std.testing.expectEqual(@as(?u8, 1), state.composite.membership.get(2));
+}
+
+test "output relocation updates dormant standalone and composable floating caches" {
+    const floating = @import("floating.zig");
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const before: types.Rect = .{ .x = 1920, .y = 0, .width = 1920, .height = 1080 };
+    const after: types.Rect = .{ .x = -1920, .y = 0, .width = 1920, .height = 1080 };
+    const original: types.Rect = .{ .x = 2020, .y = 100, .width = 500, .height = 300 };
+    try floating.setGeometry(&state.standalone.floating, std.testing.allocator, 1, original);
+    try floating.setGeometry(&state.composite.children[2].floating, std.testing.allocator, 2, original);
+    reconfigureOutput(&state, before, after, after);
+    const moved: types.Rect = .{ .x = -1820, .y = 100, .width = 500, .height = 300 };
+    try std.testing.expectEqual(moved, floating.geometry(&state.standalone.floating, 1).?);
+    try std.testing.expectEqual(moved, floating.geometry(&state.composite.children[2].floating, 2).?);
+    reconfigureOutput(&state, after, before, before);
+    try std.testing.expectEqual(original, floating.geometry(&state.standalone.floating, 1).?);
+    try std.testing.expectEqual(original, floating.geometry(&state.composite.children[2].floating, 2).?);
 }

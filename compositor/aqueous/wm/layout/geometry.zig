@@ -325,3 +325,38 @@ test "edge attraction joins nearby window borders" {
         attractToRect(.{ .x = 307, .y = 94, .width = 200, .height = 150 }, .{ .x = 0, .y = 100, .width = 300, .height = 300 }, 10),
     );
 }
+
+/// Keep desktop-space geometry attached to the same point on its output.
+/// Pure moves are reversible (including display-preview rollback). Only a
+/// size change needs recovery into the new usable area.
+pub fn reconfigureGeometry(rect: types.Rect, before: types.Rect, after: types.Rect, usable: types.Rect) types.Rect {
+    if (rect.width <= 0 or rect.height <= 0) return rect;
+    var moved = rect;
+    moved.x = @intCast(std.math.clamp(@as(i64, rect.x) + after.x - before.x, std.math.minInt(i32), std.math.maxInt(i32)));
+    moved.y = @intCast(std.math.clamp(@as(i64, rect.y) + after.y - before.y, std.math.minInt(i32), std.math.maxInt(i32)));
+    if (before.width != after.width or before.height != after.height) {
+        moved = keepReachable(moved, usable, @min(moved.width, usable.width), @min(moved.height, usable.height));
+        // An oversized client still needs its top-left controls on screen.
+        if (usable.width > 0 and moved.width >= usable.width) moved.x = usable.x;
+        if (usable.height > 0 and moved.height >= usable.height) moved.y = usable.y;
+    }
+    return moved;
+}
+
+test "output relocation follows identity and reverses a preview offset" {
+    const before: types.Rect = .{ .x = 0, .y = 0, .width = 1920, .height = 1080 };
+    const after: types.Rect = .{ .x = 7680, .y = -120, .width = 1920, .height = 1080 };
+    const original: types.Rect = .{ .x = 560, .y = 240, .width = 800, .height = 600 };
+    const moved = reconfigureGeometry(original, before, after, after);
+    try std.testing.expectEqual(types.Rect{ .x = 8240, .y = 120, .width = 800, .height = 600 }, moved);
+    try std.testing.expectEqual(original, reconfigureGeometry(moved, after, before, before));
+    try std.testing.expectEqual(types.Rect.empty, reconfigureGeometry(.empty, before, after, after));
+}
+
+test "resizing an output recovers geometry into its new logical usable area" {
+    const before: types.Rect = .{ .x = 1920, .y = 0, .width = 1920, .height = 1080 };
+    const after: types.Rect = .{ .x = -1080, .y = 0, .width = 1080, .height = 1920 };
+    const usable: types.Rect = .{ .x = -1080, .y = 40, .width = 1080, .height = 1880 };
+    const moved = reconfigureGeometry(.{ .x = 3040, .y = 0, .width = 800, .height = 600 }, before, after, usable);
+    try std.testing.expectEqual(types.Rect{ .x = -800, .y = 40, .width = 800, .height = 600 }, moved);
+}
