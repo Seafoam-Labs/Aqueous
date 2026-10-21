@@ -132,7 +132,7 @@ pub const SnapLayout = struct {
 
 pub const Snapshot = struct {
     default: LayoutId = .tile,
-    slots: [4]LayoutId = .{ .tile, .floating, .monocle, .grid },
+    slots: [4]LayoutId = .{ .tile, .scrolling, .monocle, .grid },
     options: [layout_count]types.Options = [_]types.Options{.{ .border = .{
         .width = 2,
         .focused = 0xFF88C0D0,
@@ -530,6 +530,31 @@ fn unquote(value: []const u8) []const u8 {
         return value[1 .. value.len - 1];
     }
     return value;
+}
+
+test "secondary slot defaults to scrolling independently of the default layout" {
+    var snapshot: Snapshot = .{};
+    try std.testing.expectEqual(LayoutId.scrolling, snapshot.slots[1]);
+
+    apply(&snapshot,
+        \\[layout]
+        \\default = "stacking"
+    );
+    try std.testing.expectEqual(LayoutId.floating, snapshot.default);
+    try std.testing.expectEqual(LayoutId.scrolling, snapshot.slots[1]);
+
+    apply(&snapshot,
+        \\[layout]
+        \\default = "scrolling"
+    );
+    try std.testing.expectEqual(LayoutId.scrolling, snapshot.default);
+    try std.testing.expectEqual(LayoutId.scrolling, snapshot.slots[1]);
+
+    apply(&snapshot,
+        \\[layout.slots]
+        \\secondary = "stacking"
+    );
+    try std.testing.expectEqual(LayoutId.floating, snapshot.slots[1]);
 }
 
 test "layout config parses defaults, aliases, extras, and colors" {
