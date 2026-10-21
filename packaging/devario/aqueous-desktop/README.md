@@ -34,6 +34,11 @@ from the build result's `artifacts` array, including packages with architecture
 `pearl-greeter` are separate packages that must be available for installation;
 this recipe does not build them. Select **Aqueous** at login.
 
+Release `1.0.4-3` adds `rtkit` to `devario-desktop` so existing installations
+receive realtime audio support through `sudo shelly upgrade standard` after
+publication. Reboot after upgrading. RTKit activates through D-Bus on demand.
+Publish all six outputs together and ensure RTKit is available in the repository.
+
 The Aqueous components use exact versions for their sibling dependencies.
 `devario-desktop` uses `>=${pkgver}-${pkgrel}` for its five Aqueous dependencies,
 so an installed preset accepts newer component releases. It does not require

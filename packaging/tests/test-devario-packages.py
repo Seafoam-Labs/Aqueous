@@ -68,7 +68,7 @@ def check_metadata():
     assert packages["aqueous-integration-pearl"]["depends"] == [f"aqueous-session={version}"]
     assert packages["aqueous-shell-pearl"]["depends"] == ["pearl-capture-picker>=1", f"xdg-desktop-portal-aqueous={version}", f"aqueous-integration-pearl={version}", "pearl"]
     desktop = packages
-    assert set(desktop["devario-desktop"]["depends"]) == {f"{name}>={version}" for name in NAMES - {"devario-desktop"}} | {"pearl", "pearl-greeter"}
+    assert set(desktop["devario-desktop"]["depends"]) == {f"{name}>={version}" for name in NAMES - {"devario-desktop"}} | {"pearl", "pearl-greeter", "rtkit"}
     assert desktop["devario-desktop"]["backup"] == ["etc/xdg/aqueous/session.toml"]
     assert "install" not in desktop["devario-desktop"]
     minimal_base, minimal = metadata(DEVARIO / "aqueous")
