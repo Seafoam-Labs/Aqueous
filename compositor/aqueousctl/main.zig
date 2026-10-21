@@ -1127,6 +1127,14 @@ fn writeOutputsJson(writer: *Io.Writer, state: *const State) !void {
         }
         try writer.print("],\"position\":{{\"x\":{d},\"y\":{d}}},\"transform\":", .{ output.x, output.y });
         try jsonString(writer, transformName(output.transform));
+        if (extra) |parsed| {
+            if (parsed.value == .object) {
+                if (parsed.value.object.get("xwayland_scaling")) |status| {
+                    try writer.writeAll(",\"xwayland_scaling\":");
+                    try std.json.Stringify.value(status, .{}, writer);
+                }
+            }
+        }
         if (@import("OutputInfo.zig").find(extra, output.name)) |metadata| {
             inline for (.{ "fullscreen_only_adaptive_sync", "effective_adaptive_sync", "actual_vrr", "adaptive_sync_error" }) |key| {
                 if (metadata.get(key)) |value| {

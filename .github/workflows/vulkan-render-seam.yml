@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - '.github/workflows/vulkan-render-seam.yml'
+      - '.github/actions/setup-zig/**'
       - 'compositor/aqueous/**'
       - 'compositor/build.zig'
       - 'compositor/build.zig.zon'
@@ -33,6 +34,7 @@ on:
       - master
     paths:
       - '.github/workflows/vulkan-render-seam.yml'
+      - '.github/actions/setup-zig/**'
       - 'compositor/aqueous/**'
       - 'compositor/build.zig'
       - 'compositor/build.zig.zon'
@@ -91,10 +93,8 @@ jobs:
         shell: bash
         run: git config --global --add safe.directory '*'
 
-      - name: Setup Zig 0.16.0
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0
+      - name: Setup patched Zig 0.16.0
+        uses: ./.github/actions/setup-zig
 
       - name: Build pinned wlroots render hook
         shell: bash

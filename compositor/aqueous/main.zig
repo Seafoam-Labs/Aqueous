@@ -84,6 +84,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         .{ .name = "log-scopes", .kind = .arg },
         .{ .name = "no-xwayland", .kind = .boolean },
         .{ .name = "xwayland-scaling", .kind = .arg },
+        .{ .name = "xwayland-dpi-worker", .kind = .arg },
         .{ .name = "drm-overlay-planes", .kind = .boolean },
         .{ .name = "no-drm-overlay-planes", .kind = .boolean },
     }).parse(args[1..]) catch {
@@ -95,6 +96,12 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         try stdout.writeAll(usage);
         try stdout.flush();
         exit(0);
+    }
+    if (result.flags.@"xwayland-dpi-worker") |display| {
+        if (comptime build_options.xwayland) {
+            const display_z = try arena.dupeZ(u8, display);
+            exit(@import("xwayland_dpi.zig").run(display_z));
+        } else exit(2);
     }
     if (result.args.len != 0) {
         log.err("unknown option '{s}'", .{result.args[0]});
@@ -284,6 +291,18 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     server.aqueous.output_service.start();
     startup_lock.release();
     startup_locked = false;
+    // Dispatch the Wayland loop while the X11 worker connects: blocking on an
+    // X reply here would deadlock Xwayland's own Wayland initialization. Bound
+    // readiness so external ownership or a broken helper cannot block login.
+    if (build_options.xwayland and runtime_xwayland and xwayland_scaling == .native) {
+        const since = util.msecTimestamp();
+        while (server.xwayland_dpi.startupPending() and util.msecTimestamp() -% since < 3000) {
+            if (Server.termination_requested) return error.StartupCancelled;
+            server.wl_server.flushClients();
+            try server.wl_server.getEventLoop().dispatch(10);
+        }
+        if (server.xwayland_dpi.startupPending()) log.warn("Xwayland DPI startup timed out; continuing session startup", .{});
+    }
     server.aqueous.start();
 
     // Run the child in a new process group so that we can send SIGTERM to all

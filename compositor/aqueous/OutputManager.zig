@@ -1018,6 +1018,7 @@ pub fn commitOutputState(om: *OutputManager) void {
         log.err("out of memory", .{});
     };
     @import("DisplayPreview.zig").applied();
+    server.xwayland_dpi.refresh();
     server.aqueous.output_service.outputsChanged(false);
 }
 

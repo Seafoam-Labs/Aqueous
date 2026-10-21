@@ -13,7 +13,7 @@ license=('GPL-3.0-only' 'MIT')
 options=('!strip' '!debug' '!zipman')
 makedepends=('git' 'curl' 'patch' 'scdoc' 'jq' 'python' 'shaderc' 'clang' 'lld' 'llvm'
              'wayland-protocols>=1.49' 'pkgconf' 'meson' 'ninja' 'glslang'
-             'vulkan-headers' 'hwdata' 'zig>=0.16' 'libinih' 'freetype2' 'wayland'
+             'vulkan-headers' 'hwdata' 'zig=0.16.0' 'libinih' 'freetype2' 'wayland'
              'libxkbcommon' 'libinput' 'pixman' 'libpng' 'libdrm' 'libevdev' 'libdecor'
              'xorg-xwayland' 'pipewire' 'glib2' 'fontconfig' 'mesa' 'systemd-libs'
              'seatd' 'libdisplay-info' 'libliftoff' 'lcms2' 'vulkan-icd-loader'

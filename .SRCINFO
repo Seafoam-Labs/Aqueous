@@ -54,7 +54,7 @@ pkgbase = aqueous
 	makedepends = glslang
 	makedepends = vulkan-headers
 	makedepends = hwdata
-	makedepends = zig>=0.16
+	makedepends = zig=0.16.0
 	options = !strip
 	options = !debug
 	options = !zipman

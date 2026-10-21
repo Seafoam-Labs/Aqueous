@@ -99,7 +99,10 @@ aqueous_shell_manager_v1 protocol for live state and typed policy actions.
 	physical size, enabled state, advertised modes, position, transform, scale, and
 	adaptive-sync state. Current and preferred modes are marked explicitly. With
 	*--json*, print the same snapshot using the wlr-randr JSON field names and value
-	types plus the *edid_sha256* field.
+	types plus the *edid_sha256* field. When the output service is available,
+	*xwayland_scaling* reports the session-wide active mode, DPI publication
+	status, target and published DPI, and source output. Published DPI is null
+	when unmanaged, externally managed, starting, or failed.
 
 *overlay-planes*
 	Report the DRM overlay promotion state for every output: backend capability,

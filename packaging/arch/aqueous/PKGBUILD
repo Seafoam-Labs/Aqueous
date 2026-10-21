@@ -14,7 +14,7 @@ depends=('wayland' 'libxkbcommon' 'libinput' 'pixman' 'libdrm' 'libevdev'
          'brightnessctl' 'playerctl')
 makedepends=('git' 'curl' 'patch' 'scdoc' 'python' 'shaderc' 'clang' 'lld' 'llvm'
              'wayland-protocols>=1.49' 'pkgconf' 'meson' 'ninja' 'glslang'
-             'vulkan-headers' 'hwdata' 'zig>=0.16')
+             'vulkan-headers' 'hwdata' 'zig=0.16.0')
 provides=("aqueous=$pkgver")
 # These packages own the same unsuffixed binary/private library.
 # The suffixed aqueous-core-git package can coexist.
