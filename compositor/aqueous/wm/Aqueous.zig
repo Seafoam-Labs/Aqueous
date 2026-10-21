@@ -261,6 +261,39 @@ pub fn traceCycle(aqueous: *Aqueous, phase: Trace.Phase, external_active: bool) 
     }
 }
 
+/// Called once as an output advances from sent to scheduled geometry, before
+/// this transaction's policy layout. Window ownership, not coordinate overlap,
+/// decides which rectangles move when outputs exchange places.
+pub fn reconfigureOutput(aqueous: *Aqueous, output: *@import("../Output.zig")) void {
+    if (!aqueous.mode.runsInternal() or output.sent.mode == .none or
+        !output.sent.mirror_of.empty()) return;
+    const old = output.sent.box();
+    const new = output.scheduled.box();
+    if (std.meta.eql(old, new)) return;
+    const before: layout_types.Rect = .{ .x = old.x, .y = old.y, .width = old.width, .height = old.height };
+    const after: layout_types.Rect = .{ .x = new.x, .y = new.y, .width = new.width, .height = new.height };
+    const box = output.policyUsableBox();
+    const usable = aqueous.effectiveUsableArea(after, .{ .x = box.x, .y = box.y, .width = box.width, .height = box.height });
+    const id = output.policyId();
+    if (aqueous.drag) |*drag| if (drag.layout_key.output == id) {
+        // A snap target and pointer offsets refer to the old coordinate system.
+        drag.snap_candidate = null;
+        aqueous.finishInteractiveDrag();
+    };
+    var layouts = aqueous.layout_states.iterator();
+    while (layouts.next()) |entry| {
+        if (entry.key_ptr.output == id) layout_engine.reconfigureOutput(entry.value_ptr, before, after, usable);
+    }
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        const workspace = window.workspace orelse continue;
+        if (workspace.output != output) continue;
+        const state = &window.policy_state;
+        state.floating_geometry = @import("layout/geometry.zig").reconfigureGeometry(state.floating_geometry, before, after, usable);
+        state.snap_restore_geometry = @import("layout/geometry.zig").reconfigureGeometry(state.snap_restore_geometry, before, after, usable);
+    }
+}
+
 pub fn applyManageCycle(aqueous: *Aqueous) !void {
     if (!aqueous.mode.runsInternal()) return;
     defer aqueous.requested_stack_focus = null;

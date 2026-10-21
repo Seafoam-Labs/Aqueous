@@ -243,7 +243,8 @@ static void popup_done(void *d, struct xdg_popup *p) { (void)d;(void)p; }
 static void popup_repositioned(void *d, struct xdg_popup *p, uint32_t token) { (void)d;(void)p;(void)token; }
 static const struct xdg_popup_listener popup_listener={.configure=popup_configure,.popup_done=popup_done,.repositioned=popup_repositioned};
 static bool command(char *line) {
-    char op[32]; int a=0,b=0,c=0; assert(sscanf(line,"%31s %d %d %d",op,&a,&b,&c)>=1);
+    char op[32]; int a=0,b=0,c=0,d=0;
+    int count=sscanf(line,"%31s %d %d %d %d",op,&a,&b,&c,&d); assert(count>=1);
     struct window *w=(a>=0 && a<16)?&windows[a]:NULL;
     if (!strcmp(op,"quit")) return false;
     if (!strcmp(op,"create")) create(a,b,c);
@@ -305,7 +306,7 @@ static bool command(char *line) {
         assert(!w->surface); *w=(struct window){.id=a,.width=80,.height=60,.scale=1};
         w->surface=wl_compositor_create_surface(compositor);
         w->sub=wl_subcompositor_get_subsurface(subcompositor,w->surface,windows[b].surface);
-        wl_subsurface_set_position(w->sub,c,c); wl_subsurface_set_desync(w->sub); draw(w); wl_surface_commit(windows[b].surface);
+        wl_subsurface_set_position(w->sub,c,count>=5?d:c); wl_subsurface_set_desync(w->sub); draw(w); wl_surface_commit(windows[b].surface);
     }
     else if (!strcmp(op,"popup")) {
         assert(!w->surface); *w=(struct window){.id=a,.width=80,.height=60,.scale=1};

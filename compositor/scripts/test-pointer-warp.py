@@ -396,13 +396,39 @@ height = 300
         # and rotation; the surface-local request must still round-trip.
         command('press')
         request(op='set',changes=[dict(name='HEADLESS-1',scale=1.25,transform='90',position=[-500,-100])])
-        warp(0,80.25,90.5,accept=False) # mapped surface point is off every output
+        # Floating windows follow their output. Wait for the placement
+        # transaction before checking the surface-local warp during the grab.
+        wait(lambda: window()['geometry']['x']==g['x']-500 and window()['geometry']['y']==g['y']-100,
+             'floating window follows transformed output')
+        moved=window()['geometry']
+        warp(0,80.25,90.5)
+        assert position()==(moved['x']-8+80.25,moved['y']-8+90.5), position()
         command('release')
+
+        # Keep off-output rejection explicit: place a mapped subsurface across
+        # the left output edge, focus its visible half, then request a point
+        # inside the surface but outside every enabled output.
+        outputs=[r['bounds'] for r in ctl('shell','snapshot')['upsert']
+                 if r['kind']=='output' and r['enabled'] and r['powered']]
+        left=min(o['x'] for o in outputs)
+        top=next(o['y'] for o in outputs if o['x']==left)
+        command(f"child 2 0 {left-20-(moved['x']-8)} {top+40-(moved['y']-8)}")
+        move(left+10,top+50)
+        wait(lambda: events('source','enter')[-1]['id']==2, 'partly off-output subsurface focus')
+        warp(2,40.25,20.5)
+        assert position()==(left+20.25,top+60.5), position()
+        warp(2,10,20,accept=False)
+        command('press')
+        warp(2,10,20,accept=False)
+        command('release')
+        command('destroy 2')
+
         request(op='set',changes=[dict(name='HEADLESS-1',scale=1.25,transform='90',position=[-100,-100])])
+        wait(lambda: window()['geometry']['x']==moved['x']+400, 'second output move')
         point()
         warp(0,80.25,90.5)
         warp(0,81.25,91.5)
-        print('PASS lock/overview/DnD isolation, ancestor confinement, popups, geometry inset and transformed fractional output', flush=True)
+        print('PASS lock/overview/DnD isolation, ancestor confinement, popups, geometry inset, transformed fractional output and off-output rejection', flush=True)
         command('quit',error=True)
         command('quit','target',error=True)
         compositor.terminate()

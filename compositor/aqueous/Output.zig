@@ -2000,6 +2000,7 @@ pub fn manageStart(output: *Output) void {
             assert(output.scheduled.mode != .none);
 
             output.layer_shell.manageStart();
+            server.aqueous.reconfigureOutput(output);
 
             if (server.wm.object) |wm_v1| {
                 const new = output.object == null;

@@ -64,6 +64,11 @@ pub fn remove(state: *State, handle: types.Handle) void {
     _ = state.rects.remove(handle);
 }
 
+pub fn reconfigureOutput(state: *State, before: types.Rect, after: types.Rect, usable: types.Rect) void {
+    var rects = state.rects.valueIterator();
+    while (rects.next()) |rect| rect.* = geometry_policy.reconfigureGeometry(rect.*, before, after, usable);
+}
+
 fn initialGeometry(area: types.Rect, window: types.Window) types.Rect {
     const fallback_width = @min(800, @max(1, @divTrunc(@as(i64, area.width) * 3, 5)));
     const fallback_height = @min(600, @max(1, @divTrunc(@as(i64, area.height) * 3, 5)));
