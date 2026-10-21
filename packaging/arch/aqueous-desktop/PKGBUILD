@@ -15,7 +15,7 @@ url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL-3.0-only' 'MIT')
 makedepends=('jq' 'gtk4' 'freetype2' 'wayland' 'libxkbcommon' 'libinput' 'pixman' 'libpng' 'libdrm' 'libevdev' 'libdecor' 'libinih' 'pipewire' 'mesa' 'systemd-libs' 'seatd' 'libdisplay-info' 'libliftoff' 'lcms2' 'vulkan-icd-loader' 'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil' 'python' 'shaderc' 'clang' 'lld' 'llvm'
              'git' 'curl' 'patch' 'scdoc' 'wayland-protocols>=1.49' 'pkgconf' 'xorg-xwayland'
-             'meson' 'ninja' 'glslang' 'vulkan-headers' 'hwdata' 'zig>=0.16')
+             'meson' 'ninja' 'glslang' 'vulkan-headers' 'hwdata' 'zig=0.16.0')
 # Helper integration checks exercise org.gnome.desktop.interface via gsettings.
 checkdepends=('libarchive' 'jq' 'python' 'ripgrep' 'qt6-declarative' 'gsettings-desktop-schemas')
 source=(
@@ -37,6 +37,15 @@ prepare() {
 }
 
 build() {
+    # Check the compiler before building any component, including helpers.
+    local zig_ver
+    zig_ver=$(zig version) || return 1
+    if [[ $zig_ver != 0.16.0 ]]; then
+        error "Zig 0.16.0 required, found $zig_ver. Install the pinned zig package."
+        return 1
+    fi
+    msg2 "Using zig $zig_ver"
+
     # x86-64-v3 is shared by supported Intel and AMD CPUs; ARM stays baseline.
     case ${CARCH:-$(uname -m)} in
         x86_64)
@@ -57,25 +66,6 @@ build() {
     ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-config-zig-local" \
         zig build --build-file "$srcdir/aqueous/settingsApplication/build.zig" \
         -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-config-dist"
-
-    # Verify zig is new enough (the Aqueous compositor requires >= 0.16.0).
-    # We enforce this here instead of via a pacman version constraint because
-    # the repo `zig` package is currently 0.15.x and Zig 0.16 is only available
-    # via `zig-master-bin` (AUR), which provides unversioned `zig`.
-    if ! command -v zig >/dev/null 2>&1; then
-        error "zig not found. Install zig-master-bin from the AUR (or another zig >= 0.16.0)."
-        return 1
-    fi
-    local zig_ver zig_base
-    zig_ver=$(zig version)
-    # Strip any -dev.NNN+hash pre-release suffix so we compare the numeric base
-    # version with sort -V (which has inconsistent semantics around bare `-`).
-    zig_base="${zig_ver%%-*}"
-    if ! printf '0.16.0\n%s\n' "$zig_base" | sort -V -C; then
-        error "Zig >= 0.16.0 required, found $zig_ver. Install zig-master-bin from the AUR."
-        return 1
-    fi
-    msg2 "Using zig $zig_ver"
 
     cd "$srcdir/aqueous"
 

@@ -43,7 +43,7 @@ fn awaitStatus(supervisor: *dpi.Supervisor, value: u32, expected: dpi.State) !dp
             std.debug.print("state={s} dpi={d} expected={s}/{d}\n", .{ @tagName(s.state), s.dpi, @tagName(expected), value });
             return error.Timeout;
         }
-        _ = c.poll(null, 0, 20);
+        _ = c.nanosleep(&c.timespec{ .tv_sec = 0, .tv_nsec = 20 * std.time.ns_per_ms }, null);
     }
 }
 fn expectProperty(w: *dpi.Worker, expected: []const u8) !void {

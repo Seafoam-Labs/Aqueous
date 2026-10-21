@@ -58,10 +58,8 @@ jobs:
         shell: bash
         run: git config --global --add safe.directory '*'
 
-      - name: Setup Zig 0.16.0
-        uses: mlugg/setup-zig@v2
-        with:
-          version: 0.16.0
+      - name: Setup patched Zig 0.16.0
+        uses: ./.github/actions/setup-zig
 
       - name: Verify wayland-protocols carries wp_color_manager_v1 v3
         shell: bash
@@ -91,8 +89,8 @@ jobs:
             compositor/scripts/test-ext-capture-formats.sh
           cd compositor
           rm -rf -- "$GITHUB_WORKSPACE/publish/aqueous-compositor/share/aqueous-protocols"
-          PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
           tag="${{ github.event.inputs.tag || github.ref_name }}"
+          PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
           zig build -Dcpu=x86_64_v3 -Doptimize=ReleaseSafe -Dxwayland -Dllvm -Dman-pages=true -Dversion-string="${tag#v}" \
             --prefix "$GITHUB_WORKSPACE/publish/aqueous-compositor" install
           cmp "$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/libwlroots-0.20.so" \

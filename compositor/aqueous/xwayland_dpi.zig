@@ -5,7 +5,6 @@ pub const c = @cImport({
     @cDefine("_GNU_SOURCE", "1");
     @cInclude("xcb/xcb.h");
     @cInclude("errno.h");
-    @cInclude("poll.h");
     @cInclude("signal.h");
     @cInclude("spawn.h");
     @cInclude("sys/socket.h");
@@ -146,7 +145,7 @@ pub const Supervisor = struct {
                 while (c.waitpid(self.pid, null, 0) < 0 and errno() == c.EINTR) {}
                 break;
             }
-            _ = c.poll(null, 0, 10);
+            _ = c.nanosleep(&c.timespec{ .tv_sec = 0, .tv_nsec = 10 * std.time.ns_per_ms }, null);
         }
         allocator.free(self.display);
         allocator.destroy(self);
