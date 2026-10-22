@@ -11,7 +11,8 @@ import xml.etree.ElementTree as ET
 
 
 repo = Path(__file__).resolve().parents[2]
-variants = ("PKGBUILD", "packaging/arch/aqueous-desktop/PKGBUILD")
+# The Arch desktop now uses the Pearl preset; its packaging has a separate test.
+variants = ("PKGBUILD",)
 
 with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
     work = Path(temporary)

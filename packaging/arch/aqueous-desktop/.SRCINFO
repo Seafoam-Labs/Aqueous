@@ -1,20 +1,34 @@
 pkgbase = aqueous-desktop
-	pkgdesc = Complete stable Aqueous desktop (shell selected through welcome)
+	pkgdesc = Aqueous components for the Pearl desktop on Arch
 	pkgver = 1.0.5
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = x86_64
 	arch = aarch64
 	license = GPL-3.0-only
 	license = MIT
 	checkdepends = libarchive
-	checkdepends = jq
-	checkdepends = python
 	checkdepends = ripgrep
-	checkdepends = qt6-declarative
 	checkdepends = gsettings-desktop-schemas
+	makedepends = patchelf
+	makedepends = git
+	makedepends = curl
+	makedepends = patch
+	makedepends = scdoc
 	makedepends = jq
-	makedepends = gtk4
+	makedepends = python
+	makedepends = shaderc
+	makedepends = clang
+	makedepends = lld
+	makedepends = llvm
+	makedepends = wayland-protocols>=1.49
+	makedepends = pkgconf
+	makedepends = meson
+	makedepends = ninja
+	makedepends = glslang
+	makedepends = vulkan-headers
+	makedepends = hwdata
+	makedepends = zig=0.16.0
 	makedepends = freetype2
 	makedepends = wayland
 	makedepends = libxkbcommon
@@ -24,8 +38,10 @@ pkgbase = aqueous-desktop
 	makedepends = libdrm
 	makedepends = libevdev
 	makedepends = libdecor
-	makedepends = libinih
+	makedepends = xorg-xwayland
 	makedepends = pipewire
+	makedepends = glib2
+	makedepends = fontconfig
 	makedepends = mesa
 	makedepends = systemd-libs
 	makedepends = seatd
@@ -37,43 +53,22 @@ pkgbase = aqueous-desktop
 	makedepends = xcb-util-errors
 	makedepends = xcb-util-wm
 	makedepends = xcb-util-renderutil
-	makedepends = python
-	makedepends = shaderc
-	makedepends = clang
-	makedepends = lld
-	makedepends = llvm
-	makedepends = git
-	makedepends = curl
-	makedepends = patch
-	makedepends = scdoc
-	makedepends = wayland-protocols>=1.49
-	makedepends = pkgconf
-	makedepends = xorg-xwayland
-	makedepends = meson
-	makedepends = ninja
-	makedepends = glslang
-	makedepends = vulkan-headers
-	makedepends = hwdata
-	makedepends = zig=0.16.0
+	makedepends = gtk4
+	makedepends = libinih
 	options = !strip
 	options = !debug
 	options = !zipman
+	source = session.toml
 	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v1.0.5
-	source = aqueous-desktop.install
 	source = wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz
 	source = xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz
+	sha256sums = 2cecdd6b68deaedc81997669b26ddfb705c458c8de9d8fdd465aaae35eba845b
 	sha256sums = SKIP
-	sha256sums = b0bb05159be3b3a75dc2b8a38fadfb35a4145cd99ae8c40ecd53e3939eeb6eae
 	sha256sums = 972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343
 	sha256sums = 3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400
 
-pkgname = aqueous-shell-none
-	pkgdesc = Shell-free Aqueous portal provider preset
-	depends = aqueous-session=1.0.5-1
-	depends = xdg-desktop-portal-gtk
-
 pkgname = aqueous-core
-	pkgdesc = Aqueous core
+	pkgdesc = Aqueous compositor, configuration helper and control client
 	license = GPL-3.0-only
 	license = MIT
 	license = 0BSD
@@ -113,8 +108,9 @@ pkgname = aqueous-core
 	conflicts = aqueous-core-bin
 
 pkgname = aqueous-session
-	pkgdesc = Aqueous session
-	depends = aqueous-core=1.0.5-1
+	pkgdesc = Aqueous login session and shell-neutral desktop configuration
+	arch = any
+	depends = aqueous-core=1.0.5-2
 	depends = bash
 	depends = jq
 	depends = coreutils
@@ -139,21 +135,31 @@ pkgname = aqueous-session
 	backup = etc/xdg/menus/aqueous-applications.menu
 	backup = etc/xdg/xdg-desktop-portal-aqueous/config
 
-pkgname = aqueous-welcome
-	pkgdesc = Aqueous welcome
-	depends = aqueous-session=1.0.5-1
-	depends = gtk4
-	depends = shelly
-	depends = sudo
+pkgname = aqueous-integration-pearl
+	pkgdesc = Pearl shell integration for the Aqueous session
+	arch = any
+	depends = aqueous-session=1.0.5-2
 	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
-	conflicts = aqueous-welcome-bin
+	conflicts = aqueous-integration-pearl-bin
 	conflicts = aqueous<0.7.0-2
 	conflicts = aqueous-bin<0.7.0-2
 
+pkgname = aqueous-shell-pearl
+	pkgdesc = Pearl shell dependency preset for Aqueous
+	arch = any
+	depends = pearl-capture-picker>=1
+	depends = xdg-desktop-portal-aqueous=1.0.5-2
+	depends = aqueous-integration-pearl=1.0.5-2
+	depends = pearl
+	conflicts = aqueous-git<1.0.2.r6
+	conflicts = aqueous-git-intel
+	conflicts = aqueous-git-dms
+	conflicts = aqueous-shell-pearl-bin
+
 pkgname = xdg-desktop-portal-aqueous
-	pkgdesc = Aqueous portal
+	pkgdesc = Aqueous screen-sharing portal and standalone GTK source picker
 	depends = gtk4
 	depends = libinih
 	depends = pipewire
@@ -167,80 +173,32 @@ pkgname = xdg-desktop-portal-aqueous
 	conflicts = aqueous<0.7.0-2
 	conflicts = aqueous-bin<0.7.0-2
 
-pkgname = aqueous-integration-dms
-	pkgdesc = Aqueous integration-dms
-	depends = aqueous-session=1.0.5-1
-	depends = xdg-desktop-portal-aqueous=1.0.5-1
-	conflicts = aqueous-git<1.0.2.r6
-	conflicts = aqueous-git-intel
-	conflicts = aqueous-git-dms
-	conflicts = aqueous-integration-dms-bin
-	conflicts = aqueous<0.7.0-2
-	conflicts = aqueous-bin<0.7.0-2
-
-pkgname = aqueous-integration-noctalia
-	pkgdesc = Aqueous integration-noctalia
-	depends = aqueous-session=1.0.5-1
-	conflicts = aqueous-git<1.0.2.r6
-	conflicts = aqueous-git-intel
-	conflicts = aqueous-git-dms
-	conflicts = aqueous-integration-noctalia-bin
-	conflicts = aqueous<0.7.0-2
-	conflicts = aqueous-bin<0.7.0-2
-
-pkgname = aqueous-integration-pearl
-	pkgdesc = Aqueous integration-pearl
-	depends = aqueous-session=1.0.5-1
-	conflicts = aqueous-git<1.0.2.r6
-	conflicts = aqueous-git-intel
-	conflicts = aqueous-git-dms
-	conflicts = aqueous-integration-pearl-bin
-	conflicts = aqueous<0.7.0-2
-	conflicts = aqueous-bin<0.7.0-2
-
-pkgname = aqueous-shell-dms
-	pkgdesc = Aqueous aqueous-shell-dms
-	depends = xdg-desktop-portal-gtk
-	depends = aqueous-integration-dms=1.0.5-1
-	depends = dms-shell
-	conflicts = aqueous-git<1.0.2.r6
-	conflicts = aqueous-git-intel
-	conflicts = aqueous-git-dms
-	conflicts = aqueous-shell-dms-bin
-
-pkgname = aqueous-shell-noctalia
-	pkgdesc = Aqueous aqueous-shell-noctalia
-	depends = xdg-desktop-portal-gtk
-	depends = aqueous-integration-noctalia=1.0.5-1
-	depends = noctalia
-	conflicts = aqueous-git<1.0.2.r6
-	conflicts = aqueous-git-intel
-	conflicts = aqueous-git-dms
-	conflicts = aqueous-shell-noctalia-bin
-
-pkgname = aqueous-shell-pearl
-	pkgdesc = Aqueous aqueous-shell-pearl
-	depends = pearl-capture-picker>=1
-	depends = xdg-desktop-portal-aqueous=1.0.5-1
-	depends = aqueous-integration-pearl=1.0.5-1
-	depends = pearl
-	conflicts = aqueous-git<1.0.2.r6
-	conflicts = aqueous-git-intel
-	conflicts = aqueous-git-dms
-	conflicts = aqueous-shell-pearl-bin
-
 pkgname = aqueous-desktop
-	pkgdesc = Complete stable Aqueous desktop (shell selected through welcome)
-	install = aqueous-desktop.install
-	depends = aqueous-shell-none=1.0.5-1
-	depends = aqueous-core=1.0.5-1
-	depends = aqueous-session=1.0.5-1
-	depends = aqueous-welcome=1.0.5-1
-	depends = xdg-desktop-portal-aqueous=1.0.5-1
-	depends = aqueous-integration-dms=1.0.5-1
-	depends = aqueous-integration-noctalia=1.0.5-1
-	depends = aqueous-integration-pearl=1.0.5-1
+	pkgdesc = Aqueous desktop with stable Aqueous, Pearl and Pearl Greeter
+	arch = any
+	license = GPL-3.0-only
+	depends = aqueous-core>=1.0.5-2
+	depends = aqueous-session>=1.0.5-2
+	depends = xdg-desktop-portal-aqueous>=1.0.5-2
+	depends = aqueous-integration-pearl>=1.0.5-2
+	depends = aqueous-shell-pearl>=1.0.5-2
+	depends = pearl
+	depends = pearl-greeter
+	depends = rtkit
 	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
 	conflicts = aqueous-bin
+	conflicts = aqueous-welcome
+	conflicts = aqueous-shell-none
+	conflicts = aqueous-integration-dms
+	conflicts = aqueous-integration-noctalia
+	conflicts = aqueous-shell-dms
+	conflicts = aqueous-shell-noctalia
+	replaces = aqueous-welcome
+	replaces = aqueous-shell-none
+	replaces = aqueous-integration-dms
+	replaces = aqueous-integration-noctalia
+	replaces = aqueous-shell-dms
+	replaces = aqueous-shell-noctalia
+	backup = etc/xdg/aqueous/session.toml

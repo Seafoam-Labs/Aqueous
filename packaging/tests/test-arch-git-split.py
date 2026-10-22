@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the single Arch package base and its complete build/install cohort."""
+"""Verify the co-installable Arch Git base and its complete build/install cohort."""
 import os
 from pathlib import Path
 import re
@@ -43,8 +43,9 @@ assert meta['replaces'] == ['aqueous-desktop-git']
 assert meta['conflicts'] == ['aqueous-desktop-git']
 assert meta['provides'] == [f'aqueous-desktop-git={version}']
 assert packages['aqueous-session-git']['conflicts'] == ['aqueous-welcome-git']
-for name in ('aqueous-core-git', 'aqueous-desktop-git'):
-    assert not (ROOT / 'packaging/arch' / name / 'PKGBUILD').exists()
+# The Pearl desktop replacement is a separate, alternative package base.
+# Core remains a split package rather than an independently built recipe.
+assert not (ROOT / 'packaging/arch/aqueous-core-git/PKGBUILD').exists()
 
 # Check that the two native build pipelines run once, share a revision, and
 # stop on failure. Package functions must route each payload to its own root.
@@ -99,4 +100,4 @@ for path in (ROOT / '.SRCINFO', ROOT / 'packaging/arch/aqueous/.SRCINFO',
     text = path.read_text()
     assert '\tconflicts = aqueous-git\n' not in text, path
     assert '\tconflicts = aqueous-git<1.0.2.r6\n' in text, path
-print('PASS: one Arch split base, exact internal dependencies, optional shells, migration metadata, build/check dispatch and failure propagation')
+print('PASS: co-installable Arch split base, exact internal dependencies, optional shells, migration metadata, build/check dispatch and failure propagation')
