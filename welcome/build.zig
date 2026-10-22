@@ -37,7 +37,7 @@ pub fn build(b: *std.Build) void {
             .link_libc = true,
         }),
     });
-    inline for (.{ "gtk4", "gdk4", "glib2", "gio2", "gobject2" }) |name|
+    inline for (.{ "gtk4", "gdk4", "gdkwayland4", "glib2", "gio2", "gobject2" }) |name|
         picker.root_module.addImport(name, gobject.module(name));
     picker.root_module.linkSystemLibrary("gtk4", .{});
     picker.root_module.addOptions("build_options", options);

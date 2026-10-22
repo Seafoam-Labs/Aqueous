@@ -280,7 +280,16 @@ fn run() !void {
     var credentials: c.struct_ucred = undefined;
     var credential_len: c.socklen_t = @sizeOf(c.struct_ucred);
     if (c.getsockopt(client, c.SOL_SOCKET, c.SO_PEERCRED, &credentials, &credential_len) != 0 or credentials.uid != c.getuid()) return error.InvalidPeer;
-    const request = try std.json.Stringify.valueAlloc(allocator, .{ .version = 1, .choices = lines.items }, .{});
+    const parent_window = env("AQUEOUS_PORTAL_PARENT_WINDOW") orelse "";
+    const activation_token = env("XDG_ACTIVATION_TOKEN") orelse "";
+    if (parent_window.len > 4096 or activation_token.len > 4096 or
+        !std.unicode.utf8ValidateSlice(parent_window) or !std.unicode.utf8ValidateSlice(activation_token)) return error.InvalidWindowContext;
+    const request = try std.json.Stringify.valueAlloc(allocator, .{
+        .version = 1,
+        .choices = lines.items,
+        .parentWindow = parent_window,
+        .activationToken = activation_token,
+    }, .{});
     defer allocator.free(request);
     try writeAll(client, request, now() + 5000);
     try writeAll(client, "\n", now() + 5000);

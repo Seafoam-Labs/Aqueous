@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 import qs.Common
 
 Item {
@@ -25,7 +26,10 @@ Item {
                 transport.finish(null);
                 return;
             }
-            const screen = Quickshell.screens[0];
+            // Quickshell cannot import a portal's exported Wayland parent.
+            // Prefer the active application's output over an arbitrary first one.
+            const active = ToplevelManager.activeToplevel;
+            const screen = active && active.screens.length ? active.screens[0] : Quickshell.screens[0];
             if (!screen) {
                 transport.finish(null);
                 return;

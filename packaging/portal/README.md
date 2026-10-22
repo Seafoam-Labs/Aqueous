@@ -4,9 +4,43 @@ Aqueous packages a private, namespaced build of
 [`xdg-desktop-portal-wlr`](https://github.com/emersion/xdg-desktop-portal-wlr)
 0.8.4. The upstream source is fetched during packaging and the patch in
 this directory namespaces the backend and makes dmenu selection asynchronous.
-The request remains cancellable while its picker is open; closing its request
+`SelectSources` validates and stores options; `Start` presents the picker and
+returns the stream. Each session can start only once. The request remains
+cancellable while its picker is open; closing its request
 or session kills the chooser process group and returns no capture source.
-PipeWire streaming and Screenshot retain the upstream implementation.
+Screenshot retains the upstream implementation. PipeWire capture cancels pending
+Wayland frames and capture timers on pause or buffer removal. A paused buffer is
+retained for resume without publishing an incomplete image, preventing overlapping
+frame requests during stream startup and consumer reconnects.
+
+Source selection persists for the requesting application's lifetime when it
+requests persistence. A preview followed by sharing can reuse the monitor
+selection through the public portal's restore token. Requests with
+`persist_mode=0` still require a fresh selection. The backend caps both new and
+restored sessions at the same policy, and checks the requested source types and
+output availability before restoring. Window selections currently have no
+restore data in the pinned upstream backend.
+
+`XDPW_PERSIST_MODE=transient` explicitly selects the default policy;
+`XDPW_PERSIST_MODE=none` disables reuse; `XDPW_PERSIST_MODE=permanent` permits
+permanent persistence when requested by the application. Set overrides on the
+backend service environment. Unknown override values disable persistence.
+These settings never increase the mode requested by an application.
+
+The dmenu child receives `AQUEOUS_PORTAL_PARENT_WINDOW` from `Start`, and a
+request-specific `XDG_ACTIVATION_TOKEN` if supplied. Inherited activation tokens
+are cleared. Source lines on stdin and the selected line on stdout are unchanged.
+The updated Pearl and standalone GTK pickers import `wayland:` parent handles
+before mapping and mark themselves modal, preserving the parent's display and
+modal focus even with `focus_new_windows=false`. Apps that supply no parent
+still use normal compositor placement and focus policy.
+
+The DMS bridge adds optional `parentWindow` and `activationToken` fields to its
+version-1 JSON request, without changing the index response. Quickshell's current
+FloatingWindow API does not import external Wayland parent handles or activation
+tokens. Its picker uses the active application's display, falling back to the
+first available display; native parent/focus handoff remains a Quickshell
+limitation. Noctalia retains its own dmenu presentation behavior.
 
 Installed files:
 
@@ -57,6 +91,12 @@ so inspect the portal journal for the underlying error:
 journalctl --user -u xdg-desktop-portal-aqueous.service -b
 ```
 
+With backend log level `DEBUG`, `portal:` messages correlate `SelectSources`,
+`Start`, chooser launch/finish, request cancellation and owner loss by request
+and session handles. A new chooser launch with a new session after cancellation
+identifies a new client request; the backend does not retry a cancelled picker.
+Activation tokens and exported parent handles are not logged.
+
 For example, `PluginDisabled` means an explicit user disable was respected;
 `PluginNotReady` means DMS or the installed portal plugin did not become ready;
 `PluginSettingsInvalid` means the bridge refused to change malformed DMS
@@ -94,6 +134,28 @@ python3 packaging/tests/test-portal-host.py \
   /tmp/aqueous-portal-dist/bin/aqueous-dms-portal-chooser
 python3 packaging/tests/test-noctalia-portal.py
 ```
+
+Backend and GTK parent/focus regressions (build the patched backend first):
+
+```sh
+python3 packaging/tests/test-portal-session.py --backend /path/to/xdg-desktop-portal-aqueous
+python3 packaging/tests/test-portal-picker-context.py \
+  --backend /path/to/xdg-desktop-portal-aqueous \
+  --picker /path/to/aqueous-portal-picker \
+  --picker /path/to/pearl-capture-picker
+```
+
+These tests accept `--compositor`; the GTK test also accepts `--ctl`. They default
+to the workspace compositor build. They use private D-Bus, PipeWire and two
+headless outputs, and need Python GObject bindings, the desktop portal router,
+Wayland development files and a C compiler. Session tests cover simultaneous
+sessions, bad handles, persistence modes and overrides, restore validation,
+public preview/share reuse, request/session closure, sender authorization and
+frontend owner loss. The GTK test uses an exported fullscreen parent on each
+output and a persistent virtual keyboard to verify modal focus and Escape.
+Pearl's `tests/capture_picker/test_portal.py` additionally validates real
+PipeWire frames before and after consumer reconnects; it requires GStreamer's
+`pipewiresrc`, `videoconvert` and `pngenc`, plus the GdkPixbuf Python bindings.
 
 The bridge tests use fake DMS processes and real Unix sockets. The host test
 loads real DMS QML in an isolated offscreen Quickshell instance and reports the

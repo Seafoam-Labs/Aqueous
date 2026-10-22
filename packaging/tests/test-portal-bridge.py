@@ -68,7 +68,8 @@ with tempfile.TemporaryDirectory(prefix='aq-portal-', dir='/tmp') as directory:
     (root / 'bin/dms').write_text(fake)
     (root / 'bin/dms').chmod(0o755)
     env = dict(os.environ, PATH=str(root / 'bin'), XDG_RUNTIME_DIR=str(runtime),
-               XDG_CONFIG_HOME=str(root / 'config'), FAKE_DISCOVERY_DELAY='2')
+               XDG_CONFIG_HOME=str(root / 'config'), FAKE_DISCOVERY_DELAY='2',
+               AQUEOUS_PORTAL_PARENT_WINDOW='wayland:request-parent', XDG_ACTIVATION_TOKEN='request-token')
     settings = root / 'config/DankMaterialShell/plugin_settings.json'
     labels = 'Monitor: DP-1 Vendor display\nWindow: Résumé $(touch sentinel) "quoted" (id-2)\nWindow: Résumé (id-3)\n'
 
@@ -86,6 +87,9 @@ with tempfile.TemporaryDirectory(prefix='aq-portal-', dir='/tmp') as directory:
     assert result.stdout.decode() == labels.splitlines()[1] + '\n'
     assert json.loads(settings.read_text()) == {'aqueousPortal': {'enabled': True}, 'unrelated': {'enabled': True}}
     assert json.loads((runtime / 'received.json').read_text())['choices'] == labels.splitlines()
+    context = json.loads((runtime / 'received.json').read_text())
+    assert context['parentWindow'] == 'wayland:request-parent'
+    assert context['activationToken'] == 'request-token'
     clean()
     for mode, expected in [('cancel', 0), ('invalid', 1), ('disconnect', 1)]:
         result = run(mode=mode)

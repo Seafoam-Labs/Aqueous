@@ -2,6 +2,8 @@
 #define _GNU_SOURCE
 #include <assert.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <stdbool.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -42,8 +44,13 @@ int main(int argc, char **argv) {
     zwp_virtual_keyboard_v1_keymap(keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd, size);
     close(fd);
     assert(wl_display_roundtrip(display) >= 0);
-    for (int i = 1; i < argc; ++i) {
-        uint32_t key = (uint32_t)strtoul(argv[i], NULL, 10);
+    bool interactive = !strcmp(argv[1], "--stdin");
+    if (interactive) { puts("ready"); fflush(stdout); }
+    for (int i = 1; interactive || i < argc; ++i) {
+        uint32_t key;
+        if (interactive) {
+            if (scanf("%u", &key) != 1) break;
+        } else key = (uint32_t)strtoul(argv[i], NULL, 10);
         zwp_virtual_keyboard_v1_key(keyboard, i * 200, key, WL_KEYBOARD_KEY_STATE_PRESSED);
         zwp_virtual_keyboard_v1_key(keyboard, i * 200 + 50, key, WL_KEYBOARD_KEY_STATE_RELEASED);
         assert(wl_display_roundtrip(display) >= 0);

@@ -2,7 +2,9 @@
 const std = @import("std");
 const gtk = @import("gtk4");
 const gdk = @import("gdk4");
+const gdkwayland = @import("gdkwayland4");
 const gio = @import("gio2");
+const object = @import("gobject2");
 const glib = @import("glib2");
 const options = @import("build_options");
 pub const aqueous_instance_name = options.instance_name;
@@ -81,8 +83,24 @@ fn activate(_: *gio.Application, self: *State) callconv(.c) void {
     row.append(share_button.as(gtk.Widget));
     outer.append(row.as(gtk.Widget));
     const keys = gtk.EventControllerKey.new();
+    keys.as(gtk.EventController).setPropagationPhase(.capture);
     _ = gtk.EventControllerKey.signals.key_pressed.connect(keys, *State, key, self, .{});
     window.as(gtk.Widget).addController(keys.as(gtk.EventController));
+    // The backend supplies context per request, separately from source labels.
+    window.as(gtk.Widget).realize();
+    if (window.as(gtk.Native).getSurface()) |surface| {
+        if (object.ext.cast(gdkwayland.WaylandToplevel, surface)) |toplevel| {
+            if (glib.getenv("AQUEOUS_PORTAL_PARENT_WINDOW")) |parent| {
+                const value = std.mem.span(parent);
+                if (value.len > 8 and value.len <= 4096 and std.mem.startsWith(u8, value, "wayland:")) {
+                    if (toplevel.setTransientForExported(parent + 8) != 0) window.setModal(1);
+                }
+            }
+            if (glib.getenv("XDG_ACTIVATION_TOKEN")) |token| {
+                if (std.mem.span(token).len <= 4096) toplevel.as(gdk.Toplevel).setStartupId(token);
+            }
+        }
+    }
     window.present();
     if (options.test_hooks) if (glib.getenv("AQUEOUS_PICKER_TEST_CLOSE_MS")) |ms| {
         _ = glib.timeoutAdd(std.fmt.parseInt(c_uint, std.mem.span(ms), 10) catch 500, smokeClose, self);

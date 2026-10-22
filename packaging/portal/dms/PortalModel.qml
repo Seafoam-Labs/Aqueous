@@ -3,6 +3,8 @@ import QtQuick
 QtObject {
     id: root
     property var choices: []
+    property string parentWindow: ""
+    property string activationToken: ""
     property string query: ""
     property int currentIndex: 0
     readonly property var filtered: {
@@ -20,6 +22,13 @@ QtObject {
             || !request.choices.every(label => typeof label === "string" && label.length > 0
                 && !label.includes("\n") && !label.includes("\u0000")))
             return false;
+        for (const key of ["parentWindow", "activationToken"]) {
+            if (request[key] !== undefined && (typeof request[key] !== "string"
+                || request[key].length > 4096 || request[key].includes("\u0000")))
+                return false;
+        }
+        parentWindow = request.parentWindow || "";
+        activationToken = request.activationToken || "";
         choices = request.choices.slice();
         query = "";
         currentIndex = 0;
@@ -33,6 +42,8 @@ QtObject {
 
     function clear() {
         choices = [];
+        parentWindow = "";
+        activationToken = "";
         query = "";
         currentIndex = 0;
     }
