@@ -3,8 +3,8 @@
 pkgbase=aqueous-desktop
 pkgname=(aqueous-core aqueous-session aqueous-integration-pearl aqueous-shell-pearl
          xdg-desktop-portal-aqueous devario-desktop)
-pkgver=1.0.4
-pkgrel=3
+pkgver=1.0.5
+pkgrel=1
 pkgdesc='Aqueous components for the Devario Pearl desktop'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Seafoam-Labs/Aqueous'

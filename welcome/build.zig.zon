@@ -1,6 +1,6 @@
 .{
     .name = .aqueous_welcome,
-    .version = "1.0.0",
+    .version = "1.0.5",
     .fingerprint = 0x709f97c586187a8e,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{

@@ -1,7 +1,7 @@
 pkgbase = aqueous-desktop-git
 	pkgdesc = Devario Pearl desktop with Aqueous Git (replaces stable)
-	pkgver = 1.0.4.r20.g2265025
-	pkgrel = 3
+	pkgver = 1.0.5
+	pkgrel = 1
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = x86_64
 	arch = aarch64
@@ -99,8 +99,8 @@ pkgname = aqueous-core-git
 	depends = xcb-util-renderutil
 	depends = brightnessctl
 	depends = playerctl
-	provides = aqueous=1.0.4.r20.g2265025
-	provides = aqueous-core=1.0.4.r20.g2265025-3
+	provides = aqueous=1.0.5
+	provides = aqueous-core=1.0.5-1
 	conflicts = aqueous-core
 	conflicts = aqueous
 	conflicts = aqueous-bin
@@ -112,7 +112,7 @@ pkgname = aqueous-core-git
 pkgname = aqueous-session-git
 	pkgdesc = Aqueous login session and shell-neutral desktop configuration
 	arch = any
-	depends = aqueous-core-git=1.0.4.r20.g2265025-3
+	depends = aqueous-core-git=1.0.5-1
 	depends = bash
 	depends = jq
 	depends = coreutils
@@ -125,7 +125,7 @@ pkgname = aqueous-session-git
 	depends = wl-clipboard
 	depends = libnotify
 	depends = xdg-desktop-portal
-	provides = aqueous-session=1.0.4.r20.g2265025-3
+	provides = aqueous-session=1.0.5-1
 	conflicts = aqueous-session
 	conflicts = aqueous-welcome-git
 	conflicts = aqueous-git<1.0.2.r6
@@ -148,7 +148,7 @@ pkgname = xdg-desktop-portal-aqueous-git
 	depends = wayland
 	depends = systemd-libs
 	depends = xdg-desktop-portal
-	provides = xdg-desktop-portal-aqueous=1.0.4.r20.g2265025-3
+	provides = xdg-desktop-portal-aqueous=1.0.5-1
 	conflicts = xdg-desktop-portal-aqueous
 	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
@@ -160,8 +160,8 @@ pkgname = xdg-desktop-portal-aqueous-git
 pkgname = aqueous-integration-pearl-git
 	pkgdesc = Pearl shell integration for the Aqueous session
 	arch = any
-	depends = aqueous-session-git=1.0.4.r20.g2265025-3
-	provides = aqueous-integration-pearl=1.0.4.r20.g2265025-3
+	depends = aqueous-session-git=1.0.5-1
+	provides = aqueous-integration-pearl=1.0.5-1
 	conflicts = aqueous-integration-pearl
 	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
@@ -174,10 +174,10 @@ pkgname = aqueous-shell-pearl-git
 	pkgdesc = Pearl shell dependency preset for Aqueous
 	arch = any
 	depends = pearl-capture-picker>=1
-	depends = xdg-desktop-portal-aqueous-git=1.0.4.r20.g2265025-3
-	depends = aqueous-integration-pearl-git=1.0.4.r20.g2265025-3
+	depends = xdg-desktop-portal-aqueous-git=1.0.5-1
+	depends = aqueous-integration-pearl-git=1.0.5-1
 	depends = pearl-git
-	provides = aqueous-shell-pearl=1.0.4.r20.g2265025-3
+	provides = aqueous-shell-pearl=1.0.5-1
 	conflicts = aqueous-shell-pearl
 	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
@@ -188,17 +188,17 @@ pkgname = devario-desktop-git
 	pkgdesc = Devario desktop with Aqueous Git, Pearl Git and Pearl Greeter
 	arch = any
 	license = GPL-3.0-only
-	depends = aqueous-core-git>=1.0.4.r20.g2265025-3
-	depends = aqueous-session-git>=1.0.4.r20.g2265025-3
-	depends = xdg-desktop-portal-aqueous-git>=1.0.4.r20.g2265025-3
-	depends = aqueous-integration-pearl-git>=1.0.4.r20.g2265025-3
-	depends = aqueous-shell-pearl-git>=1.0.4.r20.g2265025-3
+	depends = aqueous-core-git>=1.0.5-1
+	depends = aqueous-session-git>=1.0.5-1
+	depends = xdg-desktop-portal-aqueous-git>=1.0.5-1
+	depends = aqueous-integration-pearl-git>=1.0.5-1
+	depends = aqueous-shell-pearl-git>=1.0.5-1
 	depends = pearl-git
 	depends = pearl-greeter
 	depends = rtkit
-	provides = devario-desktop=1.0.4.r20.g2265025-3
-	provides = aqueous-desktop-git=1.0.4.r20.g2265025-3
-	provides = aqueous-git=1.0.4.r20.g2265025-3
+	provides = devario-desktop=1.0.5-1
+	provides = aqueous-desktop-git=1.0.5-1
+	provides = aqueous-git=1.0.5-1
 	conflicts = devario-desktop
 	conflicts = aqueous-desktop
 	conflicts = devario-aqueous-desktop
