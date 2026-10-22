@@ -47,5 +47,5 @@ republishing solely because Aqueous or Pearl receives a version bump. The
 
 This recipe supplies `devario-desktop` from the Aqueous repository. The legacy
 `devario-aqueous-desktop` package is a different package and conflicts with it.
-For the development desktop, see [aqueous-git](../aqueous-git/README.md).
+For the development desktop, see [aqueous-desktop-git](../aqueous-desktop-git/README.md).
 See the [Devario packaging guide](../README.md) for validation and migration.

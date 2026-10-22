@@ -9,10 +9,10 @@ The recipe does not install the desktop session, configuration helper,
 portal or Pearl shell. For the complete stable Devario desktop, use
 [aqueous-desktop](../aqueous-desktop/README.md).
 
-`aqueous-core`, produced by the desktop recipe, also provides `aqueous`.
-It conflicts with this standalone package because they own the same
-compositor files. Install either `aqueous` or `aqueous-core`; you do not need
-both to satisfy Pearl Greeter's compositor dependency.
+`aqueous-core` and `aqueous-core-git`, produced by the desktop recipes, also
+provide `aqueous`. Each conflicts with this standalone package because they
+own the same compositor files. Install one of `aqueous`, `aqueous-core` or
+`aqueous-core-git` to satisfy Pearl Greeter's compositor dependency.
 
 To build, run from this directory:
 
@@ -25,6 +25,6 @@ The recipe fetches the release tag `v${pkgver}` specified in `PKGBUILD`.
 Publish that tag before building. Its package release is independent of the
 desktop recipe's package release.
 
-For development builds that can coexist with stable Aqueous, see
-[aqueous-git](../aqueous-git/README.md). See the [Devario packaging guide](../README.md)
+For development builds that replace stable Aqueous, see
+[aqueous-desktop-git](../aqueous-desktop-git/README.md). See the [Devario packaging guide](../README.md)
 for shared build requirements and validation.
