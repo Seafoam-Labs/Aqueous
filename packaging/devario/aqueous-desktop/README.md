@@ -49,3 +49,13 @@ This recipe supplies `devario-desktop` from the Aqueous repository. The legacy
 `devario-aqueous-desktop` package is a different package and conflicts with it.
 For the development desktop, see [aqueous-desktop-git](../aqueous-desktop-git/README.md).
 See the [Devario packaging guide](../README.md) for validation and migration.
+
+Release 1.0.5-2 makes `devario-desktop` depend on
+`devario-system-integration>=1-1`, maintained in `devario-os`. Publish that
+package in `devario-core` before publishing these six outputs. It owns the
+Devario GPU services, helpers and OS session environment; `devario-desktop`
+continues to own `/etc/xdg/aqueous/session.toml`. Existing ISO installations
+must first run the integration recipe's `migrate-overlay.py --apply` as root
+to back up and adopt unowned overlay files. See that recipe's README for the
+one-time migration and release order. Subsequent integration releases update
+through normal Shelly upgrades without rebuilding Aqueous.
