@@ -50,20 +50,26 @@ This recipe supplies `devario-desktop` from the Aqueous repository. The legacy
 For the development desktop, see [aqueous-desktop-git](../aqueous-desktop-git/README.md).
 See the [Devario packaging guide](../README.md) for validation and migration.
 
-Release 1.0.5-3 backports soft integrated/discrete renderer preferences onto
-v1.0.5 and requires `devario-system-integration>=1-4`. The integration package
+The Aqueous project implements soft integrated/discrete renderer preferences
+directly in its compositor and requires `devario-system-integration>=1-4` for
+Devario chassis detection. The integration package
 selects integrated graphics on hybrid laptops and dedicated graphics on desktops;
 unknown chassis use automatic selection. `/etc/devario/gpu-policy.json` overrides
 that policy. Explicit render-device selection still wins, and failed preferred
 GPUs fall back to other usable hardware. Both the desktop and Pearl Greeter use
-this patched compositor. Display discovery and GPU hotplug remain automatic
+this compositor. Display discovery and GPU hotplug remain automatic
 unless an administrator explicitly supplies `WLR_DRM_DEVICES`.
 
-The checksummed `gpu-render-preference.patch` also backports renderer-following
-client settings and stale-selector cleanup so the preference works consistently
+Renderer-following client settings and stale-selector cleanup are part of the
+project source, so the preference works consistently
 across direct launches, UWSM, systemd and D-Bus activation. Native Vulkan clients
 require `vulkan-mesa-layers`; include `lib32-vulkan-mesa-layers` when shipping
 32-bit applications. Actual application selection still depends on client support.
+
+Build through the project's normal build and release workflow. For tagged
+packages, publish a new source release containing these changes and update the
+existing recipes to that version; the older v1.0.5 tag predates this implementation.
+No downstream GPU backport is required.
 
 Publish the integration package before all six desktop outputs. The integration
 package owns Devario GPU services, helpers and OS session defaults, while

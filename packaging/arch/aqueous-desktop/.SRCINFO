@@ -59,12 +59,10 @@ pkgbase = aqueous-desktop
 	options = !strip
 	options = !debug
 	options = !zipman
-	source = gpu-render-preference.patch
 	source = session.toml
 	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v1.0.5
 	source = wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz
 	source = xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz
-	sha256sums = 22b21266529cdb541fd012d8183dd91d0edbda95627fa2a6eb8be9189076f176
 	sha256sums = 2cecdd6b68deaedc81997669b26ddfb705c458c8de9d8fdd465aaae35eba845b
 	sha256sums = SKIP
 	sha256sums = 972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343
