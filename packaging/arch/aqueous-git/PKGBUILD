@@ -4,7 +4,7 @@ pkgname=(aqueous-core-git aqueous-shell-none-git aqueous-session-git xdg-desktop
          aqueous-integration-dms-git aqueous-integration-noctalia-git aqueous-integration-pearl-git
          aqueous-shell-dms-git aqueous-shell-noctalia-git aqueous-shell-pearl-git aqueous-git)
 _channel=git
-pkgver=1.0.5
+pkgver=1.0.6
 pkgrel=1
 pkgdesc='Aqueous Git compositor, desktop components and optional shell presets (co-installable with stable)'
 arch=('x86_64' 'aarch64')
@@ -28,7 +28,7 @@ pkgver() {
     cd "$srcdir/aqueous"
     local version
     version=$(git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g')
-    if [[ -z $version ]]; then version="1.0.5.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"; fi
+    if [[ -z $version ]]; then version="1.0.6.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"; fi
     printf '%s\n' "$version"
 }
 build() {
