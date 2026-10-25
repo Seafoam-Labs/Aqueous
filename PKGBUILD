@@ -18,17 +18,18 @@ makedepends=('jq' 'gtk4' 'freetype2' 'wayland' 'libxkbcommon' 'libinput' 'pixman
 # Helper integration checks exercise org.gnome.desktop.interface via gsettings.
 checkdepends=('libarchive' 'jq' 'python' 'ripgrep' 'qt6-declarative' 'gsettings-desktop-schemas')
 source=(
-    "aqueous::git+${url}.git#tag=v${pkgver}"
+    "aqueous-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
     "wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz"
     "xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz"
 )
 sha256sums=(
-    'SKIP'
+    '7b7a1bd0b598071eeda18fcdc7e19f33d08aa4dcdc968fb27de6b3846ebefba8'
     '972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343'
     '3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400'
 )
 
 prepare() {
+    ln -sfnT "Aqueous-$pkgver" "$srcdir/aqueous"
     patch --fuzz=0 -d "$srcdir/xdg-desktop-portal-wlr-0.8.4" -Np1 \
         -i "$srcdir/aqueous/packaging/portal/0001-rename-backend-for-aqueous.patch"
 }
