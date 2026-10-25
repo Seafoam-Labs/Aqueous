@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/resource.h>
 #include <wlr/render/drm_syncobj.h>
 #include <wlr/util/log.h>
 
@@ -19,9 +20,10 @@ static const struct wlr_render_pass_impl render_pass_impl;
 static const struct wlr_addon_interface vk_color_transform_impl;
 static struct wlr_vk_renderer renderer;
 static struct wlr_vk_device device;
-static struct wlr_vk_texture texture;
-static struct wlr_vk_render_buffer target;
-static struct wlr_buffer src_buffer, dst_buffer;
+static unsigned active_output;
+static struct wlr_vk_texture texture, other_texture;
+static struct wlr_vk_render_buffer target, other_target;
+static struct wlr_buffer src_buffer, dst_buffer, other_src, other_dst;
 static struct wlr_drm_syncobj_timeline source_timeline, dest_timeline;
 static struct wl_listener lost_listener;
 static unsigned export_count, import_count, publish_count, submit_count, stage_count;
@@ -79,7 +81,8 @@ static int mock_close(int fd) {
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateSemaphore(VkDevice dev, const VkSemaphoreCreateInfo *info,
                                                  const VkAllocationCallbacks *alloc,
                                                  VkSemaphore *sem) {
-    assert(++next_sem < 256);
+    for (next_sem = 1; next_sem < 255 && sem_live[next_sem]; next_sem++) {}
+    assert(next_sem < 255);
     sem_live[next_sem] = true;
     *sem = (VkSemaphore)(uintptr_t)next_sem;
     return VK_SUCCESS;
@@ -171,7 +174,7 @@ static int mock_poll(struct pollfd *fds, nfds_t n, int timeout) {
     return poll_mode == 0 ? 0 : 1;
 }
 static bool mock_get_dmabuf(struct wlr_buffer *buffer, struct wlr_dmabuf_attributes *attr) {
-    assert(buffer == &src_buffer || buffer == &dst_buffer);
+    assert(buffer == &src_buffer || buffer == &dst_buffer || buffer == &other_src || buffer == &other_dst);
     attr->n_planes = 2;
     attr->fd[0] = 1000;
     attr->fd[1] = 1001;
@@ -256,11 +259,15 @@ static void init(void) {
     wl_signal_init(&renderer.wlr_renderer.events.lost);
     lost_listener = (struct wl_listener){.notify = on_lost};
     wl_signal_add(&renderer.wlr_renderer.events.lost, &lost_listener);
-    for (unsigned i = 0; i < 2; i++)
+    for (unsigned i = 0; i < 4; i++)
         init_cb(&renderer.command_buffers[i], i);
     src_buffer = dst_buffer = (struct wlr_buffer){.width = 32, .height = 32};
     target = (struct wlr_vk_render_buffer){.renderer = &renderer, .wlr_buffer = &dst_buffer};
     texture = (struct wlr_vk_texture){.renderer = &renderer, .buffer = &src_buffer};
+    active_output = 0;
+    other_src = other_dst = src_buffer;
+    other_target = (struct wlr_vk_render_buffer){.renderer = &renderer, .wlr_buffer = &other_dst};
+    other_texture = (struct wlr_vk_texture){.renderer = &renderer, .buffer = &other_src};
     export_count = import_count = publish_count = submit_count = stage_count = 0;
     wait_count = reset_count = callback_count = signal_count = lost_count = 0;
     fail_export = fail_import = fail_publish = 0;
@@ -277,12 +284,14 @@ static void init(void) {
     memset(copy_destination, 0xa5, sizeof(copy_destination));
 }
 static struct wlr_vk_render_pass *new_pass(bool explicit_source, bool explicit_dest) {
+    struct wlr_vk_texture *sample = active_output ? &other_texture : &texture;
+    struct wlr_vk_render_buffer *output = active_output ? &other_target : &target;
     struct wlr_vk_render_pass *pass = calloc(1, sizeof(*pass));
     pass->base.impl = &render_pass_impl;
     pass->renderer = &renderer;
-    pass->render_buffer = &target;
-    pass->render_buffer_out = &target.linear.out;
-    pass->command_buffer = &renderer.command_buffers[0];
+    pass->render_buffer = output;
+    pass->render_buffer_out = &output->linear.out;
+    pass->command_buffer = &renderer.command_buffers[active_output * 2];
     pass->command_buffer->recording = true;
     pass->command_buffer->submitted = false;
     pass->transition_dummy = !renderer.dummy3d_image_transitioned;
@@ -290,13 +299,13 @@ static struct wlr_vk_render_pass *new_pass(bool explicit_source, bool explicit_d
     pass->signal_point = 10;
     rect_union_init(&pass->updated_region);
     struct wlr_vk_render_pass_texture *pt = wl_array_add(&pass->textures, sizeof(*pt));
-    *pt = (struct wlr_vk_render_pass_texture){.texture = &texture,
-                                              .buffer = mock_lock(&src_buffer),
+    *pt = (struct wlr_vk_render_pass_texture){.texture = sample,
+                                              .buffer = mock_lock(sample->buffer),
                                               .wait_timeline =
                                                   explicit_source ? &source_timeline : NULL};
-    mock_lock(&dst_buffer);
-    texture.owned = true;
-    wl_list_insert(&renderer.foreign_textures, &texture.foreign_link);
+    mock_lock(output->wlr_buffer);
+    sample->owned = true;
+    wl_list_insert(&renderer.foreign_textures, &sample->foreign_link);
     struct wlr_vk_render_completion *done = calloc(1, sizeof(*done));
     done->callback = callback;
     wl_list_insert(&pass->command_buffer->completion_callbacks, &done->link);
@@ -311,7 +320,7 @@ static void assert_fds_closed(void) {
 }
 static void retire(void) {
     completed = renderer.last_submitted_point;
-    for (unsigned i = 0; i < 2; i++)
+    for (unsigned i = 0; i < 4; i++)
         release_command_buffer_resources(&renderer.command_buffers[i], &renderer, 0);
 }
 static void finish(void) {
@@ -320,10 +329,11 @@ static void finish(void) {
     while (renderer.failed_passes) {
         struct wlr_vk_render_pass *p = renderer.failed_passes;
         renderer.failed_passes = p->next_failed;
+        struct wlr_buffer *buffer = p->render_buffer->wlr_buffer;
         vulkan_render_pass_destroy(p);
-        mock_unlock(&dst_buffer);
+        mock_unlock(buffer);
     }
-    for (unsigned i = 0; i < 2; i++) {
+    for (unsigned i = 0; i < 4; i++) {
         struct wlr_vk_command_buffer *cb = &renderer.command_buffers[i];
         VkSemaphore *sem;
         wl_array_for_each(sem, &cb->wait_semaphores) vkDestroySemaphore(0, *sem, NULL);
@@ -331,6 +341,7 @@ static void finish(void) {
         vkDestroySemaphore(0, cb->binary_semaphore, NULL);
     }
     assert(src_buffer.n_locks == 0 && dst_buffer.n_locks == 0);
+    assert(other_src.n_locks == 0 && other_dst.n_locks == 0);
     assert_fds_closed();
     for (unsigned i = 1; i < 255; i++)
         assert(!sem_live[i]);
@@ -343,7 +354,42 @@ static void recover_next_frame(void) {
     assert(src_buffer.n_locks == 0 && dst_buffer.n_locks == 0);
     assert_fds_closed();
 }
+static int fd_count(void) {
+    int count = 0;
+    for (int fd = 0; fd < 64; fd++) count += fcntl(fd, F_GETFD) >= 0;
+    return count;
+}
+static void stress(void) {
+    int baseline = fd_count();
+    init();
+    for (unsigned frame = 0; frame < 6000; frame++) {
+        active_output = frame % 2;
+        bool explicit = frame % 3 == 0;
+        unsigned fault = frame % 19;
+        if (fault == 0) fail_export = export_count + 2;
+        if (fault == 1) fail_import = import_count + 2;
+        if (fault == 2) fail_export_semaphore = true;
+        if (fault == 3) fail_publish = publish_count + 1;
+        bool ok = render_pass_submit(&new_pass(explicit, explicit)->base);
+        assert(ok == (fault > 3));
+        fail_export = fail_import = fail_publish = 0;
+        fail_export_semaphore = false;
+        assert_fds_closed();
+        assert(fd_count() == baseline);
+        // Complete both outputs before replacing the buffer generation or
+        // simulating renderer recovery/output removal. Never drop live work.
+        retire();
+        assert(src_buffer.n_locks == 0 && dst_buffer.n_locks == 0);
+        assert(other_src.n_locks == 0 && other_dst.n_locks == 0);
+        if (frame % 97 == 0) { finish(); init(); }
+    }
+    finish();
+    assert(fd_count() == baseline);
+    printf("PASS: 6000 Vulkan frames, two output buffers/command slots, RLIMIT_NOFILE=64, baseline=%d after each frame and teardown\n", baseline);
+}
 int main(void) {
+    struct rlimit limit = {64, 64};
+    assert(setrlimit(RLIMIT_NOFILE, &limit) == 0);
     wlr_log_init(WLR_SILENT, NULL);
     for (unsigned explicit = 0; explicit < 2; explicit++) {
         init();
@@ -516,6 +562,7 @@ int main(void) {
         assert(callback_count == i + 1);
     }
     finish();
+    stress();
     puts("PASS: acquire/export/import/publication faults, FD/lock ownership, recovery, stage "
          "scopes, callbacks");
     return 0;

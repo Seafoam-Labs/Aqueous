@@ -137,6 +137,8 @@ let
       "${src}/compositor/patches/wlroots/0031-vulkan-device-selection.patch"
       "${src}/compositor/patches/wlroots/0033-scene-effect-single-pixel.patch"
       "${src}/compositor/patches/wlroots/0034-dmabuf-import-diagnostics.patch"
+      "${src}/compositor/patches/wlroots/0035-drm-prepare-resource-ownership.patch"
+      "${src}/compositor/patches/wlroots/0036-syncobj-waiter-allocation-cleanup.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending

@@ -1,0 +1,10 @@
+--- a/render/drm_syncobj_merger.c
++++ b/render/drm_syncobj_merger.c
+@@ -123,6 +123,7 @@
+ 	}
+ 	if (!wlr_drm_syncobj_timeline_waiter_init(&add->waiter, src_timeline, src_point,
+ 			flags, loop, export_waiter_handle_ready)) {
++		free(add);
+ 		return false;
+ 	}
+ 	add->merger = merger;

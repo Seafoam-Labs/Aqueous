@@ -40,6 +40,8 @@ patch_files=(
     "$here/patches/wlroots/0032-scene-empty-buffer-damage.patch"
     "$here/patches/wlroots/0033-scene-effect-single-pixel.patch"
     "$here/patches/wlroots/0034-dmabuf-import-diagnostics.patch"
+    "$here/patches/wlroots/0035-drm-prepare-resource-ownership.patch"
+    "$here/patches/wlroots/0036-syncobj-waiter-allocation-cleanup.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -276,6 +278,7 @@ python3 "$here/scripts/test-protocol-version-handlers.py" "$source_dir" "$prefix
 
 python3 "$here/scripts/test-overlay-backend.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-color-pipeline.py" "$source_dir" "$prefix"
+python3 "$here/scripts/test-drm-sync.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-vulkan-sync.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-vulkan-selection.py" "$source_dir"
 python3 "$here/scripts/test-xwayland-size-hints.py" "$source_dir"
