@@ -17,6 +17,15 @@ pub fn build(b: *Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const gpu_pin_tests = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("aqueous/GpuPin.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    }) });
+    const run_gpu_pin_tests = b.addRunArtifact(gpu_pin_tests);
+    b.step("test-gpu-pin", "Verify GPU identity policy and stale selector cleanup").dependOn(&run_gpu_pin_tests.step);
+
     const strip = b.option(bool, "strip", "Omit debug information") orelse false;
     const pie = b.option(bool, "pie", "Build a Position Independent Executable") orelse false;
     const use_llvm = b.option(bool, "llvm", "Force use of Zig's LLVM backend and the lld linker") orelse false;
@@ -885,6 +894,7 @@ pub fn build(b: *Build) !void {
         b.step("test-output-warming", "Test warming handlers with private Wayland resources and headless commits").dependOn(&run_warming_test.step);
 
         const test_step = b.step("test", "Run the tests");
+        test_step.dependOn(&run_gpu_pin_tests.step);
         if (run_dpi_worker_test) |run| test_step.dependOn(&run.step);
         const adaptive_sync_test = b.addTest(.{ .root_module = b.createModule(.{ .root_source_file = b.path("aqueous/adaptive_sync_policy.zig"), .target = target, .optimize = optimize }) });
         test_step.dependOn(&b.addRunArtifact(adaptive_sync_test).step);

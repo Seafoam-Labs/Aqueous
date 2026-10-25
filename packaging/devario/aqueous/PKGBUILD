@@ -2,14 +2,14 @@
 # Minimal stable compositor for consumers such as pearl-greeter.
 pkgname=aqueous
 pkgver=1.0.5
-pkgrel=1
+pkgrel=2
 pkgdesc='Aqueous Wayland compositor (stable, compositor only for Devario)'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Seafoam-Labs/Aqueous'
 license=('GPL-3.0-only' 'MIT' '0BSD' 'CC-BY-SA-4.0')
 depends=('wayland' 'libxkbcommon' 'libinput' 'pixman' 'libdrm' 'libevdev'
          'libdecor' 'xorg-xwayland' 'pipewire' 'mesa' 'systemd-libs' 'seatd'
-         'libdisplay-info' 'libliftoff' 'lcms2' 'vulkan-icd-loader'
+         'libdisplay-info' 'libliftoff' 'lcms2' 'vulkan-icd-loader' 'vulkan-mesa-layers'
          'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil'
          'brightnessctl' 'playerctl')
 makedepends=('patchelf' 'git' 'curl' 'patch' 'scdoc' 'python' 'shaderc' 'clang' 'lld' 'llvm'
@@ -21,9 +21,15 @@ provides=("aqueous=$pkgver")
 conflicts=('aqueous-bin' 'aqueous-core' 'aqueous-core-bin'
            'aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms')
 options=('!strip' '!debug')
-source=("aqueous::git+${url}.git#tag=v${pkgver}"
+source=('gpu-render-preference.patch'
+        "aqueous::git+${url}.git#tag=v${pkgver}"
         'wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz')
-sha256sums=('SKIP' '972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343')
+sha256sums=('22b21266529cdb541fd012d8183dd91d0edbda95627fa2a6eb8be9189076f176'
+            'SKIP' '972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343')
+
+prepare() {
+    patch --fuzz=0 -d "$srcdir/aqueous" -Np1 -i "$srcdir/gpu-render-preference.patch"
+}
 
 build() {
     # x86-64-v3 is shared by supported Intel and AMD CPUs; ARM stays baseline.

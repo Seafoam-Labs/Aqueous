@@ -27,7 +27,8 @@ production = struct + '\n' + '\n'.join(function(source, name) for name in (
     'wlr_vk_renderer_candidates_next', 'wlr_vk_renderer_candidates_destroy'))
 flags = shlex.split(subprocess.check_output(['pkg-config', '--cflags', 'libdrm', 'vulkan'], text=True))
 mutations = {
-    'software-first': ('cpu ? 2 : matches ? 0 : 1', 'cpu ? 0 : matches ? 1 : 2'),
+    'software-first': ('cpu ? 4 :', 'cpu ? 0 :'),
+    'preference-ignored': ('(other_type ? 2 : 0)', '(other_type ? 0 : 0)'),
     'explicit-device-ignored': ('explicit_path && (!matches || cpu)', 'false'),
     'stop-after-first-failure': ('if (!dev) {\n\t\t\tcontinue;', 'if (!dev) {\n\t\t\treturn NULL;'),
 }

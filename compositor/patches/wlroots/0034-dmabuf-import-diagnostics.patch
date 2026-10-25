@@ -1,0 +1,27 @@
+--- a/types/wlr_linux_dmabuf_v1.c
++++ b/types/wlr_linux_dmabuf_v1.c
+@@ -1,6 +1,8 @@
+ #include <assert.h>
+ #include <drm_fourcc.h>
+ #include <fcntl.h>
++#include <inttypes.h>
++#include <sys/sysmacros.h>
+ #include <stdlib.h>
+ #include <sys/mman.h>
+ #include <unistd.h>
+@@ -385,6 +387,15 @@
+ 	/* Check if dmabuf is usable */
+ 	if (!sampling_supported || !linux_dmabuf->check_dmabuf_callback(&attribs,
+ 				linux_dmabuf->check_dmabuf_callback_data)) {
++		pid_t pid = 0;
++		wl_client_get_credentials(wl_resource_get_client(params_resource), &pid, NULL, NULL);
++		dev_t main_device = linux_dmabuf->default_feedback->main_device;
++		wlr_log(WLR_ERROR, "DMA-BUF import rejected: client_pid=%jd params=%u "
++			"immediate=%d size=%dx%d format=0x%08" PRIx32 " modifier=0x%016" PRIx64
++			" planes=%d renderer_device=%u:%u sampling_supported=%d",
++			(intmax_t)pid, wl_resource_get_id(params_resource), buffer_id != 0,
++			attribs.width, attribs.height, attribs.format, attribs.modifier,
++			attribs.n_planes, major(main_device), minor(main_device), sampling_supported);
+ 		goto err_failed;
+ 	}
+ 

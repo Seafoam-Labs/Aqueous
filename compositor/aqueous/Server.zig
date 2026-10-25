@@ -5,6 +5,7 @@ const Server = @This();
 
 const build_options = @import("build_options");
 const std = @import("std");
+const c = @import("c");
 const assert = std.debug.assert;
 const mem = std.mem;
 const posix = std.posix;
@@ -60,21 +61,10 @@ const PolicyMode = @import("wm/Mode.zig").Mode;
 const ConfigSnapshot = @import("wm/config/loader.zig").Snapshot;
 
 const log = std.log;
-const linux = std.os.linux;
 
 pub var termination_requested = false;
 
-/// Final, ready-to-use `KEY=VALUE` selector strings for the chosen render
-/// device. Each is NUL-terminated so it can be appended verbatim to the child
-/// `envp` in main.zig, exactly like `WAYLAND_DISPLAY`. A field is null when it
-/// does not apply (e.g. `dri_prime` is never set for the NVIDIA proprietary
-/// driver, which DRI_PRIME cannot select). All-null means "do not pin".
-pub const GpuPin = struct {
-    vk_select: ?[:0]u8 = null,
-    gl_vendor: ?[:0]u8 = null,
-    dri_prime: ?[:0]u8 = null,
-    nv_offload: ?[:0]u8 = null,
-};
+pub const GpuPin = @import("GpuPin.zig");
 
 wl_server: *wl.Server,
 
@@ -194,208 +184,6 @@ xdg_toplevel_drag: *wl.Global,
 xdg_icon: XdgToplevelIconManager,
 xdg_tag: @import("XdgToplevelTagManager.zig"),
 
-/// Count render-capable GPUs by probing the conventional render-node range.
-/// Multi-GPU is the only condition that triggers the toggle-ref crash, so a
-/// result <= 1 means we leave the environment untouched.
-fn countRenderNodes() usize {
-    var count: usize = 0;
-    var n: u32 = 128;
-    while (n < 192) : (n += 1) {
-        var buf: [64]u8 = undefined;
-        const p = std.fmt.bufPrintZ(&buf, "/dev/dri/renderD{d}", .{n}) catch continue;
-        if (linux.errno(linux.access(p, linux.F_OK)) == .SUCCESS) count += 1;
-    }
-    return count;
-}
-
-/// Read a small sysfs attribute, returning a trimmed slice into `out`.
-fn readSysValue(path_z: [:0]const u8, out: []u8) ?[]const u8 {
-    const rc = linux.open(path_z, .{}, 0);
-    if (linux.errno(rc) != .SUCCESS) return null;
-    const fd: i32 = @intCast(rc);
-    defer _ = linux.close(fd);
-    const rn = linux.read(fd, out.ptr, out.len);
-    if (linux.errno(rn) != .SUCCESS) return null;
-    if (rn == 0) return null;
-    return mem.trim(u8, out[0..rn], " \t\r\n");
-}
-
-/// readlink(2) wrapper returning a slice into `out`, or null on error.
-fn readLinkZ(path_z: [:0]const u8, out: []u8) ?[]const u8 {
-    const rc = linux.readlink(path_z, out.ptr, out.len);
-    if (linux.errno(rc) != .SUCCESS) return null;
-    return out[0..rc];
-}
-
-/// sysfs stores PCI ids as "0x10de"; strip the prefix for the selector format.
-fn stripHexPrefix(s: []const u8) []const u8 {
-    return if (mem.startsWith(u8, s, "0x")) s[2..] else s;
-}
-
-fn isBootVga(device_dir: []const u8) bool {
-    var pbuf: [256]u8 = undefined;
-    var vbuf: [16]u8 = undefined;
-    const p = std.fmt.bufPrintZ(&pbuf, "{s}/boot_vga", .{device_dir}) catch return false;
-    const v = readSysValue(p, &vbuf) orelse return false;
-    return mem.eql(u8, v, "1");
-}
-
-extern fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
-
-fn resolveScanoutCard(out: []u8) ?[]const u8 {
-    if (countRenderNodes() <= 1) return null;
-
-    const open_rc = linux.open("/sys/class/drm", .{ .DIRECTORY = true }, 0);
-    if (linux.errno(open_rc) != .SUCCESS) return null;
-    const fd: i32 = @intCast(open_rc);
-    defer _ = linux.close(fd);
-
-    var best: ?u32 = null;
-    var best_boot_vga = true;
-
-    var dbuf: [4096]u8 align(8) = undefined;
-    while (true) {
-        const nread = linux.getdents64(fd, &dbuf, dbuf.len);
-        if (linux.errno(nread) != .SUCCESS) return null;
-        if (nread == 0) break;
-
-        var off: usize = 0;
-        while (off < nread) {
-            const ent: *linux.dirent64 = @ptrCast(@alignCast(&dbuf[off]));
-            const name_ptr: [*:0]const u8 = @ptrCast(&dbuf[off + @offsetOf(linux.dirent64, "name")]);
-            const name = mem.span(name_ptr);
-            off += ent.reclen;
-
-            const dash = mem.indexOfScalar(u8, name, '-') orelse continue;
-            const card = name[0..dash];
-            if (!mem.startsWith(u8, card, "card")) continue;
-            const num = std.fmt.parseInt(u32, card[4..], 10) catch continue;
-
-            var sbuf: [256]u8 = undefined;
-            const spath = std.fmt.bufPrintZ(&sbuf, "/sys/class/drm/{s}/status", .{name}) catch continue;
-            var vbuf: [32]u8 = undefined;
-            const status = readSysValue(spath, &vbuf) orelse continue;
-            if (!mem.eql(u8, status, "connected")) continue;
-
-            var ddbuf: [256]u8 = undefined;
-            const device_dir = std.fmt.bufPrintZ(&ddbuf, "/sys/class/drm/{s}/device", .{card}) catch continue;
-            var lbuf: [256]u8 = undefined;
-            if (readLinkZ(device_dir, &lbuf) == null) continue;
-
-            const bv = isBootVga(device_dir);
-            const take = if (best) |b| blk: {
-                if (best_boot_vga and !bv) break :blk true;
-                if (!best_boot_vga and bv) break :blk false;
-                break :blk num < b;
-            } else true;
-            if (take) {
-                best = num;
-                best_boot_vga = bv;
-            }
-        }
-    }
-
-    const num = best orelse return null;
-    return std.fmt.bufPrint(out, "/dev/dri/card{d}", .{num}) catch null;
-}
-
-/// Resolve the DRM device behind `drm_fd` and build the per-vendor client
-/// selector env vars. Returns an empty `GpuPin` on single-GPU systems or on any
-/// failure/ambiguity (fail-safe: never emit a possibly-wrong pin).
-fn resolveGpuPin(drm_fd: c_int) GpuPin {
-    if (drm_fd < 0) return .{};
-    if (countRenderNodes() <= 1) return .{};
-
-    // Resolve which DRM node the renderer fd points at via /proc/self/fd,
-    // avoiding the need for fstat (removed from std.posix in this Zig version).
-    var fdlink_buf: [64]u8 = undefined;
-    const fdlink = std.fmt.bufPrintZ(&fdlink_buf, "/proc/self/fd/{d}", .{drm_fd}) catch return .{};
-    var node_buf: [256]u8 = undefined;
-    const node_path = readLinkZ(fdlink, &node_buf) orelse return .{};
-    const node_name = std.fs.path.basename(node_path); // cardN or renderDN
-    if (node_name.len == 0) return .{};
-
-    var dir_buf: [128]u8 = undefined;
-    const device_dir = std.fmt.bufPrintZ(
-        &dir_buf,
-        "/sys/class/drm/{s}/device",
-        .{node_name},
-    ) catch return .{};
-
-    // vendor:device (e.g. 10de:2b85), the cross-vendor Vulkan selector value.
-    var path_buf: [192]u8 = undefined;
-    var vendor_buf: [16]u8 = undefined;
-    var device_buf: [16]u8 = undefined;
-
-    const vendor_path = std.fmt.bufPrintZ(&path_buf, "{s}/vendor", .{device_dir}) catch return .{};
-    const vendor = stripHexPrefix(readSysValue(vendor_path, &vendor_buf) orelse return .{});
-
-    const device_path = std.fmt.bufPrintZ(&path_buf, "{s}/device", .{device_dir}) catch return .{};
-    const device = stripHexPrefix(readSysValue(device_path, &device_buf) orelse return .{});
-
-    // PCI bus tag (e.g. pci-0000_01_00_0) from the device symlink target.
-    var link_buf: [256]u8 = undefined;
-    const link = readLinkZ(device_dir, &link_buf) orelse return .{};
-    const pci = std.fs.path.basename(link); // 0000:01:00.0
-    var tag_buf: [64]u8 = undefined;
-    if (pci.len == 0 or pci.len > tag_buf.len) return .{};
-    for (pci, 0..) |ch, idx| {
-        tag_buf[idx] = if (ch == ':' or ch == '.') '_' else ch;
-    }
-    const pci_tag = tag_buf[0..pci.len];
-
-    // Driver name (e.g. nvidia, amdgpu) from the device's driver symlink.
-    var driver_link_buf: [256]u8 = undefined;
-    var driver_path_buf: [192]u8 = undefined;
-    const driver_path = std.fmt.bufPrintZ(&driver_path_buf, "{s}/driver", .{device_dir}) catch return .{};
-    const driver: []const u8 = readLinkZ(driver_path, &driver_link_buf) orelse "";
-    const driver_name = std.fs.path.basename(driver);
-
-    var pin: GpuPin = .{};
-
-    // MESA_VK_DEVICE_SELECT works above all ICDs (incl. the NVIDIA proprietary
-    // one), so it is the right cross-vendor Vulkan lever on every system.
-    pin.vk_select = std.fmt.allocPrintSentinel(
-        util.gpa,
-        "MESA_VK_DEVICE_SELECT={s}:{s}",
-        .{ vendor, device },
-        0,
-    ) catch null;
-
-    if (mem.eql(u8, driver_name, "nvidia") or mem.eql(u8, driver_name, "nvidia-drm")) {
-        // DRI_PRIME is Mesa-only and cannot select the proprietary NVIDIA GPU.
-        pin.gl_vendor = std.fmt.allocPrintSentinel(
-            util.gpa,
-            "__GLX_VENDOR_LIBRARY_NAME=nvidia",
-            .{},
-            0,
-        ) catch null;
-        if (!isBootVga(device_dir)) {
-            pin.nv_offload = std.fmt.allocPrintSentinel(
-                util.gpa,
-                "__NV_PRIME_RENDER_OFFLOAD=1",
-                .{},
-                0,
-            ) catch null;
-        }
-    } else {
-        // Mesa drivers (amdgpu/radeonsi/i915/xe/nouveau): GL via DRI_PRIME.
-        pin.dri_prime = std.fmt.allocPrintSentinel(
-            util.gpa,
-            "DRI_PRIME=pci-{s}",
-            .{pci_tag},
-            0,
-        ) catch null;
-    }
-
-    log.info("gpu-pin: device={s}:{s} pci={s} driver={s} -> vk={?s} gl={?s} prime={?s} offload={?s}", .{
-        vendor,        device,        pci_tag,       driver_name,
-        pin.vk_select, pin.gl_vendor, pin.dri_prime, pin.nv_offload,
-    });
-
-    return pin;
-}
-
 pub fn init(
     server: *Server,
     selection: *RendererSelection,
@@ -435,17 +223,10 @@ pub fn init(
     );
     errdefer sigterm_source.remove();
 
-    var scanout_buf: [64]u8 = undefined;
-    if (resolveScanoutCard(&scanout_buf)) |card| {
-        if (std.c.getenv("WLR_DRM_DEVICES") == null) {
-            const z = std.fmt.allocPrintSentinel(util.gpa, "{s}", .{card}, 0) catch null;
-            if (z) |zz| {
-                _ = setenv("WLR_DRM_DEVICES", zz.ptr, 1);
-                log.info("gpu-pin: scanout pinned to {s} (connected monitor)", .{card});
-            }
-        } else {
-            log.info("gpu-pin: WLR_DRM_DEVICES already set by env, leaving as-is", .{});
-        }
+    // Render preference must not constrain KMS discovery. Setting WLR_DRM_DEVICES
+    // also disables wlroots' hotplug monitor, so only honor an explicit user list.
+    if (std.c.getenv("WLR_DRM_DEVICES")) |devices| {
+        log.info("gpu-selection: explicit display devices={s} hotplug=disabled", .{mem.span(devices)});
     }
 
     var session: ?*wlr.Session = undefined;
@@ -558,11 +339,27 @@ pub fn init(
         }
     }
 
-    // Resolve the GPU the renderer landed on and build the client selector env
-    // vars. This is the single source of truth for "which GPU"; clients are
-    // pinned to the exact device behind the renderer's DRM fd so they can never
-    // straddle two GPU stacks. No-op on single-GPU systems.
-    server.gpu_pin = resolveGpuPin(renderer.getDrmFd());
+    const inherit_gpu = if (std.c.getenv("AQUEOUS_GPU_POLICY")) |value| mem.eql(u8, mem.span(value), "inherit") else false;
+    server.gpu_pin = GpuPin.resolve(util.gpa, renderer.getDrmFd(), inherit_gpu);
+    if (server.gpu_pin.identity) |id| {
+        log.info("gpu-selection: render_node={s} pci={s} device={s}:{s} driver={s} client_policy={s} agreement=unverified", .{
+            id.node, id.pci, id.vendor, id.device, id.driver, @tagName(server.gpu_pin.state),
+        });
+    } else log.warn("gpu-selection: render identity unavailable client_policy={s} agreement=unverified", .{@tagName(server.gpu_pin.state)});
+    if (comptime build_options.vulkan_effects) {
+        var layers: [64]c.VkLayerProperties = undefined;
+        var count: u32 = layers.len;
+        const rc = c.vkEnumerateInstanceLayerProperties(&count, &layers);
+        var available = false;
+        if (rc == c.VK_SUCCESS or rc == c.VK_INCOMPLETE) {
+            for (layers[0..@min(count, layers.len)]) |layer| {
+                if (mem.eql(u8, mem.sliceTo(&layer.layerName, 0), "VK_LAYER_MESA_device_select")) available = true;
+            }
+        }
+        log.info("gpu-selection: mesa_device_select_available={} activation=unverified enumeration_result={d}", .{ available, rc });
+        if (!available and server.gpu_pin.values[0] != null) log.warn("gpu-selection: requested Vulkan restriction cannot be verified; Mesa device-selection layer unavailable", .{});
+    }
+    if (std.c.getenv("NODEVICE_SELECT") != null) log.warn("gpu-selection: NODEVICE_SELECT is set; Mesa device-selection layer may be disabled", .{});
 
     if (renderer.features.input_color_transform) {
         const render_intents: []const wp.ColorManagerV1.RenderIntent = &.{.perceptual};
@@ -733,9 +530,7 @@ pub fn deinit(server: *Server) void {
     server.layer_shell.deinit();
 
     server.wl_server.destroy();
-    inline for (std.meta.fields(GpuPin)) |field| {
-        if (@field(server.gpu_pin, field.name)) |value| util.gpa.free(value);
-    }
+    server.gpu_pin.deinit(util.gpa);
 }
 
 const WlrOutputClientProjection = extern struct {

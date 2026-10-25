@@ -129,6 +129,14 @@ EOF
         printf 'KillMode=control-group\nSendSIGKILL=yes\n' >> "$destination$units/$unit"
     fi
     if [[ $shell == pearl ]]; then printf 'KillMode=process\n' >> "$destination$units/$unit"; fi
+    if [[ $shell == pearl ]]; then
+        cat >> "$destination$units/$unit" <<'EOF'
+
+[Unit]
+StartLimitIntervalSec=60
+StartLimitBurst=5
+EOF
+    fi
     printf '\n[Install]\nWantedBy=graphical-session.target\n' >> "$destination$units/$unit"
     install -d "$destination$units/graphical-session.target.wants"
     ln -s "../$unit" "$destination$units/graphical-session.target.wants/$unit"

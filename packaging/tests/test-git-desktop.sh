@@ -67,6 +67,8 @@ for channel in git; do
     grep -qx "ExecStart=/usr/lib/$instance/bin/aqueous-activity-launch /usr/bin/pearl-git" "$pearl_units/$instance-pearl.service"
     grep -qx '\[Install\]' "$pearl_units/$instance-pearl.service"
     grep -qx 'WantedBy=graphical-session.target' "$pearl_units/$instance-pearl.service"
+    grep -qx 'StartLimitIntervalSec=60' "$pearl_units/$instance-pearl.service"
+    grep -qx 'StartLimitBurst=5' "$pearl_units/$instance-pearl.service"
     [[ -L $pearl_units/graphical-session.target.wants/$instance-pearl.service ]]
     [[ -f $pearl_units/pearl-git.service.d/60-$instance-selection.conf ]]
     grep -qx 'pearl_binary=pearl-git' "$runtime"

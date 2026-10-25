@@ -388,3 +388,87 @@ the accepted synchronous SDR limits. Continue qualification of Mesa clients and
 the vendor/hypervisor matrix before claiming those configurations are supported.
 Matched Mesa packages and installed-VM configuration remain separate delivery
 work. Every path still requires usable Vulkan and the required effects features.
+
+
+**Hybrid GPU selection and diagnosis (2026-10-25)**
+
+Client selection follows the final renderer DRM device, independently of output
+scanout. `GpuPin.zig` retains the node, PCI address, vendor/device IDs and driver.
+`MESA_VK_DEVICE_SELECT=vendor:device!` requests restricted enumeration only for a
+unique matching identity; duplicate IDs are reported as ambiguous. The Mesa
+selection layer must actually load. Startup records its availability, but does
+not call an environment assignment proof of GPU agreement. Mesa GL uses a PCI
+`DRI_PRIME` selector; NVIDIA GLX/offload selectors remain vendor-specific and do
+not establish the GPU chosen by Wayland EGL.
+
+By default (`AQUEOUS_GPU_POLICY=follow`), managed client selectors from a previous
+session are cleared before compositor enumeration, then rebuilt after presentation
+succeeds. Use `WLR_RENDER_DRM_DEVICE=/dev/dri/renderD…` to select the compositor.
+`AQUEOUS_GPU_POLICY=inherit` explicitly preserves caller-managed selectors instead.
+Individual application launchers can override selectors after session startup.
+UWSM, D-Bus and systemd receive the complete current selector state before service
+activation; nested sessions do not modify the parent activation environment.
+Pearl services stop retrying after five starts within 60 seconds.
+
+Pearl reports use the authenticated compositor peer PID and process lifetime,
+with an explicit current boot ID and capture end time. They include compositor
+messages and Pearl restart history, correlate untagged messages using process
+session fingerprints, exclude known foreign-session processes, and label unknown
+attribution and truncation. Environment validation remains separate from GPU
+agreement. Status and output mapping logs name the realized GTK renderer.
+
+For the complete failure timeline, capture immediately after reproduction:
+
+```sh
+journalctl --user -b --since "5 minutes ago" -o short-precise --no-pager \
+  > /tmp/pearl-gpu-journal.txt
+```
+
+To observe actual Vulkan device creation, build the opt-in diagnostic library:
+
+```sh
+zig build-lib compositor/scripts/fixtures/gpu-observer.zig -dynamic -lc -ldl \
+  -O ReleaseSafe -femit-bin=/tmp/libaqueous-gpu-observer.so
+```
+
+Launch each process in the controlled test with
+`LD_PRELOAD=/tmp/libaqueous-gpu-observer.so` (Aqueous, Pearl and the Shelly GTK UI).
+For service-launched clients, supply it to that test's service environment as
+well; inheritance from Aqueous alone does not affect an existing user manager.
+Do not import it into the normal desktop environment. The library is a test
+instrument and is never automatically installed or activated. It observes both
+loader function-pointer dispatch and direct Vulkan calls. Successful
+`create_result=0` records identify the device actually created; `render=major:minor`
+can be resolved through `/sys/dev/char/major:minor/device`. If `has_render=false`,
+that record does not establish a DRM-device match. Enumeration counts alone and
+vendor/device IDs shared by multiple cards are insufficient evidence.
+
+Compare unchanged automatic selection with a run explicitly selecting the same
+compositor GPU and verifying successful device creation in all three processes.
+Then compare an intentional cross-GPU run where supported. Keep drivers, outputs,
+workload and renderer fixed between these runs. Run a separate GTK renderer
+comparison and check the realized renderer rather than trusting `GSK_RENDERER`.
+The observer covers Vulkan; an EGL comparison requires corresponding driver
+instrumentation, and remains unverified without it.
+
+DMA-BUF import rejection now logs client PID, params object, dimensions, format,
+modifier, plane count, renderer device and sampling compatibility before any
+protocol disconnect. Use the first compositor-side error to choose the next fix:
+import/feedback compatibility for cross-GPU-only failures, or synchronization and
+surface/output lifetime if the failure also occurs on a verified single GPU.
+Do not change synchronization or surface teardown based on surface loss alone.
+
+Regression commands:
+
+```sh
+(cd compositor && zig build test-gpu-pin)
+bash packaging/tests/test-aqueous-init.sh
+bash packaging/tests/test-git-desktop.sh
+bash compositor/scripts/test-gpu-observer.sh
+# In the Pearl checkout, using the matching built Aqueous binary:
+zig build test-gpu-report -- --aqueous /absolute/path/to/aqueous
+```
+
+Hardware qualification still requires repeated launches, monitor hotplug,
+suspend/resume and both primary/offload configurations on the affected hybrid
+machine. A headless software-Vulkan pass does not qualify those paths.

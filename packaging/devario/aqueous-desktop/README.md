@@ -50,12 +50,29 @@ This recipe supplies `devario-desktop` from the Aqueous repository. The legacy
 For the development desktop, see [aqueous-desktop-git](../aqueous-desktop-git/README.md).
 See the [Devario packaging guide](../README.md) for validation and migration.
 
-Release 1.0.5-2 makes `devario-desktop` depend on
-`devario-system-integration>=1-1`, maintained in `devario-os`. Publish that
-package in `devario-core` before publishing these six outputs. It owns the
-Devario GPU services, helpers and OS session environment; `devario-desktop`
-continues to own `/etc/xdg/aqueous/session.toml`. Existing ISO installations
-must first run the integration recipe's `migrate-overlay.py --apply` as root
-to back up and adopt unowned overlay files. See that recipe's README for the
-one-time migration and release order. Subsequent integration releases update
-through normal Shelly upgrades without rebuilding Aqueous.
+Release 1.0.5-3 backports soft integrated/discrete renderer preferences onto
+v1.0.5 and requires `devario-system-integration>=1-4`. The integration package
+selects integrated graphics on hybrid laptops and dedicated graphics on desktops;
+unknown chassis use automatic selection. `/etc/devario/gpu-policy.json` overrides
+that policy. Explicit render-device selection still wins, and failed preferred
+GPUs fall back to other usable hardware. Both the desktop and Pearl Greeter use
+this patched compositor. Display discovery and GPU hotplug remain automatic
+unless an administrator explicitly supplies `WLR_DRM_DEVICES`.
+
+The checksummed `gpu-render-preference.patch` also backports renderer-following
+client settings and stale-selector cleanup so the preference works consistently
+across direct launches, UWSM, systemd and D-Bus activation. Native Vulkan clients
+require `vulkan-mesa-layers`; include `lib32-vulkan-mesa-layers` when shipping
+32-bit applications. Actual application selection still depends on client support.
+
+Publish the integration package before all six desktop outputs. The integration
+package owns Devario GPU services, helpers and OS session defaults, while
+`devario-desktop` owns `/etc/xdg/aqueous/session.toml`. For legacy unowned ISO files,
+use Shelly 3.1.9 or newer with the RLPM package-declared adoption workflow; follow
+the integration recipe's README. Adoption preserves old helper bytes on its first
+transaction, so a subsequent reinstall is needed to apply current helper bytes.
+Do not run the historical destructive `migrate-overlay.py` workflow.
+
+The policy takes effect at the next session start. Validate laptop iGPU rendering,
+desktop dGPU rendering, fallback, offload, displays wired to the other GPU and
+eGPU hotplug on physical hardware before publishing the release.

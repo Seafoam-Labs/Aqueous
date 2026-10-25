@@ -4,7 +4,7 @@ pkgbase=aqueous-desktop
 pkgname=(aqueous-core aqueous-session aqueous-integration-pearl aqueous-shell-pearl
          xdg-desktop-portal-aqueous devario-desktop)
 pkgver=1.0.5
-pkgrel=2
+pkgrel=3
 pkgdesc='Aqueous components for the Devario Pearl desktop'
 arch=('x86_64' 'aarch64')
 url='https://github.com/Seafoam-Labs/Aqueous'
@@ -17,20 +17,23 @@ makedepends=('patchelf' 'git' 'curl' 'patch' 'scdoc' 'jq' 'python' 'shaderc' 'cl
              'freetype2' 'wayland' 'libxkbcommon' 'libinput' 'pixman' 'libpng' 'libdrm'
              'libevdev' 'libdecor' 'xorg-xwayland' 'pipewire' 'glib2' 'fontconfig' 'mesa'
              'systemd-libs' 'seatd' 'libdisplay-info' 'libliftoff' 'lcms2'
-             'vulkan-icd-loader' 'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil'
+             'vulkan-icd-loader' 'vulkan-mesa-layers' 'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil'
              'gtk4' 'libinih')
 checkdepends=('libarchive' 'ripgrep' 'gsettings-desktop-schemas')
 options=('!strip' '!debug' '!zipman')
-source=('session.toml'
+source=('gpu-render-preference.patch'
+        'session.toml'
         "aqueous::git+${url}.git#tag=v${pkgver}"
         'wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz'
         'xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz')
-sha256sums=('2cecdd6b68deaedc81997669b26ddfb705c458c8de9d8fdd465aaae35eba845b'
+sha256sums=('22b21266529cdb541fd012d8183dd91d0edbda95627fa2a6eb8be9189076f176'
+            '2cecdd6b68deaedc81997669b26ddfb705c458c8de9d8fdd465aaae35eba845b'
             'SKIP'
             '972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343'
             '3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400')
 
 prepare() {
+    patch --fuzz=0 -d "$srcdir/aqueous" -Np1 -i "$srcdir/gpu-render-preference.patch"
     patch --fuzz=0 -d "$srcdir/xdg-desktop-portal-wlr-0.8.4" -Np1 \
         -i "$srcdir/aqueous/packaging/portal/0001-rename-backend-for-aqueous.patch"
 }
@@ -131,7 +134,7 @@ check() {
 package_aqueous-core() {
     pkgdesc='Aqueous compositor, configuration helper and control client'
     license=('GPL-3.0-only' 'MIT' '0BSD' 'CC-BY-SA-4.0')
-    depends=("freetype2" "wayland" "libxkbcommon" "libinput" "pixman" "libpng" "libdrm" "libevdev" "libdecor" "xorg-xwayland" "pipewire" "glib2" "fontconfig" "mesa" "systemd-libs" "seatd" "libdisplay-info" "libliftoff" "lcms2" "vulkan-icd-loader" "libxcb" "xcb-util-errors" "xcb-util-wm" "xcb-util-renderutil" "brightnessctl" "playerctl")
+    depends=("freetype2" "wayland" "libxkbcommon" "libinput" "pixman" "libpng" "libdrm" "libevdev" "libdecor" "xorg-xwayland" "pipewire" "glib2" "fontconfig" "mesa" "systemd-libs" "seatd" "libdisplay-info" "libliftoff" "lcms2" "vulkan-icd-loader" "vulkan-mesa-layers" "libxcb" "xcb-util-errors" "xcb-util-wm" "xcb-util-renderutil" "brightnessctl" "playerctl")
     provides=("aqueous=$pkgver")
     conflicts=('aqueous' 'aqueous-bin' 'aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-core-bin')
     AQUEOUS_COMPOSITOR_DIST="$srcdir/aqueous-dist" \
@@ -189,7 +192,7 @@ package_devario-desktop() {
     depends=("aqueous-core>=$pkgver-$pkgrel" "aqueous-session>=$pkgver-$pkgrel"
              "xdg-desktop-portal-aqueous>=$pkgver-$pkgrel"
              "aqueous-integration-pearl>=$pkgver-$pkgrel" "aqueous-shell-pearl>=$pkgver-$pkgrel"
-             'pearl' 'pearl-greeter' 'rtkit') #'devario-system-integration>=1-1')
+             'pearl' 'pearl-greeter' 'rtkit' 'devario-system-integration>=1-4')
     conflicts=('aqueous-desktop' 'devario-aqueous-desktop')
     backup=('etc/xdg/aqueous/session.toml')
     install -Dm644 "$srcdir/session.toml" "$pkgdir/etc/xdg/aqueous/session.toml"

@@ -31,6 +31,8 @@ struct wlr_vk_renderer_candidates;
 static unsigned live_instances, live_devices, device_fail, renderer_fail;
 static bool inaccessible_first, enumerate_fail;
 static int open_fds;
+static VkPhysicalDeviceType second_type = VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+static unsigned available = 0x7e;
 #define WLR_ERROR 0
 #define WLR_INFO 1
 #define wlr_log(...) ((void)0)
@@ -70,8 +72,12 @@ static struct wlr_vk_instance *vulkan_instance_create(bool debug) {
 void vkDestroyInstance(VkInstance ini, const VkAllocationCallbacks *alloc) { live_instances--; }
 VkResult vkEnumeratePhysicalDevices(VkInstance ini, uint32_t *count, VkPhysicalDevice *devices) {
     if (enumerate_fail) return VK_ERROR_INITIALIZATION_FAILED;
-    *count = 6;
-    if (devices) for (uintptr_t i = 1; i <= 6; i++) devices[i - 1] = (VkPhysicalDevice)i;
+    *count = 0;
+    for (uintptr_t i = 1; i <= 6; i++) {
+        if (!(available & (1u << i))) continue;
+        if (devices) devices[*count] = (VkPhysicalDevice)i;
+        (*count)++;
+    }
     return VK_SUCCESS;
 }
 void vkGetPhysicalDeviceProperties(VkPhysicalDevice phdev, VkPhysicalDeviceProperties *props) {
@@ -79,7 +85,7 @@ void vkGetPhysicalDeviceProperties(VkPhysicalDevice phdev, VkPhysicalDevicePrope
     *props = (VkPhysicalDeviceProperties){
         .apiVersion = id == 5 ? VK_API_VERSION_1_0 : VK_API_VERSION_1_1,
         .deviceType = id == 1 ? VK_PHYSICAL_DEVICE_TYPE_CPU : id == 3 ?
-            VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU : VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU,
+            VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU : id == 2 ? second_type : VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU,
     };
 }
 static bool phdev_drm_props(VkPhysicalDevice phdev, VkPhysicalDeviceDrmPropertiesEXT *props) {
@@ -125,6 +131,7 @@ static void check(struct wlr_backend *backend, bool software, const unsigned *ex
 #define CHECK(software, ...) do { unsigned ids[] = {__VA_ARGS__}; check(&backend, software, ids, sizeof(ids)/sizeof(*ids)); } while (0)
 int main(void) {
     unsetenv("WLR_RENDER_DRM_DEVICE"); unsetenv("WLR_RENDERER_FORCE_SOFTWARE"); unsetenv("WLR_RENDER_NO_EXPLICIT_SYNC");
+    unsetenv("AQUEOUS_RENDER_GPU_PREFERENCE");
     struct wlr_backend backend = { .fd = -1 };
     CHECK(true, 3, 4, 2, 6, 1); // Preferred GPU, alternate ICD, other GPUs, CPU last.
     CHECK(false, 3, 4, 2, 6);
@@ -132,13 +139,40 @@ int main(void) {
     backend.fd = 129; CHECK(true, 2, 3, 4, 6, 1); backend.fd = -1;
     device_fail = 1u << 3; renderer_fail = 1u << 4; CHECK(true, 2, 6, 1);
     device_fail = 0x7c; renderer_fail = 0; CHECK(true, 1); CHECK(false); device_fail = 0;
+    // A hybrid laptop favors the integrated GPU even when the backend uses a dGPU.
+    second_type = VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+    setenv("AQUEOUS_RENDER_GPU_PREFERENCE", "integrated", 1); CHECK(true, 2, 3, 4, 6, 1);
+    backend.fd = 129; CHECK(false, 2, 3, 4, 6); backend.fd = -1;
+    device_fail = 1u << 2; CHECK(true, 3, 4, 6, 1); device_fail = 0;
+    renderer_fail = 1u << 2; CHECK(false, 3, 4, 6); renderer_fail = 0;
+    // No iGPU (MUX/discrete-only laptop) still starts on supported hardware.
+    available &= ~(1u << 2); CHECK(false, 3, 4, 6); available = 0x7e;
+    // Desktops prefer discrete devices, even if firmware/backend chose the iGPU.
+    setenv("AQUEOUS_RENDER_GPU_PREFERENCE", "discrete", 1);
+    backend.fd = 129; CHECK(true, 4, 6, 2, 3, 1); backend.fd = -1;
+    // Preferred devices fail: retry the integrated/virtual GPUs, then software.
+    device_fail = (1u << 4) | (1u << 6); CHECK(true, 3, 2, 1); device_fail = 0;
+    // Same-type multi-GPU ordering still favors the backend and keeps alternate ICDs.
+    second_type = VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+    backend.fd = 129; CHECK(true, 2, 4, 6, 3, 1); backend.fd = -1;
+    second_type = VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+    available = 1u << 2; CHECK(false, 2); // Single integrated GPU desktop.
+    available = 1u << 4; setenv("AQUEOUS_RENDER_GPU_PREFERENCE", "integrated", 1);
+    CHECK(false, 4); // Single discrete GPU laptop.
+    available = 0x7e;
+    setenv("AQUEOUS_RENDER_GPU_PREFERENCE", "auto", 1); CHECK(true, 3, 4, 2, 6, 1);
+    setenv("AQUEOUS_RENDER_GPU_PREFERENCE", "invalid", 1); CHECK(true, 3, 4, 2, 6, 1);
+    // Explicit render selection overrides the opposite soft preference.
+    setenv("AQUEOUS_RENDER_GPU_PREFERENCE", "integrated", 1);
     setenv("WLR_RENDER_DRM_DEVICE", "/explicit-a", 1); CHECK(true, 3, 4);
     device_fail = (1u << 3) | (1u << 4); CHECK(true); device_fail = 0;
+    setenv("AQUEOUS_RENDER_GPU_PREFERENCE", "discrete", 1);
     setenv("WLR_RENDER_DRM_DEVICE", "/explicit-b", 1); CHECK(true, 2);
     setenv("WLR_RENDER_DRM_DEVICE", "/missing", 1); assert(!wlr_vk_renderer_candidates_create(&backend, true));
     unsetenv("WLR_RENDER_DRM_DEVICE");
     setenv("WLR_RENDERER_FORCE_SOFTWARE", "1", 1); CHECK(true, 1); CHECK(false);
     unsetenv("WLR_RENDERER_FORCE_SOFTWARE");
+    unsetenv("AQUEOUS_RENDER_GPU_PREFERENCE");
     setenv("WLR_RENDER_NO_EXPLICIT_SYNC", "1", 1); CHECK(true, 3, 4, 2, 6, 1);
     unsetenv("WLR_RENDER_NO_EXPLICIT_SYNC");
     struct wlr_vk_renderer_candidates *c = wlr_vk_renderer_candidates_create(&backend, true);

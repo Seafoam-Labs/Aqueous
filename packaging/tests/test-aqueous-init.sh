@@ -90,3 +90,48 @@ for mode in uwsm dbus systemctl nested; do
     done
 done
 echo "Aqueous IPC session exports and nested isolation tests passed"
+
+# Stale manager values must be overwritten even when a selector is absent.
+for mode in uwsm dbus systemctl; do
+    capture="$test_root/gpu-$mode"
+    (
+        export HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config"
+        export AQUEOUS_SHARE_DIR="$repo_root/packaging" AQUEOUS_SESSION_RUNTIME=/nonexistent
+        export WAYLAND_DISPLAY=wayland-test AQUEOUS_NESTED=0 PATH=/nonexistent
+        export MESA_VK_DEVICE_SELECT='8086:1234!' DRI_PRIME=pci-0000_00_02_0
+        unset MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE __GLX_VENDOR_LIBRARY_NAME __NV_PRIME_RENDER_OFFLOAD __VK_LAYER_NV_optimus
+        record_gpu() {
+            printf '%s\n' "$@" "vk=$MESA_VK_DEVICE_SELECT" "force=$MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE" \
+                "gl=$__GLX_VENDOR_LIBRARY_NAME" "offload=$__NV_PRIME_RENDER_OFFLOAD" "optimus=$__VK_LAYER_NV_optimus" >> "$capture"
+        }
+        systemctl() { record_gpu "$@"; }
+        case "$mode" in
+            uwsm) uwsm() { record_gpu "$@"; } ;;
+            dbus) dbus-update-activation-environment() { record_gpu "$@"; } ;;
+        esac
+        source "$repo_root/packaging/aqueous-init"
+    )
+    for key in MESA_VK_DEVICE_SELECT MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE DRI_PRIME __GLX_VENDOR_LIBRARY_NAME __NV_PRIME_RENDER_OFFLOAD __VK_LAYER_NV_optimus; do
+        grep -Fx "$key" "$capture" >/dev/null
+    done
+    for value in 'vk=8086:1234!' force=0 gl= offload=0 optimus=; do
+        grep -Fx "$value" "$capture" >/dev/null
+    done
+    # Failed export must not proceed to activating graphical-session.target.
+    (
+        export HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config"
+        export AQUEOUS_SHARE_DIR="$repo_root/packaging" AQUEOUS_SESSION_RUNTIME=/nonexistent
+        export WAYLAND_DISPLAY=wayland-test AQUEOUS_NESTED=0 PATH=/nonexistent
+        systemctl() {
+            case "$*" in *import-environment*) return 1;; esac
+            printf 'unexpected-start\n' >> "$capture"
+        }
+        case "$mode" in
+            uwsm) uwsm() { return 1; } ;;
+            dbus) dbus-update-activation-environment() { return 1; } ;;
+        esac
+        source "$repo_root/packaging/aqueous-init"
+    ) && { echo "failed export was ignored"; exit 1; }
+    ! grep -q unexpected-start "$capture"
+done
+echo "Aqueous GPU activation exports and failure ordering tests passed"

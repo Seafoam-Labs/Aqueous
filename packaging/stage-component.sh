@@ -137,6 +137,14 @@ EOF
     case $shell in
         pearl) printf '# The locker must survive a shell restart.\nKillMode=process\n' >> "$destination$units/$unit" ;;
     esac
+    if [[ $shell == pearl ]]; then
+        cat >> "$destination$units/$unit" <<'EOF'
+
+[Unit]
+StartLimitIntervalSec=60
+StartLimitBurst=5
+EOF
+    fi
     printf '\n[Install]\nWantedBy=graphical-session.target\n' >> "$destination$units/$unit"
     link "$units/graphical-session.target.wants/$unit" "../$unit"
     printf '[Service]\nExecCondition=%s/lib/aqueous/session-runtime.sh external-condition\n' "$prefix" | write "$units/$shell.service.d/50-aqueous-selection.conf"

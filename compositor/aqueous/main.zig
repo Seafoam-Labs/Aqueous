@@ -54,11 +54,6 @@ pub var server: Server = undefined;
 extern fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern fn unsetenv(name: [*:0]const u8) c_int;
 
-fn inheritAssignment(name: [*:0]const u8, assignment: [:0]const u8) void {
-    const equal = mem.indexOfScalar(u8, assignment, '=') orelse return;
-    _ = setenv(name, assignment.ptr + equal + 1, 1);
-}
-
 pub fn main(init: std.process.Init.Minimal) anyerror!void {
     var arena_alloc = std.heap.ArenaAllocator.init(util.gpa);
     defer arena_alloc.deinit();
@@ -222,6 +217,14 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         .warn, .err => .err,
     });
 
+    // A prior desktop's client selectors must not constrain enumeration while
+    // choosing this compositor's renderer. Explicit compositor selection uses
+    // WLR_RENDER_DRM_DEVICE; inherit opts into caller-managed client selectors.
+    const gpu_policy = if (std.c.getenv("AQUEOUS_GPU_POLICY")) |value| mem.span(value) else "follow";
+    if (!mem.eql(u8, gpu_policy, "follow") and !mem.eql(u8, gpu_policy, "inherit")) return error.InvalidGpuPolicy;
+    if (mem.eql(u8, gpu_policy, "follow")) {
+        try (Server.GpuPin{}).apply();
+    }
     var renderer_selection: @import("render/RendererSelection.zig") = .{};
     defer renderer_selection.deinit();
     while (true) {
@@ -250,10 +253,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     // Xwayland is a graphics client too. Apply the renderer's GPU selection
     // before its first fork, so initial startup and automatic restarts inherit
     // the same environment as the applications it will serve.
-    if (server.gpu_pin.vk_select) |value| inheritAssignment("MESA_VK_DEVICE_SELECT", value);
-    if (server.gpu_pin.gl_vendor) |value| inheritAssignment("__GLX_VENDOR_LIBRARY_NAME", value);
-    if (server.gpu_pin.dri_prime) |value| inheritAssignment("DRI_PRIME", value);
-    if (server.gpu_pin.nv_offload) |value| inheritAssignment("__NV_PRIME_RENDER_OFFLOAD", value);
+    try server.gpu_pin.apply();
 
     // wlroots starts the Xwayland process from an idle event source, the reasoning being that
     // this gives the compositor time to set up event listeners before Xwayland is actually
@@ -359,26 +359,21 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
             if (mem.eql(u8, name, "DISPLAY")) continue;
             if (mem.eql(u8, name, "AQUEOUS_SOCKET")) continue;
             if (mem.eql(u8, name, "AQUEOUS_INSTANCE")) continue;
-            // Drop any inherited copy of a GPU-pin var we are about to set so a
-            // stale value (e.g. from a nested session) cannot shadow the
-            // compositor's choice. Mirrors the WAYLAND_DISPLAY filter above.
-            if (server.gpu_pin.vk_select != null and mem.eql(u8, name, "MESA_VK_DEVICE_SELECT")) continue;
-            if (server.gpu_pin.gl_vendor != null and mem.eql(u8, name, "__GLX_VENDOR_LIBRARY_NAME")) continue;
-            if (server.gpu_pin.dri_prime != null and mem.eql(u8, name, "DRI_PRIME")) continue;
-            if (server.gpu_pin.nv_offload != null and mem.eql(u8, name, "__NV_PRIME_RENDER_OFFLOAD")) continue;
+            if (server.gpu_pin.state != .inherited and Server.GpuPin.managed(name)) continue;
             try env_list.append(util.gpa, entry);
         }
         try env_list.append(util.gpa, wayland_display.ptr);
         try env_list.append(util.gpa, "AQUEOUS_INSTANCE=" ++ instance.name);
         if (ipc_env) |value| try env_list.append(util.gpa, value.ptr);
         if (display_buf) |d| try env_list.append(util.gpa, d.ptr);
-        // Append the resolved GPU-pin selector vars (each null unless applicable
-        // or on single-GPU systems), exactly like WAYLAND_DISPLAY. Downstream
-        // clients inherit these through the WM's environment.
-        if (server.gpu_pin.vk_select) |s| try env_list.append(util.gpa, s.ptr);
-        if (server.gpu_pin.gl_vendor) |s| try env_list.append(util.gpa, s.ptr);
-        if (server.gpu_pin.dri_prime) |s| try env_list.append(util.gpa, s.ptr);
-        if (server.gpu_pin.nv_offload) |s| try env_list.append(util.gpa, s.ptr);
+        if (server.gpu_pin.state != .inherited) {
+            for (Server.GpuPin.keys, server.gpu_pin.values) |key, value| {
+                if (value) |v| {
+                    const assignment = try std.fmt.allocPrintSentinel(arena, "{s}={s}", .{ key, v }, 0);
+                    try env_list.append(util.gpa, assignment.ptr);
+                }
+            }
+        }
         try env_list.append(util.gpa, null);
 
         const envp: [*:null]const ?[*:0]const u8 = @ptrCast(env_list.items.ptr);

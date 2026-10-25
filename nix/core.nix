@@ -136,6 +136,7 @@ let
       "${src}/compositor/patches/wlroots/0030-vulkan-presentation-copy.patch"
       "${src}/compositor/patches/wlroots/0031-vulkan-device-selection.patch"
       "${src}/compositor/patches/wlroots/0033-scene-effect-single-pixel.patch"
+      "${src}/compositor/patches/wlroots/0034-dmabuf-import-diagnostics.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending

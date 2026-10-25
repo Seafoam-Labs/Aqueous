@@ -1,7 +1,7 @@
 pkgbase = aqueous-desktop
 	pkgdesc = Aqueous components for the Pearl desktop on Arch
 	pkgver = 1.0.5
-	pkgrel = 2
+	pkgrel = 3
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = x86_64
 	arch = aarch64
@@ -49,6 +49,7 @@ pkgbase = aqueous-desktop
 	makedepends = libliftoff
 	makedepends = lcms2
 	makedepends = vulkan-icd-loader
+	makedepends = vulkan-mesa-layers
 	makedepends = libxcb
 	makedepends = xcb-util-errors
 	makedepends = xcb-util-wm
@@ -58,10 +59,12 @@ pkgbase = aqueous-desktop
 	options = !strip
 	options = !debug
 	options = !zipman
+	source = gpu-render-preference.patch
 	source = session.toml
 	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v1.0.5
 	source = wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz
 	source = xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz
+	sha256sums = 22b21266529cdb541fd012d8183dd91d0edbda95627fa2a6eb8be9189076f176
 	sha256sums = 2cecdd6b68deaedc81997669b26ddfb705c458c8de9d8fdd465aaae35eba845b
 	sha256sums = SKIP
 	sha256sums = 972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343
@@ -93,6 +96,7 @@ pkgname = aqueous-core
 	depends = libliftoff
 	depends = lcms2
 	depends = vulkan-icd-loader
+	depends = vulkan-mesa-layers
 	depends = libxcb
 	depends = xcb-util-errors
 	depends = xcb-util-wm
@@ -110,7 +114,7 @@ pkgname = aqueous-core
 pkgname = aqueous-session
 	pkgdesc = Aqueous login session and shell-neutral desktop configuration
 	arch = any
-	depends = aqueous-core=1.0.5-2
+	depends = aqueous-core=1.0.5-3
 	depends = bash
 	depends = jq
 	depends = coreutils
@@ -138,7 +142,7 @@ pkgname = aqueous-session
 pkgname = aqueous-integration-pearl
 	pkgdesc = Pearl shell integration for the Aqueous session
 	arch = any
-	depends = aqueous-session=1.0.5-2
+	depends = aqueous-session=1.0.5-3
 	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
@@ -150,8 +154,8 @@ pkgname = aqueous-shell-pearl
 	pkgdesc = Pearl shell dependency preset for Aqueous
 	arch = any
 	depends = pearl-capture-picker>=1
-	depends = xdg-desktop-portal-aqueous=1.0.5-2
-	depends = aqueous-integration-pearl=1.0.5-2
+	depends = xdg-desktop-portal-aqueous=1.0.5-3
+	depends = aqueous-integration-pearl=1.0.5-3
 	depends = pearl
 	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
@@ -177,11 +181,11 @@ pkgname = aqueous-desktop
 	pkgdesc = Aqueous desktop with stable Aqueous, Pearl and Pearl Greeter
 	arch = any
 	license = GPL-3.0-only
-	depends = aqueous-core>=1.0.5-2
-	depends = aqueous-session>=1.0.5-2
-	depends = xdg-desktop-portal-aqueous>=1.0.5-2
-	depends = aqueous-integration-pearl>=1.0.5-2
-	depends = aqueous-shell-pearl>=1.0.5-2
+	depends = aqueous-core>=1.0.5-3
+	depends = aqueous-session>=1.0.5-3
+	depends = xdg-desktop-portal-aqueous>=1.0.5-3
+	depends = aqueous-integration-pearl>=1.0.5-3
+	depends = aqueous-shell-pearl>=1.0.5-3
 	depends = pearl
 	depends = pearl-greeter
 	depends = rtkit

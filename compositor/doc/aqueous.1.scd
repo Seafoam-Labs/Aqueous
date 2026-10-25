@@ -92,3 +92,24 @@ manager is not required.
 Maintained by Isaac Freund <mail@isaacfreund.com> who is assisted by open
 source contributors. For more information about river's development, see
 <https://isaacfreund.com/software/river>.
+
+# GPU SELECTION
+
+*AQUEOUS_RENDER_GPU_PREFERENCE* accepts *auto* (default), *integrated*, or
+*discrete*. This is a soft Vulkan renderer preference: other usable hardware
+remains eligible if the preferred type is absent or initialization fails.
+The backend device breaks ties within each type; software remains last and
+requires a presentation mode that permits it. Invalid values use *auto*.
+*WLR_RENDER_DRM_DEVICE* remains an explicit device restriction and takes
+precedence. GPU vendor names and DRM card numbering do not determine GPU type.
+
+Display-device discovery remains automatic, including GPU hotplug. An explicit
+*WLR_DRM_DEVICES* list is honored, but disables wlroots GPU hotplug monitoring.
+The compositor does not migrate its running renderer when devices are attached;
+restart the session to reevaluate the rendering preference.
+
+*AQUEOUS_GPU_POLICY=follow* (default) requests that clients follow the renderer
+that successfully initialized. *inherit* retains caller-managed application
+selectors. Client support for these selectors varies; selection logs report
+renderer identity separately from unverified client agreement. Applications
+can still request another GPU explicitly.

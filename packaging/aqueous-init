@@ -65,13 +65,16 @@ export AQUEOUS_SOCKET="${AQUEOUS_SOCKET:-}"
 # and D-Bus so services and desktop-launched applications connect to this
 # compositor. This must run here, not in aqueous-wm.sh, because
 # WAYLAND_DISPLAY and DISPLAY are allocated only after Aqueous starts.
-# The GPU-pin vars (MESA_VK_DEVICE_SELECT/__GLX_VENDOR_LIBRARY_NAME/DRI_PRIME/
-# __NV_PRIME_RENDER_OFFLOAD) are set by Aqueous on this process's environment
-# only on multi-GPU systems (empty on single-GPU). Forwarding them in the bare
-# KEY form means the tools silently skip any that are unset, so this is inert on
-# single-GPU machines and pins .desktop/systemd-launched apps to the same GPU
-# the compositor renders on, closing the last launch path that could straddle
-# two GPU stacks (the dual-GPU GObject toggle-ref crash).
+# Publish the whole managed GPU state, including neutral values for selectors
+# absent from this renderer's policy. D-Bus cannot delete activation variables;
+# skipping absent names would retain a previous session's NVIDIA/Mesa selection.
+# Per-application overrides can still be supplied by the application's launcher.
+export MESA_VK_DEVICE_SELECT="${MESA_VK_DEVICE_SELECT:-}"
+export MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE="${MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE:-0}"
+export DRI_PRIME="${DRI_PRIME:-}"
+export __GLX_VENDOR_LIBRARY_NAME="${__GLX_VENDOR_LIBRARY_NAME:-}"
+export __NV_PRIME_RENDER_OFFLOAD="${__NV_PRIME_RENDER_OFFLOAD:-0}"
+export __VK_LAYER_NV_optimus="${__VK_LAYER_NV_optimus:-}"
 display_var=""
 [ -n "${DISPLAY:-}" ] && display_var="DISPLAY"
 
@@ -84,8 +87,6 @@ if command -v uwsm >/dev/null 2>&1 && [ -n "${UWSM_FINALIZE_SOCK:-}${WAYLAND_DIS
     # Crucially it re-exports the current WAYLAND_DISPLAY and native XWayland
     # DISPLAY on every start, so a compositor restart leaves no stale endpoint
     # pinned in the user manager.
-    # The GPU-pin vars (set by Aqueous only on multi-GPU systems) are forwarded
-    # in bare KEY form so uwsm silently skips any that are unset on single-GPU.
     # Cursor values affect subsequently activated applications. Environment
     # export cannot restyle the running compositor; use `aqueousctl cursor set`
     # for that live update.
@@ -100,9 +101,11 @@ if command -v uwsm >/dev/null 2>&1 && [ -n "${UWSM_FINALIZE_SOCK:-}${WAYLAND_DIS
         XCURSOR_THEME \
         XCURSOR_SIZE \
         MESA_VK_DEVICE_SELECT \
+        MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE \
         __GLX_VENDOR_LIBRARY_NAME \
         DRI_PRIME \
-        __NV_PRIME_RENDER_OFFLOAD 2>/dev/null || true
+        __NV_PRIME_RENDER_OFFLOAD \
+        __VK_LAYER_NV_optimus || exit 1
 else
     # Fallback for sessions launched WITHOUT uwsm (e.g. a display manager that
     # execs aqueous-wm directly). Push the live session display environment
@@ -121,14 +124,16 @@ else
             XCURSOR_THEME \
             XCURSOR_SIZE \
             MESA_VK_DEVICE_SELECT \
+            MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE \
             __GLX_VENDOR_LIBRARY_NAME \
             DRI_PRIME \
-            __NV_PRIME_RENDER_OFFLOAD 2>/dev/null || true
+            __NV_PRIME_RENDER_OFFLOAD \
+            __VK_LAYER_NV_optimus || exit 1
     elif command -v systemctl >/dev/null 2>&1; then
         # Only import vars that are actually set, so older systemd versions never
         # warn on unset names (keeps the single-GPU case clean).
         optional_vars=""
-        for v in XCURSOR_THEME XCURSOR_SIZE MESA_VK_DEVICE_SELECT __GLX_VENDOR_LIBRARY_NAME DRI_PRIME __NV_PRIME_RENDER_OFFLOAD; do
+        for v in XCURSOR_THEME XCURSOR_SIZE; do
             eval "val=\${$v:-}"
             [ -n "$val" ] && optional_vars="$optional_vars $v"
         done
@@ -136,7 +141,8 @@ else
         systemctl --user import-environment \
             WAYLAND_DISPLAY AQUEOUS_SOCKET XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_RUNTIME_DIR \
             $display_var $optional_vars \
-            2>/dev/null || true
+            MESA_VK_DEVICE_SELECT MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE \
+            DRI_PRIME __GLX_VENDOR_LIBRARY_NAME __NV_PRIME_RENDER_OFFLOAD __VK_LAYER_NV_optimus || exit 1
     fi
 
     systemctl --user start aqueous-session.target 2>/dev/null || true

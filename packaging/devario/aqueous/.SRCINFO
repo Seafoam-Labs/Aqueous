@@ -1,7 +1,7 @@
 pkgbase = aqueous
 	pkgdesc = Aqueous Wayland compositor (stable, compositor only for Devario)
 	pkgver = 1.0.5
-	pkgrel = 1
+	pkgrel = 2
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = x86_64
 	arch = aarch64
@@ -43,6 +43,7 @@ pkgbase = aqueous
 	depends = libliftoff
 	depends = lcms2
 	depends = vulkan-icd-loader
+	depends = vulkan-mesa-layers
 	depends = libxcb
 	depends = xcb-util-errors
 	depends = xcb-util-wm
@@ -58,8 +59,10 @@ pkgbase = aqueous
 	conflicts = aqueous-git-dms
 	options = !strip
 	options = !debug
+	source = gpu-render-preference.patch
 	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v1.0.5
 	source = wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz
+	sha256sums = 22b21266529cdb541fd012d8183dd91d0edbda95627fa2a6eb8be9189076f176
 	sha256sums = SKIP
 	sha256sums = 972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343
 
