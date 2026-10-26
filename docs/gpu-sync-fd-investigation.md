@@ -1,5 +1,12 @@
 # GPU synchronization descriptor ownership investigation
 
+Current status (2026-10-26): the affected user reports that 1.0.10 works after
+raising Aqueous's soft FD limit to its inherited hard limit, matching labwc.
+Both parts of patch 0020 are restored at the user's request; the higher
+FD limit remains. This is a successful user report for 1.0.10, not a measurement
+of bounded FD usage or hardware qualification of the restored patches. The
+sections below retain the investigation and rollback history.
+
 Two resource leaks are reproduced and fixed in the private wlroots dependency:
 DRM atomic preparation can lose an exported input fence on a later preparation
 failure, and release-merger waiter initialization can leak its heap record.
@@ -478,3 +485,43 @@ allocation fallback, output isolation, hotplug, pixel checks, reuse, resize,
 capture import, commit and reset. Aqueous builds in ReleaseSafe with
 `-Dvulkan-effects=true -Dxwayland`; all 592 tests pass. The installed compositor's
 private wlroots library is byte-identical to the newly built dependency.
+
+## Restoration after the 1.0.10 FD-limit change (2026-10-26)
+
+The user confirms that 1.0.10 works on the affected setup and requests restoring
+the removed patches. Restore `0020-vulkan-sync-failure-handling.patch` from the
+1.0.8 source and `0020-vulkan-submit-dependencies.patch` from the saved pre-rollback
+patch. Register both, in that order, in the shell and Nix dependency builds.
+
+The first patch restores acquisition-failure cleanup, submission-state tracking,
+buffer retention, bounded completion/publication recovery and safe terminal
+handling when completion cannot be established. The second restores acquire
+waits before staging ownership/layout transitions and ALL_COMMANDS completion
+signal scopes. Patch 0030 again uses the submission/completion state and recovery
+helpers. Restore the matching failure-injection and submission-dependency tests,
+including driver-owned import payloads retained until simulated completion.
+
+The soft FD limit remains equal to the inherited hard limit. Vulkan effects,
+explicit synchronization, patch 0037, release versions and checksum policy are
+unchanged by this restoration. Private validation artifacts are under
+`/tmp/aqueous-restore-0020`; no installed compositor or system library is replaced.
+
+Validation completed:
+
+- Both restored 0020 patches and their 0030 integration apply without context
+  fuzz. The Vulkan header, pass, renderer and copy source match the previously
+  tested pre-rollback source exactly.
+- Shell and Nix now list the same 38 patches in the same order. This also adds
+  the existing 0032 empty-damage patch to Nix, where it was missing.
+- The complete private wlroots build and regression suite pass, including
+  6,000 Vulkan frames under a 64-FD limit, sanitizer checks and all seven
+  synchronization negative controls.
+- Real software Vulkan presentation passes allocation fallback, output
+  isolation, hotplug, pixels, reuse, resize, capture import, commit and reset.
+- Aqueous builds in ReleaseSafe with Vulkan effects and Xwayland enabled;
+  all 592 tests pass across 124 build steps. The private executable reports
+  1.0.10, and the higher FD limit is unchanged.
+
+The sandbox blocked the initial Wayland test client connection; the complete
+dependency suite passed when rerun outside the sandbox. These checks do not
+replace a run of the restored patches on the affected GTX 1080 Ti/580 setup.

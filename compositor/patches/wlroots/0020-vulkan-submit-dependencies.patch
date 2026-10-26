@@ -1,0 +1,59 @@
+--- a/render/vulkan/pass.c
++++ b/render/vulkan/pass.c
+@@ -696,6 +696,7 @@
+ 		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+ 		.semaphore = renderer->timeline_semaphore,
+ 		.value = stage_timeline_point,
++		.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
+ 	};
+ 	VkSubmitInfo2KHR stage_submit = {
+ 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR,
+@@ -705,17 +706,18 @@
+ 		.pSignalSemaphoreInfos = &stage_signal,
+ 	};
+ 
+-	VkSemaphoreSubmitInfoKHR stage_wait;
+ 	if (renderer->stage.last_timeline_point > 0) {
+-		stage_wait = (VkSemaphoreSubmitInfoKHR){
++		render_wait[render_wait_len++] = (VkSemaphoreSubmitInfoKHR){
+ 			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+ 			.semaphore = renderer->timeline_semaphore,
+ 			.value = renderer->stage.last_timeline_point,
+ 			.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
+ 		};
+-		stage_submit.waitSemaphoreInfoCount = 1;
+-		stage_submit.pWaitSemaphoreInfos = &stage_wait;
+-	}
++	}
++	// Ownership transfers and layout transitions are accesses too. Wait before
++	// the stage batch containing them, not just before the later draw batch.
++	stage_submit.waitSemaphoreInfoCount = render_wait_len;
++	stage_submit.pWaitSemaphoreInfos = render_wait;
+ 
+ 	uint64_t render_timeline_point = vulkan_end_command_buffer(render_cb, renderer);
+ 	if (render_timeline_point == 0) {
+@@ -728,6 +730,7 @@
+ 		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+ 		.semaphore = renderer->timeline_semaphore,
+ 		.value = render_timeline_point,
++		.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
+ 	};
+ 	if (renderer->dev->implicit_sync_interop || pass->signal_timeline != NULL) {
+ 		if (render_cb->binary_semaphore == VK_NULL_HANDLE) {
+@@ -750,6 +753,7 @@
+ 		render_signal[render_signal_len++] = (VkSemaphoreSubmitInfoKHR){
+ 			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
+ 			.semaphore = render_cb->binary_semaphore,
++			.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
+ 		};
+ 	}
+ 
+@@ -759,8 +763,6 @@
+ 	};
+ 	VkSubmitInfo2KHR render_submit = {
+ 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR,
+-		.waitSemaphoreInfoCount = render_wait_len,
+-		.pWaitSemaphoreInfos = render_wait,
+ 		.commandBufferInfoCount = 1,
+ 		.pCommandBufferInfos = &render_cb_info,
+ 		.signalSemaphoreInfoCount = render_signal_len,

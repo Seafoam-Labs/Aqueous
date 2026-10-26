@@ -76,7 +76,7 @@
         ])
       );
   },
-  version ? "1.0.10",
+  version ? "1.0.11",
 }:
 
 assert lib.assertMsg (lib.versionAtLeast wayland-protocols.version "1.49")
@@ -123,6 +123,8 @@ let
       "${src}/compositor/patches/wlroots/0017-xdg-toplevel-drag-v1.patch"
       "${src}/compositor/patches/wlroots/0018-pointer-constraint-initial-region.patch"
       "${src}/compositor/patches/wlroots/0019-overlay-backend-recovery.patch"
+      "${src}/compositor/patches/wlroots/0020-vulkan-sync-failure-handling.patch"
+      "${src}/compositor/patches/wlroots/0020-vulkan-submit-dependencies.patch"
       "${src}/compositor/patches/wlroots/0021-drm-lease-lifetime.patch"
       "${src}/compositor/patches/wlroots/0022-pointer-enter-serial-validation.patch"
       "${src}/compositor/patches/wlroots/0023-commit-timing-v1.patch"
@@ -134,6 +136,7 @@ let
       "${src}/compositor/patches/wlroots/0029-screencopy-sdr-gamma-lookup.patch"
       "${src}/compositor/patches/wlroots/0030-vulkan-presentation-copy.patch"
       "${src}/compositor/patches/wlroots/0031-vulkan-device-selection.patch"
+      "${src}/compositor/patches/wlroots/0032-scene-empty-buffer-damage.patch"
       "${src}/compositor/patches/wlroots/0033-scene-effect-single-pixel.patch"
       "${src}/compositor/patches/wlroots/0034-dmabuf-import-diagnostics.patch"
       "${src}/compositor/patches/wlroots/0035-drm-prepare-resource-ownership.patch"
