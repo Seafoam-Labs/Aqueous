@@ -245,7 +245,7 @@
 +        wlr_vk_error("Vulkan presentation copy completion (1 second limit)", waited);
 +        return false;
 +    }
-+    pass->completion_proven = true;
++    pass->submission = WLR_VK_PASS_COMPLETE;
 +    VkMappedMemoryRange range = {
 +        .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
 +        .memory = buffer->copy_memory, .offset = 0, .size = VK_WHOLE_SIZE,
@@ -420,7 +420,7 @@
  
 -	bool ok = vulkan_sync_render_pass_release(renderer, pass);
 +	bool copied = !render_buffer->copy_target || vulkan_copy_buffer_finish(pass);
-+	if (!copied && !pass->completion_proven) {
++	if (!copied && pass->submission != WLR_VK_PASS_COMPLETE) {
 +        vulkan_fail_render_pass(pass);
 +        return false;
 +    }

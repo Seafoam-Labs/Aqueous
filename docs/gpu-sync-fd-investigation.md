@@ -5,8 +5,10 @@ DRM atomic preparation can lose an exported input fence on a later preparation
 failure, and release-merger waiter initialization can leak its heap record.
 Neither is established as the cause of the reported NVIDIA incident. No
 unbounded FD growth was reproduced in successful Vulkan frames or completed
-release merges with the controlled GPU mocks. Physical NVIDIA and cross-GPU
-validation remain unavailable on this development host.
+release merges with the controlled GPU mocks. The initial sandbox did not expose
+the GPU; subsequent private NVIDIA headless validation is recorded below.
+Physical KMS, cross-GPU, and the reported GTX 1080 Ti/580 configuration remain
+unqualified.
 
 The investigation started at Aqueous commit
 `b9befec0e4bb2e7a8542878875f31f29bd2ba54c`, with a clean working tree. The local
@@ -74,11 +76,12 @@ locally established heap leak, not proof of heap leakage in the remote incident.
 | Cross-GPU and mirrors | `drm_surface_blit` passes the source wait point into the render pass and publishes the copy timeline; connector state owns its timeline reference until finish. OutputMirror bounds in-flight copies and preserves orphaned jobs until their waiter callback. Presentation-copy tests use the real software Vulkan implementation; no physical DMA-BUF transfer between Intel and NVIDIA was exercised. |
 | Aqueous recovery/output lifecycle | Output states use deferred finish; fallback rebuilds state; renderer recovery reinitializes outputs and destroys the old renderer. Copy reset and headless hotplug are integration-tested. Mock teardown occurs only after simulated completion; it does not qualify physical device reset. |
 
-One additional synchronization concern remains outside these resource-leak fixes:
-`merger_add_exportable` does not propagate export/merge errors and can replace its
-previous fence with `-1`; final unref can then signal an incomplete release.
-Final timeline import errors are also ignored. The new fault tests verify FD
-cleanup for those branches, **not safe release semantics**. Fixing that requires
+One additional synchronization concern was left outside those resource-leak fixes
+and is addressed in the error-handling implementation below:
+`merger_add_exportable` did not propagate export/merge errors and could replace its
+previous fence with `-1`; final unref could then signal an incomplete release.
+Final timeline import errors were also ignored. The initial fault tests verified FD
+cleanup for those branches, **not safe release semantics**. Fixing that required
 a failure policy for deferred dependencies and their callers; simply signalling,
 closing every fence, or dropping live buffer references would be unsafe. No
 successful-path unbounded FD leak was established there.
@@ -121,3 +124,317 @@ compare after completion/teardown. Successful Vulkan transfers no longer belong
 to wlroots even if the driver retains the underlying FD. The tracer cannot see
 allocations/duplicates internal to the proprietary driver or infer GPU completion,
 and its logging can perturb timing. It is not enabled in shipped builds.
+
+## Follow-up: Pearl exits after opening Ghostty on 1.0.7
+
+The subsequent [Pearl journal](https://termbin.com/u1086) and
+[compositor log](https://termbin.com/5ox0t) were retrieved successfully.
+The compositor identifies itself as Aqueous 1.0.7 and selects the GTX 1080 Ti
+with NVIDIA 580.178.04. Both connected outputs belong to the NVIDIA device;
+an Intel UHD 770 is also present. Ghostty reports Mesa EGL, but this does not
+identify its actual rendering device or establish a cross-GPU failure.
+
+The first rendering failure in the compositor log, at line 178, is
+`drmSyncobjExportSyncFile failed: Too many open files`. Fence merging,
+eventfd allocation, Vulkan semaphore imports and SHM allocation subsequently
+fail. The invalid-external-handle errors occur **after** descriptor exhaustion
+in this log. There is no preceding device-lost or GPU-reset report in the
+supplied compositor log. This confirms exhaustion in the compositor despite
+the earlier fixes; it does not identify the allocation retaining descriptors.
+The previously supplied count of 3,947 sync_file descriptors is from the older
+incident, not a new snapshot from this session.
+
+Pearl reports a lost Vulkan surface and an invalid-argument Wayland dispatch
+or flush failure, then exits. Subsequent Pearl instances also fail while the
+same compositor remains alive. This is consistent with the compositor being
+unable to serve its clients after exhausting descriptors. Changing Pearl to
+the GL renderer was already tried without fixing the user's failure.
+
+Additional isolated tests used current Pearl and Aqueous with two headless
+outputs and real NVIDIA rendering, outside the device-restricted sandbox.
+The development GPU is an RTX 5090 with driver 615.78.08, not the affected
+1080 Ti/580 combination. Ten Ghostty launch/close cycles passed with each of
+Pearl's Cairo and Vulkan renderers. Ten further Vulkan cycles disabling and
+re-enabling the headless outputs also passed. During 90 seconds of animated
+Ghostty output, Aqueous held 105–106 descriptors after startup, including
+2–3 sync_file descriptors, without progressive growth. These tests do not
+exercise physical KMS scanout or Intel/NVIDIA transfers. They neither reproduce
+the reported failure nor validate a fix for it.
+
+The next useful capture is descriptor creation, duplication and close activity
+in the affected compositor **before** it exhausts its limit. A short `strace`
+with descriptor decoding and call stacks can complement the private-library
+tracer above by exposing driver syscalls. Capture all compositor threads and
+include ioctl, close/close_range, dup/dup2/dup3, fcntl and recvmsg. Start from a
+fresh session, open or interact with Ghostty during the capture, and keep the
+original trace: filtering only error lines discards the ownership evidence.
+Tracing can slow rendering and cannot itself establish whether a retained
+descriptor is still legitimately in use. No further leak fix is claimed from
+these results.
+
+The user subsequently reported that failure can occur almost immediately,
+before an interactive trace can be attached. For this UWSM-managed session,
+capture from startup instead: log into a text console, stop the old graphical
+session with `uwsm stop`, then launch the usual session wrapper under strace:
+
+```sh
+uwsm start -D Aqueous -e -- /usr/bin/strace -f -yy -k \
+  -e trace=ioctl,close,close_range,dup,dup2,dup3,fcntl,recvmsg \
+  -o "$HOME/aqueous-fds.trace" /usr/bin/aqueous-wm
+```
+
+Run as the normal user. This traces the compositor from process creation;
+the session wrapper still performs its usual environment setup and UWSM
+finalization. After failure, return to the text console and use `uwsm stop`
+to end the capture. The trace lives in the home directory and survives session
+shutdown. UWSM's local help and dry-run argument parsing accept this command;
+an actual physical session launch was not tested on the development desktop.
+
+The next [trace upload](https://termbin.com/v6pws) contains exactly 1,048,575
+bytes and ends partway through a stack frame. It begins during Wayland request
+processing rather than at process startup. The available excerpt contains no
+EMFILE failure; the sync_file descriptors named in it range from 123 to 157.
+After reconstructing interrupted/resumed syscalls, all 75 successful sync_file
+`dup3` destinations in this excerpt have subsequent successful closes. This
+checks only those duplications, not all fence allocations or the omitted part
+of the trace. NVIDIA driver stacks also appear under Vulkan submission; the
+`libnvidia-eglcore` library name alone does not establish an EGL rendering path.
+The complete original trace, compressed for transfer, is needed before drawing
+an ownership conclusion. No additional reproduction is required just to recover
+the portion omitted by this upload.
+
+## Local archive: retained Vulkan-import duplicates
+
+The subsequently supplied `aqueous-fds.trace.gz` passes gzip integrity checking:
+230,915 compressed bytes, 6,466,441 uncompressed bytes and 102,953 lines.
+Its SHA-256 is
+`542367187d51257d9aa8940cc7c5607638b08de9d072e251df8f8796eb7d24ce`.
+It starts with the same request as the truncated paste and continues farther.
+It still ends during rendering, with unfinished syscalls, rather than recording
+EMFILE, a compositor exit, or resource teardown. The archive is valid; that does
+not mean the capture includes the eventual failure.
+
+Unlike the first MiB, this longer interval shows persistent duplicate fence
+descriptors in Aqueous PID 1388. In particular, FD 181 is created by `dup3` at
+uncompressed line 38,390, and FD 232 at line 40,631. Neither has a subsequent
+close or reuse in the remaining captured calls. Sixteen such destinations
+accumulate before the final incomplete render submission:
+181, 232, 258, 137, 142, 158, 234, 190, 271, 384, 134, 151, 143, 406, 185, 416.
+Their allocation stacks all share:
+
+```text
+libc dup3
+libnvidia-eglcore.so.580.178.04 +0xa31c90, +0xa31f92, +0xd83419, +0xd80de5
+libwlroots-0.20.so render_pass_wait_sync_file.isra.0 +0x8c
+libwlroots-0.20.so render_pass_submit +0x1e1
+libwlroots-0.20.so wlr_scene_output_build_state
+aqueous Output.buildSceneStateInternal
+```
+
+For FD 181, the driver closes the original imported FD 158 immediately after
+duplicating it. The evidence therefore identifies driver-created duplicates in
+the Vulkan semaphore-import path, rather than an unclosed original descriptor
+that wlroots is free to close. Successful imports transfer FD ownership to the
+Vulkan implementation per the
+[Vulkan API contract](https://docs.vulkan.org/refpages/latest/refpages/source/vkImportSemaphoreFdKHR.html).
+Adding a close after a successful import would violate that contract.
+
+This is a specific retention lead, not yet proof of an unbounded driver leak.
+The syscall trace does not expose semaphore identities or GPU completion;
+the renderer pools wait semaphores across up to 64 command-buffer slots.
+Pending work or pooled payloads must be distinguished from unreachable driver
+resources. The final incomplete submission also has descriptors without a
+recorded close and is excluded from the sixteen earlier candidates. High FD
+numbers alone are not a count of live fence descriptors. No production behavior
+was changed based on this trace.
+
+## Comparison with stock wlroots 0.20.2
+
+Comparing complete functions against the pinned upstream archive establishes
+that `render_pass_wait_sync_file` is unchanged. Its temporary sync_file import
+and command-buffer-owned wait-semaphore pool are upstream behavior. The pool's
+64-slot limit is also upstream. The trace therefore does not identify semaphore
+reuse as an Aqueous-introduced change.
+
+Two relevant differences are established in the source. First, the packaged
+dependency is compiled with `-Drenderers=vulkan`, and
+`render/RendererSelection.zig` forces Vulkan for effects builds. Stock wlroots
+autocreation tries GLES2 first when that renderer is available. A working stock
+compositor is only a Vulkan comparison if its active renderer is verified.
+
+Second, patch 0020 (introduced in commit `970aacb`) changes successful-frame
+synchronization as well as error recovery. It moves producer/render-buffer
+semaphore waits from the later render submission to the earlier staging
+submission that performs ownership/layout transitions. It also explicitly sets
+ALL_COMMANDS signal stage masks and collects imports earlier in pass submission.
+The import helper and normal semaphore reuse remain unchanged. This is a
+specific candidate for controlled comparison when upstream Vulkan works on the
+same GPU, not a demonstrated introducing commit. Reverting its synchronization
+safeguards in production is not justified by the trace.
+
+Other differences include custom effects draw hooks and GPU selection policy
+(patches 0001 and 0031). The failure log selects NVIDIA on a dual-GPU machine;
+a baseline comparison must use that same device. The copy fallback in patch
+0030 is first activated after exhaustion in the supplied compositor log, so
+that observed fallback is not the initial failure there.
+
+## Re-evaluation of removing patch 0020
+
+A clean private reconstruction from the checksum-verified 0.20.2 archive,
+applying the builder's patch order but omitting 0020, fails at patch 0030:
+two `render/vulkan/pass.c` hunks are rejected. This verifies the dependency
+problem rather than merely predicting it. Patch 0030's copy code also accesses
+`completion_proven` and calls recovery helpers introduced by 0020. No installed
+library or repository patch was changed for this experiment.
+
+The upstream code really does continue after some required fence-acquisition
+failures, and logs a completion-publication failure before returning success.
+These establish error-handling gaps. They do not establish that the entire
+0020 recovery policy is the only correct solution, or that those branches
+caused the reported exhaustion.
+
+Normal-frame changes should be considered separately. Upstream's semaphore
+signal structures leave `stageMask` at zero, while 0020 sets ALL_COMMANDS.
+Under the [vkQueueSubmit2 scope rules](https://docs.vulkan.org/refpages/latest/refpages/source/vkQueueSubmit2.html),
+zero does not provide a rendering-completion scope. A semaphore used as a
+completion marker needs an appropriate signal scope. Likewise, a wait in the
+later render batch does not reach backwards to protect earlier ownership/layout
+operations. That gives the patch's ordering changes a specification-based
+correctness rationale independent of its tests. It does not prove this exact
+batching arrangement is required, or exclude a regression in its implementation.
+
+The original mock tests enforced the selected submission arrangement and closed imported
+FDs immediately. They could not independently prove that the arrangement is needed
+on hardware or that NVIDIA does not retain internal duplicate descriptors.
+GPU hangs/resets, corruption and lost desktop sessions are plausible consequences
+of broken synchronization, not outcomes reproduced by removing this patch here.
+A coherent diagnostic rollback remains reasonable; shipping a blanket removal
+or calling 0020 the confirmed cause is not supported by the available evidence.
+
+## Error-handling implementation (2026-10-25)
+
+The initial implementation split the failure/resource lifetime policy into
+`0020-vulkan-sync-failure-handling.patch` and the normal-path acquire-wait
+placement and ALL_COMMANDS signal scopes into
+`0020-vulkan-submit-dependencies.patch`. Both were initially applied, preserving
+the combined submission arrangement. The latter has since been removed; see
+the submission rollback below. Patch 0030 uses the explicit
+submission/completion state and still depends on the retained error handling.
+
+| Outcome | Error handling |
+| --- | --- |
+| Before pass submission | Preserve independent uploads, wait only for actual earlier submissions, then cancel and dispose of unconsumed imports. Required acquisition failure never submits a partially synchronized pass. |
+| Rejected submission | Only host/device OOM is classified as rejection with untouched resources, as required by the [Vulkan submit contract](https://docs.vulkan.org/refpages/latest/refpages/source/vkQueueSubmit2.html). Once stage recording includes ownership barriers, retain resources and request renderer replacement; never wait for its unsubmitted timeline point. Independent upload rejection also prevents renderer reuse. |
+| Submission with unknown acceptance | Device loss and unexpected submit errors stop the process before protocol dispatch, buffer reuse, or completion callbacks. This extends the existing terminal policy to queue errors that cannot prove cancellation. |
+| Submitted, publication failed | Wait up to one second for this pass's submitted timeline point, or use completion already established by the presentation copy. Repair release publication only after completion. The frame still returns failure. |
+| Completion cannot be established | Preserve the terminal policy. Returning capture failure can let a client immediately reuse an unfenced buffer; merely retaining a wlroots buffer lock does not prevent that reuse. |
+
+Patch `0037-syncobj-merger-error-handling.patch` separately fixes release merging.
+Export failure cannot replace the old fence with `-1`; merge failure closes only
+the new temporary export and preserves the old aggregate. A failed dependency
+operation gets one bounded wait for **completion**, not availability. Only a
+completed dependency may be omitted. Failure poisons the merger, propagates
+through the public state helper to scene sampling, and stops unsafe protocol
+dispatch. Deferred failures have the same terminal outcome even if the owning
+surface still retains the merger.
+
+Final destination import failure polls the retained aggregate for up to one
+second before attempting a direct signal. Poll timeout/error or failed signal
+terminates explicitly. EINTR retries share the original deadline. Healthy merges
+remain asynchronous; no new healthy-frame CPU wait or semaphore-pool change is
+introduced. These policies deliberately favor a terminal session error over an
+early buffer release or a silently unresolved release promise.
+
+The regression fixtures track driver-owned duplicates of imported FDs until
+the GPU consumes their waits, while checking application ownership independently
+of reused FD numbers. The initial fixtures checked recorded ownership barriers
+against preceding waits; the rollback replaces that assertion with upstream
+submission compatibility checks. Faults cover every acquisition
+plane, semaphore creation, independent uploads, OOM versus unknown submission,
+partial publication, exact submitted-point recovery, copy completion, deferred
+merger failures, waiter allocation/setup, publication, and bounded timeout/EINTR.
+Assertions prohibit early callbacks, release signals, unsafe semaphore reuse,
+and a successful result for a failed frame. Negative controls deliberately
+restore these defects and must be rejected.
+
+Validation of the initial split, before the rollback below, used private builds
+under `/tmp/aqueous-sync-fix`; no installed desktop or system wlroots library was
+replaced:
+
+- All 38 patches reconstruct the tested source; all 94 files touched by the
+  series match the independently reconstructed tree. Both 0020 intermediate
+  sources compile. The split patches, 0030, and 0037 apply without context fuzz.
+- The complete dependency builder, its checks, and both synchronization suites
+  pass, including ASan/UBSan/LeakSanitizer and deliberate regression controls.
+  Each stress run uses a 64-FD limit: 6,000 Vulkan frames, 6,000 two-output release
+  merges, 6,000 atomic transactions, and 2,000 disable/re-enable transactions.
+- Aqueous builds against the private library; `zig build test -Dxwayland -Dllvm`
+  passes **592/592 tests, 124/124 steps**.
+- Real software Vulkan presentation tests pass allocation fallback, renderer
+  recreation, output isolation/hotplug, pixels, reuse, resize, capture and reset.
+- Real NVIDIA synthetic capture tests pass native/SDR pixels, DMA-BUF scene
+  destinations, repeated capture, failure events and metadata lifetimes. Optional
+  output format `0x30335258` is unsupported and skipped by the fixture.
+- On the local RTX 5090, Pearl using Vulkan stays alive across ten Ghostty
+  open/close cycles and exits cleanly. Ten further cycles also disable/re-enable
+  both headless outputs on each iteration; Pearl stays alive and exits cleanly.
+  This is headless GPU coverage; it does not qualify physical scanout or the
+  remote GTX 1080 Ti and 580.178.04 driver.
+- During 90 seconds of continuous Ghostty redraws, Aqueous stabilizes at 106 FDs
+  after warmup, including three sync_file FDs. Pearl and Ghostty remain alive;
+  the session exits cleanly. Driver-internal retention on the remote driver is
+  still unqualified by this local observation.
+
+These changes fix demonstrated error-handling defects. They do not establish
+the cause of the remote driver's retained sync_file duplicates or constitute a
+confirmed fix for the reported exhaustion.
+
+## Submission rollback (2026-10-25)
+
+The affected user's unpatched wlroots 0.20.2 works with Vulkan forced. On that
+evidence, remove the suspected normal-submission changes from the build:
+
+- Delete `0020-vulkan-submit-dependencies.patch` and its shell/Nix entries.
+- Restore upstream acquire waits on the render batch, the separate prior-upload
+  timeline wait on staging, and the original zero-valued signal stage masks.
+- Keep `0020-vulkan-sync-failure-handling.patch`, patch 0030's completion-state
+  integration, and the independent DRM release-merger fixes.
+
+This is a focused rollback, not a fully stock Vulkan renderer. The retained
+0020 still changes resource locking, acquisition timing and retirement as part
+of its error handling. It does not change the semaphore pool or consuming-import
+ownership contract.
+
+The tests retain failure injection, driver-owned FD payloads and resource
+lifetime checks. Negative controls now omit render acquisition waits or the
+prior-upload wait. The old assertions requiring the removed submission layout
+and nonzero signal scopes are gone. The replacement checks preserve the
+upstream layout; they do not prove GPU execution-order correctness.
+
+Release `1.0.8` carries the submission rollback and the retained error-handling
+fixes directly in the source. Source package recipes target `1.0.8-1`; stable
+recipes check out `v1.0.8`, and Git recipes use the current development source.
+All Devario packaging backport files, source/checksum entries, and prepare-hook
+workarounds have been removed. Publish the release commit as `v1.0.8` before
+building the stable packages.
+
+The current private wlroots builder and its checks pass, including
+ASan/UBSan/LeakSanitizer, 6,000 Vulkan
+frames under a 64-FD limit, and all seven Vulkan regression controls.
+Aqueous builds against the rollback and all 592 tests pass. On the local RTX
+5090, Pearl using Vulkan survives ten Ghostty open/close cycles and exits
+cleanly. During a further 90 seconds of continuous Ghostty redraws, Aqueous
+stays at 106 FDs after warmup, including three sync_file FDs; Pearl stays at
+161 FDs, including two sync_file FDs. The session exits cleanly. Software Vulkan
+presentation fallback, capture, reuse, resize and hotplug tests pass.
+These runtime checks used the implementation now included in 1.0.8. Builds and
+logs are under `/tmp/aqueous-submit-rollback`.
+
+Release preparation checks are under `/tmp/aqueous-release-1.0.8`. The rebuilt
+compositor and configuration helper both report `1.0.8`; the helper's 67 unit
+tests and complete backend regression suite pass. All ten source recipes match
+Shelly-generated metadata, and the stable Pearl packaging checks pass.
+
+Confirmation of the reported fix still requires reproducing the Ghostty
+workflow on the GTX 1080 Ti with driver 580.178.04, checking descriptor growth,
+and comparing with the submission override restored.

@@ -18,7 +18,7 @@
  
  	struct wl_list textures; // wlr_vk_texture.link
  	// Textures to return to foreign queue
-@@ -418,6 +422,7 @@
+@@ -418,13 +422,27 @@
  bool vulkan_submit_stage_wait(struct wlr_vk_renderer *renderer);
  
  struct wlr_vk_render_pass_texture {
@@ -26,17 +26,27 @@
  	struct wlr_vk_texture *texture;
  
  	struct wlr_drm_syncobj_timeline *wait_timeline;
-@@ -425,6 +430,9 @@
+ 	uint64_t wait_point;
  };
  
++// A rejected submit (OOM) leaves resources untouched. Device loss does not
++// provide that guarantee; do not treat it as cancellation or completion.
++enum wlr_vk_pass_submission {
++	WLR_VK_PASS_NOT_SUBMITTED,
++	WLR_VK_PASS_REJECTED,
++	WLR_VK_PASS_PENDING,
++	WLR_VK_PASS_COMPLETE,
++	WLR_VK_PASS_UNKNOWN,
++};
++
  struct wlr_vk_render_pass {
 +	struct wlr_vk_render_pass *next_failed;
 +	bool transition_dummy;
-+	bool completion_proven;
++	enum wlr_vk_pass_submission submission;
  	struct wlr_render_pass base;
  	struct wlr_vk_renderer *renderer;
  	struct wlr_vk_render_buffer *render_buffer;
-@@ -599,4 +607,10 @@
+@@ -599,4 +617,10 @@
  
  #endif
  
@@ -290,75 +300,33 @@
  		}
  
  		VkImageMemoryBarrier blend_acq_barrier = {
-@@ -680,6 +696,7 @@
- 		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
- 		.semaphore = renderer->timeline_semaphore,
- 		.value = stage_timeline_point,
-+		.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
- 	};
- 	VkSubmitInfo2KHR stage_submit = {
- 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR,
-@@ -689,20 +706,18 @@
- 		.pSignalSemaphoreInfos = &stage_signal,
- 	};
- 
--	VkSemaphoreSubmitInfoKHR stage_wait;
- 	if (renderer->stage.last_timeline_point > 0) {
--		stage_wait = (VkSemaphoreSubmitInfoKHR){
-+		render_wait[render_wait_len++] = (VkSemaphoreSubmitInfoKHR){
- 			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
- 			.semaphore = renderer->timeline_semaphore,
+@@ -697,12 +713,9 @@
  			.value = renderer->stage.last_timeline_point,
  			.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
  		};
 -
--		stage_submit.waitSemaphoreInfoCount = 1;
--		stage_submit.pWaitSemaphoreInfos = &stage_wait;
--	}
+ 		stage_submit.waitSemaphoreInfoCount = 1;
+ 		stage_submit.pWaitSemaphoreInfos = &stage_wait;
+ 	}
 -
 -	renderer->stage.last_timeline_point = stage_timeline_point;
-+	}
-+	// Ownership transfers and layout transitions are accesses too. Wait before
-+	// the stage batch containing them, not just before the later draw batch.
-+	stage_submit.waitSemaphoreInfoCount = render_wait_len;
-+	stage_submit.pWaitSemaphoreInfos = render_wait;
  
  	uint64_t render_timeline_point = vulkan_end_command_buffer(render_cb, renderer);
  	if (render_timeline_point == 0) {
-@@ -715,6 +730,7 @@
- 		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
- 		.semaphore = renderer->timeline_semaphore,
- 		.value = render_timeline_point,
-+		.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
- 	};
- 	if (renderer->dev->implicit_sync_interop || pass->signal_timeline != NULL) {
- 		if (render_cb->binary_semaphore == VK_NULL_HANDLE) {
-@@ -737,6 +753,7 @@
- 		render_signal[render_signal_len++] = (VkSemaphoreSubmitInfoKHR){
- 			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR,
- 			.semaphore = render_cb->binary_semaphore,
-+			.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,
- 		};
- 	}
- 
-@@ -746,8 +763,6 @@
- 	};
- 	VkSubmitInfo2KHR render_submit = {
- 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR,
--		.waitSemaphoreInfoCount = render_wait_len,
--		.pWaitSemaphoreInfos = render_wait,
- 		.commandBufferInfoCount = 1,
- 		.pCommandBufferInfos = &render_cb_info,
- 		.signalSemaphoreInfoCount = render_signal_len,
-@@ -758,9 +773,25 @@
+@@ -758,9 +771,30 @@
  	VkResult res = renderer->dev->api.vkQueueSubmit2KHR(renderer->dev->queue, 2, submit_info, VK_NULL_HANDLE);
  
  	if (res != VK_SUCCESS) {
 -		device_lost = res == VK_ERROR_DEVICE_LOST;
  		wlr_vk_error("vkQueueSubmit", res);
++		// Only OOM guarantees no submitted resource was affected. A lost
++		// device can have accepted work without a usable completion point.
++		pass->submission = res == VK_ERROR_OUT_OF_HOST_MEMORY || res == VK_ERROR_OUT_OF_DEVICE_MEMORY ?
++			WLR_VK_PASS_REJECTED : WLR_VK_PASS_UNKNOWN;
  		goto error;
 +	}
 +
++	pass->submission = WLR_VK_PASS_PENDING;
 +	stage_cb->submitted = true;
 +	render_cb->submitted = true;
 +	renderer->last_submitted_point = render_timeline_point;
@@ -377,7 +345,7 @@
  	}
  
  	free(render_wait);
-@@ -774,25 +805,31 @@
+@@ -774,25 +808,31 @@
  		wl_list_insert(&stage_cb->stage_buffers, &stage_buf->link);
  	}
  
@@ -423,7 +391,7 @@
  	return false;
  }
  
-@@ -1142,6 +1179,7 @@
+@@ -1142,6 +1182,7 @@
  
  		*pass_texture = (struct wlr_vk_render_pass_texture){
  			.texture = texture,
@@ -431,7 +399,7 @@
  			.wait_timeline = wait_timeline,
  			.wait_point = wait_point,
  		};
-@@ -1385,6 +1423,9 @@
+@@ -1385,6 +1426,9 @@
  
  struct wlr_vk_render_pass *vulkan_begin_render_pass(struct wlr_vk_renderer *renderer,
  		struct wlr_vk_render_buffer *buffer, const struct wlr_buffer_pass_options *options) {
@@ -441,7 +409,7 @@
  	uint32_t inv_eotf;
  	if (options != NULL && options->color_transform != NULL) {
  		if (options->color_transform->type == COLOR_TRANSFORM_INVERSE_EOTF) {
-@@ -1471,8 +1512,12 @@
+@@ -1471,8 +1515,12 @@
  
  	struct wlr_vk_command_buffer *cb = vulkan_acquire_command_buffer(renderer);
  	if (cb == NULL) {
@@ -455,7 +423,7 @@
  	}
  
  	VkCommandBufferBeginInfo begin_info = {
-@@ -1482,12 +1527,12 @@
+@@ -1482,12 +1530,12 @@
  	if (res != VK_SUCCESS) {
  		wlr_vk_error("vkBeginCommandBuffer", res);
  		vulkan_reset_command_buffer(cb);
@@ -482,11 +450,19 @@
  	if (renderer->stage.cb == NULL) {
  		renderer->stage.cb = vulkan_acquire_command_buffer(renderer);
  		if (renderer->stage.cb == NULL) {
-@@ -379,7 +382,10 @@
+@@ -379,7 +382,18 @@
  	return renderer->stage.cb->vk;
  }
  
 -bool vulkan_submit_stage_wait(struct wlr_vk_renderer *renderer) {
++static void mark_sync_failed(struct wlr_vk_renderer *renderer) {
++	if (!renderer->sync_failed) {
++		renderer->sync_failed = true;
++		wlr_log(WLR_ERROR, "Frame synchronization unrecoverable; retaining resources and replacing renderer");
++		wl_signal_emit_mutable(&renderer->wlr_renderer.events.lost, NULL);
++	}
++}
++
 +static bool submit_stage(struct wlr_vk_renderer *renderer) {
 +	if (renderer->sync_failed) {
 +		return false;
@@ -494,10 +470,25 @@
  	if (renderer->stage.cb == NULL) {
  		return false;
  	}
-@@ -408,6 +414,18 @@
+@@ -389,6 +403,7 @@
+ 
+ 	uint64_t timeline_point = vulkan_end_command_buffer(cb, renderer);
+ 	if (timeline_point == 0) {
++		mark_sync_failed(renderer);
+ 		return false;
+ 	}
+ 
+@@ -408,6 +423,25 @@
  	VkResult res = vkQueueSubmit(renderer->dev->queue, 1, &submit_info, VK_NULL_HANDLE);
  	if (res != VK_SUCCESS) {
  		wlr_vk_error("vkQueueSubmit", res);
++		if (res != VK_ERROR_OUT_OF_HOST_MEMORY && res != VK_ERROR_OUT_OF_DEVICE_MEMORY) {
++			// Submission may have started. Never return to callers which can
++			// release upload/readback resources or run completion callbacks.
++			wlr_log(WLR_ERROR, "Unknown upload submission state; terminating to prevent GPU resource reuse");
++			abort();
++		}
++		mark_sync_failed(renderer);
 +		return false;
 +	}
 +
@@ -513,7 +504,7 @@
  		return false;
  	}
  
-@@ -570,17 +588,22 @@
+@@ -570,17 +604,22 @@
  	if (!vulkan_wait_command_buffer(wait, renderer)) {
  		return NULL;
  	}
@@ -536,7 +527,7 @@
  	cb->recording = true;
  
  	return cb;
-@@ -607,7 +630,9 @@
+@@ -607,7 +646,9 @@
  		return;
  	}
  
@@ -546,25 +537,24 @@
  
  	struct wlr_vk_render_completion *completion, *completion_tmp;
  	wl_list_for_each_safe(completion, completion_tmp,
-@@ -620,6 +645,105 @@
- 	VkResult res = vkResetCommandBuffer(cb->vk, 0);
+@@ -621,6 +662,102 @@
  	if (res != VK_SUCCESS) {
  		wlr_vk_error("vkResetCommandBuffer", res);
-+	}
+ 	}
 +}
 +
 +// Only used after an error. Healthy frames continue to publish fences without
 +// blocking the compositor. Waiting on our own submitted work is not a substitute
 +// for acquiring an external producer dependency.
-+static bool wait_last_submission(struct wlr_vk_renderer *renderer) {
-+	if (renderer->last_submitted_point == 0) {
++static bool wait_submission(struct wlr_vk_renderer *renderer, uint64_t point) {
++	if (point == 0) {
 +		return true;
 +	}
 +	VkSemaphoreWaitInfoKHR info = {
 +		.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO_KHR,
 +		.semaphoreCount = 1,
 +		.pSemaphores = &renderer->timeline_semaphore,
-+		.pValues = &renderer->last_submitted_point,
++		.pValues = &point,
 +	};
 +	VkResult res = renderer->dev->api.vkWaitSemaphoresKHR(renderer->dev->dev,
 +		&info, 1000000000); // one second, never an unbounded recovery wait
@@ -593,7 +583,7 @@
 +	if (renderer->stage.cb != NULL && !submit_stage(renderer)) {
 +		return false;
 +	}
-+	if (!wait_last_submission(renderer) || !signal_failed_pass(pass)) {
++	if (!wait_submission(renderer, renderer->last_submitted_point) || !signal_failed_pass(pass)) {
 +		return false;
 +	}
 +
@@ -617,11 +607,12 @@
 +bool vulkan_recover_render_pass(struct wlr_vk_render_pass *pass) {
 +	struct wlr_vk_renderer *renderer = pass->renderer;
 +	struct wlr_vk_command_buffer *cb = pass->command_buffer;
-+	assert(cb->submitted);
-+	if (!wait_last_submission(renderer)) {
++	assert(pass->submission == WLR_VK_PASS_PENDING || pass->submission == WLR_VK_PASS_COMPLETE);
++	if (pass->submission != WLR_VK_PASS_COMPLETE &&
++			!wait_submission(renderer, cb->timeline_point)) {
 +		return false;
 +	}
-+	pass->completion_proven = true;
++	pass->submission = WLR_VK_PASS_COMPLETE;
 +	if (!signal_failed_pass(pass)) {
 +		return false;
 +	}
@@ -634,25 +625,22 @@
 +
 +void vulkan_fail_render_pass(struct wlr_vk_render_pass *pass) {
 +	struct wlr_vk_renderer *renderer = pass->renderer;
-+	if (pass->command_buffer->submitted && !pass->completion_proven) {
++	if (pass->submission == WLR_VK_PASS_PENDING || pass->submission == WLR_VK_PASS_UNKNOWN) {
 +		// Returning false would let capture send "failed" and the client reuse
 +		// an unfenced buffer while GPU writes may still be pending. Buffer locks
 +		// only protect object lifetime, not external access. Stop the process
 +		// without dispatching any more protocol events; device teardown belongs
 +		// to the driver. Do not run application completion callbacks here.
-+		wlr_log(WLR_ERROR, "Cannot establish GPU completion after fence publication failure; terminating to prevent unfenced buffer reuse");
++		wlr_log(WLR_ERROR, "Cannot establish GPU completion after synchronization failure; terminating to prevent unfenced buffer reuse");
 +		abort();
 +	}
 +	pass->next_failed = renderer->failed_passes;
 +	renderer->failed_passes = pass;
-+	if (!renderer->sync_failed) {
-+		renderer->sync_failed = true;
-+		wlr_log(WLR_ERROR, "Frame synchronization unrecoverable; retaining resources and replacing renderer");
-+		wl_signal_emit_mutable(&renderer->wlr_renderer.events.lost, NULL);
- 	}
++	mark_sync_failed(renderer);
  }
  
-@@ -1007,6 +1131,10 @@
+ static void finish_render_buffer_out(struct wlr_vk_render_buffer_out *out,
+@@ -1007,6 +1144,10 @@
  			if (ret < 0) {
  				wlr_log_errno(WLR_ERROR, "Failed to wait for DMA-BUF fence");
  				return false;
@@ -663,18 +651,19 @@
  			} else if (ret == 0) {
  				wlr_log(WLR_ERROR, "Timed out while waiting for DMA-BUF fence");
  				return false;
-@@ -1083,6 +1211,10 @@
+@@ -1083,6 +1224,11 @@
  		return false;
  	}
  
 +	if (sync_file_fd == -1) {
++		pass->submission = WLR_VK_PASS_COMPLETE;
 +		return signal_failed_pass(pass);
 +	}
 +
  	bool ok = false;
  	if (pass->signal_timeline != NULL) {
  		if (!wlr_drm_syncobj_timeline_import_sync_file(pass->signal_timeline,
-@@ -1096,7 +1228,10 @@
+@@ -1096,7 +1242,10 @@
  
  		struct wlr_vk_render_pass_texture *pass_texture;
  		wl_array_for_each(pass_texture, &pass->textures) {
@@ -686,7 +675,7 @@
  				goto out;
  			}
  		}
-@@ -1138,6 +1273,22 @@
+@@ -1138,6 +1287,22 @@
  	VkResult res = vkDeviceWaitIdle(renderer->dev->dev);
  	if (res != VK_SUCCESS) {
  		wlr_vk_error("vkDeviceWaitIdle", res);
@@ -709,7 +698,7 @@
  	}
  
  	for (size_t i = 0; i < VULKAN_COMMAND_BUFFERS_CAP; i++) {
-@@ -1486,6 +1637,9 @@
+@@ -1486,6 +1651,9 @@
  static struct wlr_render_pass *vulkan_begin_buffer_pass(struct wlr_renderer *wlr_renderer,
  		struct wlr_buffer *buffer, const struct wlr_buffer_pass_options *options) {
  	struct wlr_vk_renderer *renderer = vulkan_get_renderer(wlr_renderer);

@@ -29,10 +29,14 @@ static struct wl_listener lost_listener;
 static unsigned export_count, import_count, publish_count, submit_count, stage_count;
 static unsigned wait_count, reset_count, callback_count, signal_count, lost_count;
 static unsigned fail_export, fail_import, fail_publish;
+static unsigned create_count, fail_create;
 static bool fail_explicit_export, fail_export_semaphore, fail_signal, sentinel;
 static VkResult wait_result, queue_result;
 static unsigned next_sem;
 static bool sem_live[256], sem_signaled[256];
+static int sem_payload[256];
+static uint64_t sem_pending[256];
+static uint64_t expected_wait_point;
 static int exported_fds[256];
 static unsigned num_fds;
 static bool fd_owned[4096];
@@ -43,6 +47,17 @@ static bool expect_fatal;
 static unsigned fatal_count;
 static bool copy_complete, fail_copy_map;
 static unsigned char copy_source[32 * 32 * 4], copy_destination[32 * (32 * 4 + 8)];
+
+static void complete_gpu(uint64_t point) {
+    completed = point;
+    for (unsigned i = 1; i < 255; i++) {
+        if (sem_pending[i] && sem_pending[i] <= completed) {
+            assert(sem_payload[i] >= 0 && close(sem_payload[i]) == 0);
+            sem_payload[i] = -1;
+            sem_pending[i] = 0;
+        }
+    }
+}
 
 void vulkan_copy_buffer_record(struct wlr_vk_render_buffer *buffer, VkCommandBuffer cb) {
     assert(buffer->copy_target);
@@ -81,6 +96,8 @@ static int mock_close(int fd) {
 VKAPI_ATTR VkResult VKAPI_CALL vkCreateSemaphore(VkDevice dev, const VkSemaphoreCreateInfo *info,
                                                  const VkAllocationCallbacks *alloc,
                                                  VkSemaphore *sem) {
+    if (++create_count == fail_create)
+        return VK_ERROR_OUT_OF_HOST_MEMORY;
     for (next_sem = 1; next_sem < 255 && sem_live[next_sem]; next_sem++) {}
     assert(next_sem < 255);
     sem_live[next_sem] = true;
@@ -95,12 +112,22 @@ VKAPI_ATTR void VKAPI_CALL vkDestroySemaphore(VkDevice dev, VkSemaphore sem,
     assert(sem_live[n]);
     // Destruction of submitted signal semaphores requires proven completion.
     assert(!sem_signaled[n] || completed >= renderer.last_submitted_point);
+    assert(!sem_pending[n] || completed >= sem_pending[n]);
+    if (sem_payload[n] >= 0) {
+        assert(close(sem_payload[n]) == 0);
+        sem_payload[n] = -1;
+    }
     sem_live[n] = sem_signaled[n] = false;
 }
 static VkResult import_fd(VkDevice dev, const VkImportSemaphoreFdInfoKHR *info) {
     if (++import_count == fail_import)
         return VK_ERROR_INVALID_EXTERNAL_HANDLE;
-    assert(sem_live[(uintptr_t)info->semaphore]);
+    unsigned n = (uintptr_t)info->semaphore;
+    assert(sem_live[n] && !sem_pending[n] && sem_payload[n] == -1);
+    // Model a driver duplicating a successful import and retaining its payload
+    // until the consuming GPU wait completes (or an unsubmitted import dies).
+    sem_payload[n] = fcntl(info->fd, F_DUPFD_CLOEXEC, 0);
+    assert(sem_payload[n] >= 0 && !fd_owned[sem_payload[n]]);
     assert(mock_close(info->fd) == 0);
     return VK_SUCCESS;
 }
@@ -118,9 +145,9 @@ static VkResult wait_semaphores(VkDevice dev, const VkSemaphoreWaitInfoKHR *info
                                 uint64_t timeout) {
     wait_count++;
     assert(timeout == 1000000000); // bounded error path
-    assert(*info->pValues == renderer.last_submitted_point);
+    assert(*info->pValues == (expected_wait_point ? expected_wait_point : renderer.last_submitted_point));
     if (wait_result == VK_SUCCESS)
-        completed = *info->pValues;
+        complete_gpu(*info->pValues);
     return wait_result;
 }
 VKAPI_ATTR VkResult VKAPI_CALL vkEndCommandBuffer(VkCommandBuffer cb) { return VK_SUCCESS; }
@@ -139,21 +166,41 @@ VKAPI_ATTR VkResult VKAPI_CALL vkQueueSubmit(VkQueue queue, uint32_t count,
 static VkResult queue_submit(VkQueue queue, uint32_t count, const VkSubmitInfo2KHR *info,
                              VkFence fence) {
     submit_count++;
+    // Preserve wlroots 0.20.2's submission layout: prior uploads gate staging,
+    // imported source/destination fences gate rendering. This checks baseline
+    // compatibility and FD ownership; it does not simulate GPU execution scopes.
     assert(count == 2);
-    // Required waits must precede ownership transitions, not just the draw batch.
-    assert(info[0].waitSemaphoreInfoCount >= 1);
-    assert(info[1].waitSemaphoreInfoCount == 0);
-    for (unsigned i = 0; i < info[0].waitSemaphoreInfoCount; i++)
-        assert(info[0].pWaitSemaphoreInfos[i].stageMask ==
-               VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR);
-    for (unsigned b = 0; b < 2; b++) {
+    assert(info[0].waitSemaphoreInfoCount == (renderer.stage.last_timeline_point > 0));
+    bool waited[256] = {0};
+    for (unsigned b = 0; b < count; b++) {
+        for (unsigned i = 0; i < info[b].waitSemaphoreInfoCount; i++) {
+            const VkSemaphoreSubmitInfoKHR *wait = &info[b].pWaitSemaphoreInfos[i];
+            assert(wait->stageMask & (VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR | VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR));
+            if (wait->semaphore == renderer.timeline_semaphore) {
+                assert(b == 0 && wait->value == renderer.stage.last_timeline_point);
+            } else {
+                assert(b == 1 && !waited[(uintptr_t)wait->semaphore]);
+            }
+            waited[(uintptr_t)wait->semaphore] = true;
+        }
         for (unsigned i = 0; i < info[b].signalSemaphoreInfoCount; i++) {
             const VkSemaphoreSubmitInfoKHR *sig = &info[b].pSignalSemaphoreInfos[i];
-            assert(sig->stageMask == VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR);
+            assert(sig->stageMask == 0); // upstream 0.20.2 baseline
             if (sig->semaphore != renderer.timeline_semaphore && queue_result == VK_SUCCESS) {
                 unsigned n = (uintptr_t)sig->semaphore;
                 assert(sem_live[n] && !sem_signaled[n]);
                 sem_signaled[n] = true;
+            }
+        }
+    }
+    for (unsigned n = 1; n < 255; n++)
+        assert(sem_payload[n] < 0 || sem_pending[n] || waited[n]);
+    // Device loss can accept work without reporting successful submission.
+    if (queue_result == VK_SUCCESS || queue_result == VK_ERROR_DEVICE_LOST) {
+        for (unsigned n = 1; n < 255; n++) {
+            if (waited[n]) {
+                assert(sem_payload[n] >= 0 && !sem_pending[n]);
+                sem_pending[n] = renderer.timeline_point;
             }
         }
     }
@@ -271,9 +318,13 @@ static void init(void) {
     export_count = import_count = publish_count = submit_count = stage_count = 0;
     wait_count = reset_count = callback_count = signal_count = lost_count = 0;
     fail_export = fail_import = fail_publish = 0;
+    create_count = fail_create = 0;
     fail_explicit_export = fail_export_semaphore = fail_signal = sentinel = false;
     wait_result = queue_result = VK_SUCCESS;
     next_sem = num_fds = completed = 0;
+    expected_wait_point = 0;
+    for (unsigned i = 0; i < 256; i++) sem_payload[i] = -1;
+    memset(sem_pending, 0, sizeof(sem_pending));
     memset(sem_live, 0, sizeof(sem_live));
     memset(sem_signaled, 0, sizeof(sem_signaled));
     poll_mode = 1;
@@ -313,17 +364,22 @@ static struct wlr_vk_render_pass *new_pass(bool explicit_source, bool explicit_d
 }
 static void assert_fds_closed(void) {
     for (unsigned i = 0; i < num_fds; i++) {
-        errno = 0;
-        assert(fcntl(exported_fds[i], F_GETFD) == -1 && errno == EBADF);
+        // Numeric FD slots can now belong to a driver's duplicated payload.
+        // Check application ownership; the independent payload census follows
+        // actual GPU completion in retire()/finish().
+        assert(!fd_owned[exported_fds[i]]);
     }
     num_fds = 0;
 }
 static void retire(void) {
-    completed = renderer.last_submitted_point;
+    complete_gpu(renderer.last_submitted_point);
     for (unsigned i = 0; i < 4; i++)
         release_command_buffer_resources(&renderer.command_buffers[i], &renderer, 0);
 }
 static void finish(void) {
+    // Device teardown in fatal-path tests proves even unknown work complete.
+    renderer.last_submitted_point = renderer.timeline_point > renderer.last_submitted_point ?
+        renderer.timeline_point : renderer.last_submitted_point;
     retire();
     // Simulate proven-complete teardown of quarantined passes, never early reuse.
     while (renderer.failed_passes) {
@@ -375,10 +431,10 @@ static void stress(void) {
         fail_export = fail_import = fail_publish = 0;
         fail_export_semaphore = false;
         assert_fds_closed();
-        assert(fd_count() == baseline);
         // Complete both outputs before replacing the buffer generation or
         // simulating renderer recovery/output removal. Never drop live work.
         retire();
+        assert(fd_count() == baseline);
         assert(src_buffer.n_locks == 0 && dst_buffer.n_locks == 0);
         assert(other_src.n_locks == 0 && other_dst.n_locks == 0);
         if (frame % 97 == 0) { finish(); init(); }
@@ -455,6 +511,31 @@ int main(void) {
     recover_next_frame();
     finish();
 
+    // A failed independent upload cannot leave an unsubmitted point available
+    // for later waits/reuse. Unknown acceptance is terminal on this route too.
+    for (unsigned fault = 0; fault < 3; fault++) {
+        init();
+        fail_explicit_export = true;
+        renderer.stage.cb = &renderer.command_buffers[1];
+        renderer.stage.cb->recording = true;
+        queue_result = fault == 0 ? VK_ERROR_OUT_OF_HOST_MEMORY :
+            fault == 1 ? VK_ERROR_OUT_OF_DEVICE_MEMORY : VK_ERROR_DEVICE_LOST;
+        struct wlr_vk_render_pass *upload_pass = new_pass(true, true);
+        expect_fatal = fault == 2;
+        if (setjmp(fatal_jump) == 0) {
+            assert(!render_pass_submit(&upload_pass->base));
+            assert(fault < 2 && renderer.sync_failed && lost_count == 1);
+        } else {
+            assert(fatal_count == 1);
+            renderer.failed_passes = upload_pass;
+        }
+        assert(stage_count == 1 && submit_count == 0 && wait_count == 0);
+        assert(callback_count == 0 && signal_count == 0 && reset_count == 0);
+        assert(renderer.last_submitted_point == 0 && renderer.stage.last_timeline_point == 0);
+        assert(src_buffer.n_locks == 1 && dst_buffer.n_locks == 1);
+        finish();
+    }
+
     // Repeated acquire failures on a reused slot must not retain imported
     // temporary payloads or an allocated-but-never-submitted timeline point.
     init();
@@ -491,9 +572,53 @@ int main(void) {
     // execute callbacks for commands whose lifecycle is uncertain.
     init();
     queue_result = VK_ERROR_DEVICE_LOST;
-    assert(!render_pass_submit(&new_pass(false, true)->base));
-    assert(renderer.sync_failed && lost_count == 1 && callback_count == 0);
+    struct wlr_vk_render_pass *lost_pass = new_pass(false, true);
+    expect_fatal = true;
+    if (setjmp(fatal_jump) == 0) {
+        render_pass_submit(&lost_pass->base);
+        assert(!"unknown submission must stop before returning to the caller");
+    }
+    assert(fatal_count == 1 && callback_count == 0 && signal_count == 0 && reset_count == 0);
+    assert(src_buffer.n_locks == 1 && dst_buffer.n_locks == 1);
     assert(renderer.last_submitted_point == 0 && renderer.stage.last_timeline_point == 0);
+    renderer.failed_passes = lost_pass;
+    finish();
+
+    // OOM rejection guarantees no work was accepted. Stage recording already
+    // contains ownership barriers, so retain it for safe renderer replacement.
+    for (unsigned i = 0; i < 2; i++) {
+        init();
+        queue_result = i ? VK_ERROR_OUT_OF_HOST_MEMORY : VK_ERROR_OUT_OF_DEVICE_MEMORY;
+        assert(!render_pass_submit(&new_pass(false, true)->base));
+        assert(renderer.failed_passes->submission == WLR_VK_PASS_REJECTED);
+        assert(renderer.sync_failed && lost_count == 1 && callback_count == 0 && signal_count == 0);
+        assert(wait_count == 0 && reset_count == 0);
+        finish();
+    }
+    for (unsigned i = 1; i <= 5; i++) {
+        init();
+        fail_create = i;
+        assert(!render_pass_submit(&new_pass(false, true)->base));
+        assert(submit_count == 0);
+        assert(callback_count == (i < 5));
+        assert(renderer.sync_failed == (i == 5));
+        finish();
+    }
+
+    // Recovery must wait for the submitted pass, never an allocated future
+    // timeline point. Completion can also already be known from a copy.
+    init();
+    struct wlr_vk_render_pass *recover_pass = new_pass(false, true);
+    recover_pass->command_buffer->submitted = true;
+    recover_pass->command_buffer->recording = false;
+    recover_pass->command_buffer->timeline_point = 7;
+    recover_pass->submission = WLR_VK_PASS_PENDING;
+    renderer.timeline_point = 9;
+    renderer.last_submitted_point = expected_wait_point = 7;
+    assert(vulkan_recover_render_pass(recover_pass));
+    assert(wait_count == 1 && completed == 7 && recover_pass->submission == WLR_VK_PASS_COMPLETE);
+    assert(vulkan_recover_render_pass(recover_pass) && wait_count == 1);
+    renderer.failed_passes = recover_pass;
     finish();
 
     // Completion export and partial publication, including explicit release.
@@ -558,12 +683,15 @@ int main(void) {
     for (unsigned i = 0; i < 20; i++) {
         assert(render_pass_submit(&new_pass(false, false)->base));
         assert(wait_count == 0 && callback_count == i);
+        unsigned pending = 0;
+        for (unsigned n = 1; n < 255; n++) pending += sem_payload[n] >= 0;
+        assert(pending == 4); // all source/destination plane payloads still live
         retire();
         assert(callback_count == i + 1);
     }
     finish();
     stress();
     puts("PASS: acquire/export/import/publication faults, FD/lock ownership, recovery, stage "
-         "scopes, callbacks");
+         "dependencies, callbacks");
     return 0;
 }

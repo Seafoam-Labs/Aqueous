@@ -40,10 +40,13 @@ syncobj = structure(surface, 'wlr_linux_drm_syncobj_surface_v1')
 syncobj += structure(merger, 'export_waiter')
 syncobj += '\n'.join(function(merger, name) for name in [
     'sync_file_merge', 'wlr_drm_syncobj_merger_create', 'wlr_drm_syncobj_merger_ref',
+    'merger_wait_point', 'merger_wait_sync_file',
     'wlr_drm_syncobj_merger_unref', 'merger_add_exportable', 'export_waiter_handle_ready',
     'wlr_drm_syncobj_merger_add'])
 syncobj += '\n'.join(function(surface, name) for name in [
-    'surface_synced_finish_state', 'surface_synced_move_state', 'surface_synced_commit'])
+    'surface_synced_finish_state', 'surface_synced_move_state', 'surface_synced_commit',
+    'wlr_linux_drm_syncobj_v1_state_add_release_point'])
+syncobj += function((source / 'types/scene/surface.c').read_text(), 'handle_scene_buffer_output_sample')
 with tempfile.TemporaryDirectory(prefix='aqueous-drm-sync-') as tmp:
     tmp = Path(tmp)
     for fixture, header, code in [('drm-sync', 'drm-sync-functions.h', production),
@@ -63,6 +66,21 @@ with tempfile.TemporaryDirectory(prefix='aqueous-drm-sync-') as tmp:
             old = 'flags, loop, export_waiter_handle_ready)) {\n\t\tfree(add);'
             assert code.count(old) == 1
             variants.append(('lost-waiter', code.replace(old, old.replace('\n\t\tfree(add);', '')), True))
+            mutations = {
+                'drop-earlier-fence': ('return merger_wait_point(merger, src_timeline, src_point);\n\t\t}',
+                    'close(merger->sync_fd); merger->sync_fd = -1;\n\t\t\treturn merger_wait_point(merger, src_timeline, src_point);\n\t\t}'),
+                'availability-as-completion': ('DRM_SYNCOBJ_WAIT_FLAGS_WAIT_FOR_SUBMIT, NULL);',
+                    'DRM_SYNCOBJ_WAIT_FLAGS_WAIT_AVAILABLE, NULL);'),
+                'ignored-publication': ('if (!published && merger_wait_sync_file(merger->sync_fd))',
+                    'if (!published && (merger_wait_sync_file(merger->sync_fd), true))'),
+                'ignored-deferred-failure': ('bool ok = !merger->failed && merger_add_exportable(merger, add->src_timeline, add->src_point);',
+                    'bool ok = (merger_add_exportable(merger, add->src_timeline, add->src_point), true); merger->failed = false;'),
+                'ignored-scene-failure': ('event->release_timeline, event->release_point, output->event_loop)) {',
+                    'event->release_timeline, event->release_point, output->event_loop) && false) {'),
+            }
+            for label, (old, new) in mutations.items():
+                assert code.count(old) == 1, label
+                variants.append((label, code.replace(old, new), False))
         for label, variant, sanitizer in variants:
             (tmp / header).write_text(variant)
             binary = tmp / (fixture + '-' + label)
@@ -77,8 +95,11 @@ with tempfile.TemporaryDirectory(prefix='aqueous-drm-sync-') as tmp:
                 assert result.returncode == -6 and 'fd_count() == baseline' in result.stderr, result.stderr
                 print('PASS: negative control rejected (lost input fence)')
             elif label == 'lost-waiter':
-                assert result.returncode != 0 and 'in 1000 allocation(s)' in result.stderr and 'wlr_drm_syncobj_merger_add' in result.stderr, result.stderr
+                assert result.returncode != 0 and 'LeakSanitizer: detected memory leaks' in result.stderr and 'wlr_drm_syncobj_merger_add' in result.stderr, result.stderr
                 print('PASS: negative control rejected (lost waiter allocation)')
+            elif label not in ('plain', 'asan'):
+                assert result.returncode == -6 and 'Assertion' in result.stderr, result.stderr
+                print(f'PASS: negative control rejected ({label})')
             else:
                 if result.returncode:
                     raise RuntimeError(result.stdout + result.stderr)

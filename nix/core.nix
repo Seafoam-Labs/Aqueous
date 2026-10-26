@@ -76,7 +76,7 @@
         ])
       );
   },
-  version ? "0.7.0",
+  version ? "1.0.8",
 }:
 
 assert lib.assertMsg (lib.versionAtLeast wayland-protocols.version "1.49")
@@ -139,6 +139,7 @@ let
       "${src}/compositor/patches/wlroots/0034-dmabuf-import-diagnostics.patch"
       "${src}/compositor/patches/wlroots/0035-drm-prepare-resource-ownership.patch"
       "${src}/compositor/patches/wlroots/0036-syncobj-waiter-allocation-cleanup.patch"
+      "${src}/compositor/patches/wlroots/0037-syncobj-merger-error-handling.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending

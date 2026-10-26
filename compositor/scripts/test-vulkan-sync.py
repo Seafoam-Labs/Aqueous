@@ -30,9 +30,9 @@ def main():
     source, prefix = map(Path, sys.argv[1:])
     selected = {
         "render/vulkan/renderer.c": [
-            "vulkan_end_command_buffer", "vulkan_wait_command_buffer", "submit_stage",
+            "vulkan_end_command_buffer", "vulkan_wait_command_buffer", "mark_sync_failed", "submit_stage",
             "release_command_buffer_resources", "vulkan_reset_command_buffer",
-            "wait_last_submission", "signal_failed_pass", "vulkan_cancel_render_pass",
+            "wait_submission", "signal_failed_pass", "vulkan_cancel_render_pass",
             "vulkan_recover_render_pass", "vulkan_fail_render_pass",
             "buffer_export_sync_file", "vulkan_sync_foreign_texture_acquire",
             "vulkan_sync_render_buffer_acquire", "buffer_import_sync_file",
@@ -77,12 +77,18 @@ def main():
             "copy-readiness-bypassed": (
                 'bool copied = !render_buffer->copy_target || vulkan_copy_buffer_finish(pass);',
                 'bool copied = true;'),
-            "wait-after-ownership": (
-                'stage_submit.waitSemaphoreInfoCount = render_wait_len;',
+            "acquire-waits-omitted": (
+                '.waitSemaphoreInfoCount = render_wait_len,',
+                '.waitSemaphoreInfoCount = 0,'),
+            "stage-history-wait-omitted": (
+                'stage_submit.waitSemaphoreInfoCount = 1;',
                 'stage_submit.waitSemaphoreInfoCount = 0;'),
-            "signal-empty-scope": (
-                '.value = render_timeline_point,\n\t\t.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,',
-                '.value = render_timeline_point,\n\t\t.stageMask = 0,'),
+            "device-loss-cancelled": (
+                'WLR_VK_PASS_REJECTED : WLR_VK_PASS_UNKNOWN;',
+                'WLR_VK_PASS_REJECTED : WLR_VK_PASS_REJECTED;'),
+            "recover-allocated-point": (
+                '!wait_submission(renderer, cb->timeline_point)',
+                '!wait_submission(renderer, renderer->timeline_point)'),
         }
         variants = [("plain", production, False), ("asan", production, True)]
         for label, (old, new) in mutations.items():
