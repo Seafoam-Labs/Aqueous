@@ -61,7 +61,7 @@ pkgbase = aqueous
 	options = !debug
 	source = aqueous-1.0.7.tar.gz::https://github.com/Seafoam-Labs/Aqueous/archive/refs/tags/v1.0.7.tar.gz
 	source = wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz
-	sha256sums = 7b7a1bd0b598071eeda18fcdc7e19f33d08aa4dcdc968fb27de6b3846ebefba8
+	sha256sums = 39e229bb75cae38126022367fffcc8bc8f8637aa1112ba99d79b1d33a54b679a
 	sha256sums = 972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343
 
 pkgname = aqueous

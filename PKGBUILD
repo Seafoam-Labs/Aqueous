@@ -23,7 +23,7 @@ source=(
     "xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz"
 )
 sha256sums=(
-    '7b7a1bd0b598071eeda18fcdc7e19f33d08aa4dcdc968fb27de6b3846ebefba8'
+    '39e229bb75cae38126022367fffcc8bc8f8637aa1112ba99d79b1d33a54b679a'
     '972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343'
     '3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400'
 )
