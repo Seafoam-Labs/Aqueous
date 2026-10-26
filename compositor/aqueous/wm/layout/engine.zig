@@ -259,6 +259,17 @@ pub fn layoutForHandle(state: *const State, handle: types.Handle) config.LayoutI
     return composable.layoutForHandle(&state.composite, handle) orelse .composable;
 }
 
+/// Resolve geometry against the owning leaf, including composable regions.
+pub fn floatingArea(state: *const State, snapshot: *const config.Snapshot, handle: types.Handle, area: types.Rect) types.Rect {
+    if (state.active_layout == .composable) {
+        if (state.composite.membership.get(handle)) |slot| {
+            if (state.composite.enabled[slot] and state.composite.layouts[slot] == .floating)
+                return composable.resolvedArea(snapshot, area, slot);
+        }
+    }
+    return area;
+}
+
 pub fn usesFloatingLayout(state: *const State, handle: types.Handle) bool {
     return layoutForHandle(state, handle) == .floating;
 }
@@ -1022,4 +1033,32 @@ test "output relocation updates dormant standalone and composable floating cache
     reconfigureOutput(&state, after, before, before);
     try std.testing.expectEqual(original, floating.geometry(&state.standalone.floating, 1).?);
     try std.testing.expectEqual(original, floating.geometry(&state.composite.children[2].floating, 2).?);
+}
+
+test "floating snap area follows the owning composable region" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    var snapshot: config.Snapshot = .{};
+    config.apply(&snapshot,
+        \\[layout]
+        \\default = "composable"
+        \\[layout.composable.a]
+        \\layout = "float"
+        \\p1 = [0.0, 0.0]
+        \\p2 = [0.5, 0.0]
+        \\p3 = [0.5, 1.0]
+        \\p4 = [0.0, 1.0]
+        \\[layout.composable.b]
+        \\layout = "tile"
+        \\p1 = [0.5, 0.0]
+        \\p2 = [1.0, 0.0]
+        \\p3 = [1.0, 1.0]
+        \\p4 = [0.5, 1.0]
+    );
+    const area: types.Rect = .{ .x = -1280, .y = 20, .width = 1280, .height = 700 };
+    const placements = try arrange(std.testing.allocator, &state, &snapshot, area, &.{.{ .handle = 1 }}, 1, .{});
+    defer std.testing.allocator.free(placements);
+    try std.testing.expect(usesFloatingLayout(&state, 1));
+    try std.testing.expectEqual(types.Rect{ .x = -1280, .y = 20, .width = 640, .height = 700 }, floatingArea(&state, &snapshot, 1, area));
+    try std.testing.expectEqual(area, floatingArea(&state, &snapshot, 99, area));
 }

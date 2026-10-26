@@ -101,7 +101,8 @@ pub const Options = struct {
     floating_move_step: i32 = 10,
     floating_move_step_coarse: i32 = 50,
     floating_resize_step: i32 = 10,
-    floating_snap_gap: i32 = 0,
+    /// Explicit legacy outer inset; null inherits shared layout gaps.
+    floating_snap_gap: ?i32 = null,
     floating_snap_threshold: i32 = 24,
     floating_resistance: i32 = 12,
     floating_top_edge_maximize: bool = true,

@@ -740,7 +740,7 @@ pub fn build(b: *Build) !void {
 
         const layout_test = b.addTest(.{
             .root_module = b.createModule(.{
-                .root_source_file = b.path("aqueous/wm/layout/tests.zig"),
+                .root_source_file = b.path("aqueous/wm/layout_tests.zig"),
                 .target = target,
                 .optimize = optimize,
             }),

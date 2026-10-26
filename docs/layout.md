@@ -59,6 +59,38 @@ The compositor monitors configuration on its Wayland event loop. Changes are
 loaded as a new validated snapshot and trigger a manage cycle; the configured
 reload binding can also request an immediate reload.
 
+## Floating gaps and snapping
+
+Floating layouts use `gaps_outer` at the usable output or composable-region
+boundary. `gaps_inner` sets the space between neighboring windows during
+minimal-overlap placement, window-edge attraction, and snapping. Distances
+are measured between compositor borders in logical pixels. Cascades and
+freely moved windows can still overlap; changing gaps does not rearrange
+unsnapped windows.
+
+Built-in half/quarter snaps and named or legacy normalized zones inherit the
+floating layout's common gaps. Adjacent snapped windows share one inner gap,
+including when the gap or output dimensions are odd. Borders are included in
+the target calculation. Client minimum sizes and size increments can prevent
+an exact fit, and gaps are clamped when a region is too small.
+
+An explicitly configured `snap_gap` retains the legacy built-in behavior: it
+insets the output before dividing it into touching snap slots. An explicit
+named-layout `padding` instead insets every zone, so adjacent zones have twice
+that padding between them. Both settings override shared snap gaps, including
+when explicitly set to zero. Omit them to use `gaps_outer` and `gaps_inner`.
+
+Keyboard and pointer snaps use the window's geometry owner. Floating regions
+inside composable layouts snap within their own bounds. Persistent floating
+overlays support built-in snaps on any layout and named zones in a floating
+workspace. Pointer snaps preview their target and commit when the drag ends;
+`snap_threshold = 0` disables both named-zone and built-in pointer snapping.
+
+Snapped windows follow gap reloads and output changes, while unsnap restores
+the remembered freeform rectangle (adjusted for reachability if necessary).
+Removing a named zone releases its snap and leaves the last rectangle in
+place. Fullscreen and client maximization retain their existing geometry.
+
 ## Centering a single tiled window
 
 Enable automatic centering in `tile`, `grid`, `rows`, `dwindle`, and

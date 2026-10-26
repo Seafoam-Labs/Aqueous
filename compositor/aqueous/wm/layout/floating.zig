@@ -3,7 +3,6 @@
 
 const std = @import("std");
 const geometry_policy = @import("geometry.zig");
-const math = @import("math.zig");
 const types = @import("types.zig");
 
 pub const State = struct {
@@ -20,7 +19,8 @@ pub const State = struct {
 /// mapped at their natural size when they are admitted; after the first tiled
 /// configure that size is no longer recoverable from the client buffer.
 pub fn prepare(allocator: std.mem.Allocator, state: *State, usable_area: types.Rect, windows: []const types.Window, options: types.Options) !void {
-    const area = math.shrink(usable_area, options.gaps_outer);
+    const inset = @max(0, options.gaps_outer) +| @max(0, options.border.width);
+    const area = geometry_policy.insetRect(usable_area, inset, inset, inset, inset);
     for (windows) |window| {
         const entry = try state.rects.getOrPut(allocator, window.handle);
         if (entry.found_existing) continue;
@@ -28,7 +28,7 @@ pub fn prepare(allocator: std.mem.Allocator, state: *State, usable_area: types.R
         entry.value_ptr.* = switch (options.floating_placement) {
             .center => initial,
             .under_pointer => underPointer(initial, area, options.pointer_x, options.pointer_y),
-            .minimal_overlap => minimalOverlap(state, windows, window.handle, initial, area),
+            .minimal_overlap => minimalOverlap(state, windows, window.handle, initial, area, @max(0, options.gaps_inner) +| (@max(0, options.border.width) *| 2)),
             .cascade => cascade(initial, area, state.next_cascade, options.floating_cascade_step),
         };
         state.next_cascade +%= 1;
@@ -112,49 +112,48 @@ fn cascade(initial: types.Rect, area: types.Rect, index: u32, configured_step: i
     }, area);
 }
 
-fn minimalOverlap(state: *const State, windows: []const types.Window, handle: types.Handle, initial: types.Rect, area: types.Rect) types.Rect {
+fn minimalOverlap(state: *const State, windows: []const types.Window, handle: types.Handle, initial: types.Rect, area: types.Rect, gap: i32) types.Rect {
     var choice = initial;
-    var best = scoreCandidate(state, windows, handle, choice, initial);
+    var best = scoreCandidate(state, windows, handle, choice, initial, gap);
     const positions = [_]types.Rect{
         .{ .x = area.x, .y = area.y, .width = initial.width, .height = initial.height },
         .{ .x = clampI32(@as(i64, area.x) + area.width - initial.width), .y = area.y, .width = initial.width, .height = initial.height },
         .{ .x = area.x, .y = clampI32(@as(i64, area.y) + area.height - initial.height), .width = initial.width, .height = initial.height },
         .{ .x = clampI32(@as(i64, area.x) + area.width - initial.width), .y = clampI32(@as(i64, area.y) + area.height - initial.height), .width = initial.width, .height = initial.height },
     };
-    for (positions) |candidate| considerCandidate(state, windows, handle, fit(candidate, area), initial, &choice, &best);
+    for (positions) |candidate| considerCandidate(state, windows, handle, fit(candidate, area), initial, &choice, &best, gap);
     for (windows) |window| {
         if (window.handle == handle) continue;
         const other = state.rects.get(window.handle) orelse continue;
         const candidates = [_]types.Rect{
-            .{ .x = clampI32(@as(i64, other.x) - initial.width), .y = other.y, .width = initial.width, .height = initial.height },
-            .{ .x = clampI32(@as(i64, other.x) + other.width), .y = other.y, .width = initial.width, .height = initial.height },
-            .{ .x = other.x, .y = clampI32(@as(i64, other.y) - initial.height), .width = initial.width, .height = initial.height },
-            .{ .x = other.x, .y = clampI32(@as(i64, other.y) + other.height), .width = initial.width, .height = initial.height },
+            .{ .x = clampI32(@as(i64, other.x) - initial.width - gap), .y = other.y, .width = initial.width, .height = initial.height },
+            .{ .x = clampI32(@as(i64, other.x) + other.width + gap), .y = other.y, .width = initial.width, .height = initial.height },
+            .{ .x = other.x, .y = clampI32(@as(i64, other.y) - initial.height - gap), .width = initial.width, .height = initial.height },
+            .{ .x = other.x, .y = clampI32(@as(i64, other.y) + other.height + gap), .width = initial.width, .height = initial.height },
         };
-        for (candidates) |candidate| considerCandidate(state, windows, handle, fit(candidate, area), initial, &choice, &best);
+        for (candidates) |candidate| considerCandidate(state, windows, handle, fit(candidate, area), initial, &choice, &best, gap);
     }
     return choice;
 }
 
 const CandidateScore = struct { overlap: u64, distance: u64 };
 
-fn considerCandidate(state: *const State, windows: []const types.Window, handle: types.Handle, candidate: types.Rect, origin: types.Rect, choice: *types.Rect, best: *CandidateScore) void {
-    const score = scoreCandidate(state, windows, handle, candidate, origin);
+fn considerCandidate(state: *const State, windows: []const types.Window, handle: types.Handle, candidate: types.Rect, origin: types.Rect, choice: *types.Rect, best: *CandidateScore, gap: i32) void {
+    const score = scoreCandidate(state, windows, handle, candidate, origin, gap);
     if (score.overlap < best.overlap or (score.overlap == best.overlap and score.distance < best.distance)) {
         choice.* = candidate;
         best.* = score;
     }
 }
 
-fn scoreCandidate(state: *const State, windows: []const types.Window, handle: types.Handle, candidate: types.Rect, origin: types.Rect) CandidateScore {
+fn scoreCandidate(state: *const State, windows: []const types.Window, handle: types.Handle, candidate: types.Rect, origin: types.Rect, gap: i32) CandidateScore {
     var overlap: u64 = 0;
     for (windows) |window| {
         if (window.handle == handle) continue;
         const other = state.rects.get(window.handle) orelse continue;
-        const intersection = math.intersect(candidate, other);
-        if (intersection.width > 0 and intersection.height > 0) {
-            overlap +|= @as(u64, @intCast(intersection.width)) *| @as(u64, @intCast(intersection.height));
-        }
+        const width = @max(0, @min(@as(i64, candidate.x) + candidate.width, @as(i64, other.x) + other.width + gap) - @max(@as(i64, candidate.x), @as(i64, other.x) - gap));
+        const height = @max(0, @min(@as(i64, candidate.y) + candidate.height, @as(i64, other.y) + other.height + gap) - @max(@as(i64, candidate.y), @as(i64, other.y) - gap));
+        overlap +|= @as(u64, @intCast(width)) *| @as(u64, @intCast(height));
     }
     const dx: u64 = @intCast(@abs(@as(i64, candidate.x) - origin.x));
     const dy: u64 = @intCast(@abs(@as(i64, candidate.y) - origin.y));
@@ -214,7 +213,22 @@ test "minimal overlap selects a free edge deterministically" {
     var state: State = .{};
     defer state.deinit(std.testing.allocator);
     try setGeometry(&state, std.testing.allocator, 1, .{ .x = 200, .y = 160, .width = 600, .height = 480 });
-    const placements = try arrange(std.testing.allocator, &state, .{ .x = 0, .y = 0, .width = 1000, .height = 800 }, &.{ .{ .handle = 1 }, .{ .handle = 2, .preferred_width = 200, .preferred_height = 160 } }, null, .{ .gaps_outer = 0, .floating_placement = .minimal_overlap });
+    const placements = try arrange(std.testing.allocator, &state, .{ .x = 0, .y = 0, .width = 1000, .height = 800 }, &.{ .{ .handle = 1 }, .{ .handle = 2, .preferred_width = 200, .preferred_height = 160 } }, null, .{ .gaps_outer = 0, .gaps_inner = 0, .floating_placement = .minimal_overlap });
     defer std.testing.allocator.free(placements);
     try std.testing.expectEqual(types.Rect{ .x = 200, .y = 0, .width = 200, .height = 160 }, placements[1].geometry);
+}
+
+test "minimal overlap placement respects inner gaps and borders" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const first: types.Rect = .{ .x = 200, .y = 160, .width = 600, .height = 480 };
+    try setGeometry(&state, std.testing.allocator, 1, first);
+    var options: types.Options = .{ .gaps_outer = 12, .gaps_inner = 24, .floating_placement = .minimal_overlap };
+    options.border.width = 4;
+    const placements = try arrange(std.testing.allocator, &state, .{ .x = 0, .y = 0, .width = 1000, .height = 800 }, &.{ .{ .handle = 1 }, .{ .handle = 2, .preferred_width = 100, .preferred_height = 100 } }, null, options);
+    defer std.testing.allocator.free(placements);
+    const second = placements[1].geometry;
+    try std.testing.expectEqual(first, placements[0].geometry);
+    try std.testing.expect(second.right() + 32 <= first.x or first.right() + 32 <= second.x or second.bottom() + 32 <= first.y or first.bottom() + 32 <= second.y);
+    try std.testing.expect(second.x >= 16 and second.y >= 16 and second.right() <= 984 and second.bottom() <= 784);
 }

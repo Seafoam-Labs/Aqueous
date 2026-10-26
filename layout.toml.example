@@ -209,7 +209,9 @@ move_step_coarse = 50
 resize_step = 10
 # Pointer snapping uses half/quarter regions. Reaching the top edge maximizes
 # to the usable area by default; false selects the top half instead.
-snap_gap = 0
+# Snaps inherit gaps_outer/gaps_inner by default. An explicit snap_gap
+# selects the legacy output inset (no inner gap), including explicit zero.
+# snap_gap = 0
 snap_threshold = 24
 resistance = 12
 top_edge_maximize = true
@@ -220,7 +222,9 @@ border_width = 2
 # normalized region against that output's usable area.
 [layout.snap-layout.work]
 name = "Work"
-padding = 8
+# Omit padding to inherit gaps_outer/gaps_inner. Explicit padding overrides
+# both with a per-zone inset; adjacent zones then have twice this spacing.
+# padding = 8
 
 [layout.snap-layout.work.zone.editor]
 name = "Editor"

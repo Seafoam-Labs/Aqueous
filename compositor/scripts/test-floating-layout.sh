@@ -76,6 +76,7 @@ XDG_RUNTIME_DIR="$RUNTIME" \
 XDG_CONFIG_HOME="$RUNTIME/config" \
 HOME="$RUNTIME/home" \
 AQUEOUS_CONFIG="$CONFIG" \
+AQUEOUS_LAYOUT=/dev/null \
 AQUEOUS_RULES="$RULES" \
     "$AQUEOUS_COMPOSITOR_BIN" -no-xwayland -policy internal -log-level debug -c true \
     >"$COMPOSITOR_LOG" 2>&1 &
@@ -264,14 +265,15 @@ press d SUPER CTRL
 final_x=$((final_x + 10))
 wait_geometry "$APP_ONE" "$final_x"$'\t'"$final_y"$'\t'"$final_w"$'\t'"$final_h"
 press h SUPER CTRL
-wait_geometry "$APP_ONE" $'0\t0\t640\t720'
+wait_geometry "$APP_ONE" $'2\t2\t636\t716'
 press u SUPER CTRL
 wait_geometry "$APP_ONE" "$final_x"$'\t'"$final_y"$'\t'"$final_w"$'\t'"$final_h"
 
 # Named snap layouts are stacking-only. Padding is applied after resolving the
-# normalized zone, and unsnap restores the exact previous stacking geometry.
+# normalized zone; content is inset by the 2px border. Unsnap restores the
+# exact previous stacking geometry.
 press j SUPER CTRL
-wait_geometry "$APP_ONE" $'648\t8\t624\t704'
+wait_geometry "$APP_ONE" $'650\t10\t620\t700'
 press u SUPER CTRL
 wait_geometry "$APP_ONE" "$final_x"$'\t'"$final_y"$'\t'"$final_w"$'\t'"$final_h"
 
@@ -397,7 +399,7 @@ read -r zone_x zone_y zone_w zone_h < <(geometry <<<"$(window_json "$APP_ZONE_DR
 click_at $((zone_x + 5)) $((zone_y + 5))
 printf '%d %d %d %d\n' $((zone_x + 5)) $((zone_y + 5)) 1279 360 >"$SYNC_ZONE_DRAG/move"
 wait_marker "$PID_ZONE_DRAG" "$SYNC_ZONE_DRAG" move-done "$LOG_ZONE_DRAG"
-wait_geometry "$APP_ZONE_DRAG" $'648\t8\t624\t704'
+wait_geometry "$APP_ZONE_DRAG" $'650\t10\t620\t700'
 
 for sync_dir in "${CLIENT_SYNCS[@]}"; do touch "$sync_dir/finish"; done
 for index in "${!CLIENT_PIDS[@]}"; do

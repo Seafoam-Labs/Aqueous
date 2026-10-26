@@ -114,7 +114,8 @@ pub const SnapZone = struct {
 pub const SnapLayout = struct {
     id: SnapId = .{},
     name: SnapName = .{},
-    padding: i32 = 0,
+    /// Explicit legacy per-zone inset; null inherits shared layout gaps.
+    padding: ?i32 = null,
     zones: [max_snap_zones]SnapZone = [_]SnapZone{.{}} ** max_snap_zones,
     zone_count: u8 = 0,
 
@@ -344,7 +345,7 @@ fn applySnapLayout(snap_layout: *SnapLayout, key: []const u8, value: []const u8)
         return;
     }
     if (std.mem.eql(u8, key, "padding")) {
-        snap_layout.padding = parseNonNegative(unquote(value)) orelse snap_layout.padding;
+        if (parseNonNegative(unquote(value))) |padding| snap_layout.padding = padding;
     }
 }
 
@@ -425,7 +426,9 @@ fn applyOptions(snapshot: *Snapshot, id: LayoutId, key: []const u8, value: []con
             if (std.mem.eql(u8, key, "move_step")) snapshot.options[@intFromEnum(id)].floating_move_step = parsePositive(plain) orelse snapshot.options[@intFromEnum(id)].floating_move_step;
             if (std.mem.eql(u8, key, "move_step_coarse")) snapshot.options[@intFromEnum(id)].floating_move_step_coarse = parsePositive(plain) orelse snapshot.options[@intFromEnum(id)].floating_move_step_coarse;
             if (std.mem.eql(u8, key, "resize_step")) snapshot.options[@intFromEnum(id)].floating_resize_step = parsePositive(plain) orelse snapshot.options[@intFromEnum(id)].floating_resize_step;
-            if (std.mem.eql(u8, key, "snap_gap")) snapshot.options[@intFromEnum(id)].floating_snap_gap = parseNonNegative(plain) orelse snapshot.options[@intFromEnum(id)].floating_snap_gap;
+            if (std.mem.eql(u8, key, "snap_gap")) {
+                if (parseNonNegative(plain)) |gap| snapshot.options[@intFromEnum(id)].floating_snap_gap = gap;
+            }
             if (std.mem.eql(u8, key, "snap_threshold")) snapshot.options[@intFromEnum(id)].floating_snap_threshold = parseNonNegative(plain) orelse snapshot.options[@intFromEnum(id)].floating_snap_threshold;
             if (std.mem.eql(u8, key, "resistance")) snapshot.options[@intFromEnum(id)].floating_resistance = parseNonNegative(plain) orelse snapshot.options[@intFromEnum(id)].floating_resistance;
             if (std.mem.eql(u8, key, "top_edge_maximize")) snapshot.options[@intFromEnum(id)].floating_top_edge_maximize = parseBool(plain) orelse snapshot.options[@intFromEnum(id)].floating_top_edge_maximize;
@@ -606,7 +609,7 @@ test "layout config parses defaults, aliases, extras, and colors" {
     try std.testing.expectEqual(@as(i32, 12), snapshot.layoutOptions(.floating).floating_move_step);
     try std.testing.expectEqual(@as(i32, 60), snapshot.layoutOptions(.floating).floating_move_step_coarse);
     try std.testing.expectEqual(@as(i32, 14), snapshot.layoutOptions(.floating).floating_resize_step);
-    try std.testing.expectEqual(@as(i32, 6), snapshot.layoutOptions(.floating).floating_snap_gap);
+    try std.testing.expectEqual(@as(?i32, 6), snapshot.layoutOptions(.floating).floating_snap_gap);
     try std.testing.expectEqual(@as(i32, 22), snapshot.layoutOptions(.floating).floating_snap_threshold);
     try std.testing.expectEqual(@as(i32, 9), snapshot.layoutOptions(.floating).floating_resistance);
     try std.testing.expect(!snapshot.layoutOptions(.floating).floating_top_edge_maximize);
@@ -692,7 +695,7 @@ test "named stacking snap layouts retain stable zone identities" {
     const snap_layout = snapshot.configuredSnapLayout("").?;
     try std.testing.expectEqualStrings("work", snap_layout.id.slice());
     try std.testing.expectEqualStrings("Work", snap_layout.name.slice());
-    try std.testing.expectEqual(@as(i32, 8), snap_layout.padding);
+    try std.testing.expectEqual(@as(?i32, 8), snap_layout.padding);
     try std.testing.expectEqual(@as(u8, 2), snap_layout.zone_count);
     try std.testing.expect(snap_layout.zoneById("editor") != null);
     try std.testing.expect(snap_layout.zoneById("terminal") != null);
@@ -713,7 +716,7 @@ test "invalid and overflowing named snap layouts are ignored" {
     );
     try std.testing.expectEqual(@as(u8, 1), snapshot.snap_layout_count);
     const snap_layout = snapshot.snapLayoutById("good").?;
-    try std.testing.expectEqual(@as(i32, 0), snap_layout.padding);
+    try std.testing.expectEqual(@as(?i32, null), snap_layout.padding);
     try std.testing.expect(snap_layout.zoneById("outside") == null);
 }
 
@@ -891,4 +894,14 @@ test "single window defaults overlays aliases and invalid values" {
     apply(&snapshot, "[layout.options.tile]\ncenter_single_window = false\nsingle_window_aspect_ratio = 0.75\n");
     try std.testing.expect(!snapshot.layoutOptions(.tile).center_single_window);
     try std.testing.expectEqual(@as(f64, 0.75), snapshot.layoutOptions(.tile).single_window_aspect_ratio);
+}
+
+test "floating snap spacing distinguishes inherited and explicit zero" {
+    var snapshot: Snapshot = .{};
+    apply(&snapshot, "[layout]\ngaps_outer = 12\ngaps_inner = 24\n[layout.snap-layout.work]\nname = \"Work\"\n");
+    try std.testing.expectEqual(@as(?i32, null), snapshot.layoutOptions(.floating).floating_snap_gap);
+    try std.testing.expectEqual(@as(?i32, null), snapshot.snapLayoutById("work").?.padding);
+    apply(&snapshot, "[layout.options.float]\nsnap_gap = 0\n[layout.snap-layout.work]\npadding = 0\n");
+    try std.testing.expectEqual(@as(?i32, 0), snapshot.layoutOptions(.floating).floating_snap_gap);
+    try std.testing.expectEqual(@as(?i32, 0), snapshot.snapLayoutById("work").?.padding);
 }

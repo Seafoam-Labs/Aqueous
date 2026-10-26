@@ -131,7 +131,7 @@ fn firstEnabled(state: *const State) u8 {
     unreachable;
 }
 
-fn resolvedArea(snapshot: *const config.Snapshot, area: types.Rect, index: usize) types.Rect {
+pub fn resolvedArea(snapshot: *const config.Snapshot, area: types.Rect, index: usize) types.Rect {
     if (!snapshot.composableValid()) return area;
     const points = snapshot.composable[index].points;
     const left = resolveCoordinate(area.x, area.width, points[0].x);

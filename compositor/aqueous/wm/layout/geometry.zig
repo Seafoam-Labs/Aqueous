@@ -162,6 +162,36 @@ pub fn snap(area: types.Rect, direction: SnapDirection, gap: i32) types.Rect {
     };
 }
 
+/// Insets apply to content geometry; borders render outside that rectangle.
+/// Clamp each axis so extreme gaps still produce a positive target.
+pub fn insetRect(rect: types.Rect, left: i32, top: i32, right: i32, bottom: i32) types.Rect {
+    const horizontal = @max(0, rect.width - 1);
+    const vertical = @max(0, rect.height - 1);
+    const l = @min(@max(0, left), @divFloor(horizontal, 2));
+    const r = @min(@max(0, right), horizontal - l);
+    const t = @min(@max(0, top), @divFloor(vertical, 2));
+    const b = @min(@max(0, bottom), vertical - t);
+    return .{ .x = clampI32(@as(i64, rect.x) + l), .y = clampI32(@as(i64, rect.y) + t), .width = @max(1, rect.width - l - r), .height = @max(1, rect.height - t - b) };
+}
+
+/// Divide odd inner gaps deterministically across a shared boundary.
+pub fn gapZone(area: types.Rect, raw: types.Rect, options: types.Options) types.Rect {
+    const outer = @max(0, options.gaps_outer);
+    const inner = @max(0, options.gaps_inner);
+    const before = @divFloor(inner, 2);
+    const after = inner - before;
+    const border = @max(0, options.border.width);
+    return insetRect(raw, (if (raw.x <= area.x) outer else after) +| border, (if (raw.y <= area.y) outer else after) +| border, (if (@as(i64, raw.x) + raw.width >= @as(i64, area.x) + area.width) outer else before) +| border, (if (@as(i64, raw.y) + raw.height >= @as(i64, area.y) + area.height) outer else before) +| border);
+}
+
+pub fn snapWithOptions(area: types.Rect, direction: SnapDirection, options: types.Options) types.Rect {
+    if (options.floating_snap_gap) |legacy_gap| {
+        const border = @max(0, options.border.width);
+        return insetRect(snap(area, direction, legacy_gap), border, border, border, border);
+    }
+    return gapZone(area, snap(area, direction, 0), options);
+}
+
 /// Apply client size constraints to a snap slot while retaining the edge or
 /// corner which gives that slot its meaning.
 pub fn constrainSnap(target: types.Rect, direction: SnapDirection, constraints: Constraints) types.Rect {
@@ -219,22 +249,30 @@ pub fn snapDirectionAt(area: types.Rect, x: i32, y: i32, threshold: i32, top_max
 
 /// Apply magnetic edge attraction against one output or peer rectangle.
 pub fn attractToRect(rect: types.Rect, target: types.Rect, threshold: i32) types.Rect {
+    return attract(rect, target, threshold, 0);
+}
+
+pub fn attractToWindow(rect: types.Rect, target: types.Rect, threshold: i32, gap: i32) types.Rect {
+    return attract(rect, target, threshold, @max(0, gap));
+}
+
+fn attract(rect: types.Rect, target: types.Rect, threshold: i32, gap: i32) types.Rect {
     if (threshold <= 0 or rect.width <= 0 or rect.height <= 0 or target.width <= 0 or target.height <= 0) return rect;
     var result = rect;
-    const vertical_overlap = @as(i64, rect.y) < @as(i64, target.y) + target.height and @as(i64, rect.y) + rect.height > target.y;
+    const vertical_overlap = @as(i64, rect.y) <= @as(i64, target.y) + target.height + gap and @as(i64, rect.y) + rect.height >= @as(i64, target.y) - gap;
     if (vertical_overlap) {
-        const candidates = [_]i64{ target.x, @as(i64, target.x) + target.width, @as(i64, target.x) - rect.width, @as(i64, target.x) + target.width - rect.width };
-        var best_delta: i64 = threshold + 1;
+        const candidates = [_]i64{ target.x, @as(i64, target.x) + target.width + gap, @as(i64, target.x) - rect.width - gap, @as(i64, target.x) + target.width - rect.width };
+        var best_delta: i64 = @as(i64, threshold) + 1;
         for (candidates) |candidate| {
             const delta = candidate - rect.x;
             if (@abs(delta) <= threshold and @abs(delta) < @abs(best_delta)) best_delta = delta;
         }
         if (@abs(best_delta) <= threshold) result.x = clampI32(@as(i64, rect.x) + best_delta);
     }
-    const horizontal_overlap = @as(i64, result.x) <= @as(i64, target.x) + target.width and @as(i64, result.x) + result.width >= target.x;
+    const horizontal_overlap = @as(i64, result.x) <= @as(i64, target.x) + target.width + gap and @as(i64, result.x) + result.width >= @as(i64, target.x) - gap;
     if (horizontal_overlap) {
-        const candidates = [_]i64{ target.y, @as(i64, target.y) + target.height, @as(i64, target.y) - rect.height, @as(i64, target.y) + target.height - rect.height };
-        var best_delta: i64 = threshold + 1;
+        const candidates = [_]i64{ target.y, @as(i64, target.y) + target.height + gap, @as(i64, target.y) - rect.height - gap, @as(i64, target.y) + target.height - rect.height };
+        var best_delta: i64 = @as(i64, threshold) + 1;
         for (candidates) |candidate| {
             const delta = candidate - rect.y;
             if (@abs(delta) <= threshold and @abs(delta) < @abs(best_delta)) best_delta = delta;
@@ -359,4 +397,47 @@ test "resizing an output recovers geometry into its new logical usable area" {
     const usable: types.Rect = .{ .x = -1080, .y = 40, .width = 1080, .height = 1880 };
     const moved = reconfigureGeometry(.{ .x = 3040, .y = 0, .width = 800, .height = 600 }, before, after, usable);
     try std.testing.expectEqual(types.Rect{ .x = -800, .y = 40, .width = 800, .height = 600 }, moved);
+}
+
+test "snap gaps separate visible borders on odd offset outputs" {
+    const area: types.Rect = .{ .x = -1001, .y = 37, .width = 1001, .height = 801 };
+    var options: types.Options = .{ .gaps_outer = 12, .gaps_inner = 25 };
+    options.border.width = 4;
+    const left = snapWithOptions(area, .left, options);
+    const right = snapWithOptions(area, .right, options);
+    try std.testing.expectEqual(@as(i32, 12), left.x - 4 - area.x);
+    try std.testing.expectEqual(@as(i32, 12), area.right() - (right.right() + 4));
+    try std.testing.expectEqual(@as(i32, 25), right.x - 4 - (left.right() + 4));
+    const top = snapWithOptions(area, .up_left, options);
+    const bottom = snapWithOptions(area, .down_left, options);
+    try std.testing.expectEqual(@as(i32, 25), bottom.y - 4 - (top.bottom() + 4));
+    try std.testing.expectEqual(@as(i32, 12), top.y - 4 - area.y);
+    try std.testing.expectEqual(@as(i32, 12), area.bottom() - (bottom.bottom() + 4));
+}
+
+test "snap gap inheritance retains explicit legacy zero" {
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 1280, .height = 720 };
+    const inherited = snapWithOptions(area, .left, .{ .gaps_outer = 12, .gaps_inner = 24 });
+    try std.testing.expectEqual(types.Rect{ .x = 12, .y = 12, .width = 616, .height = 696 }, inherited);
+    try std.testing.expectEqual(snap(area, .left, 0), snapWithOptions(area, .left, .{ .floating_snap_gap = 0 }));
+    try std.testing.expectEqual(snap(area, .right, 8), snapWithOptions(area, .right, .{ .floating_snap_gap = 8 }));
+}
+
+test "excessive snap gaps keep tiny targets positive" {
+    const area: types.Rect = .{ .x = -2, .y = 1, .width = 3, .height = 2 };
+    var options: types.Options = .{ .gaps_outer = std.math.maxInt(i32), .gaps_inner = std.math.maxInt(i32) };
+    options.border.width = std.math.maxInt(i32);
+    for (std.enums.values(SnapDirection)) |direction| {
+        const rect = snapWithOptions(area, direction, options);
+        try std.testing.expect(rect.width > 0 and rect.height > 0);
+    }
+}
+
+test "peer attraction leaves requested content clearance" {
+    const peer: types.Rect = .{ .x = 100, .y = 100, .width = 300, .height = 200 };
+    const moved = attractToWindow(.{ .x = 438, .y = 94, .width = 200, .height = 100 }, peer, 12, 32);
+    try std.testing.expectEqual(@as(i32, 32), moved.x - peer.right());
+    try std.testing.expectEqual(peer.y, moved.y);
+    const above = attractToWindow(.{ .x = 120, .y = -38, .width = 100, .height = 100 }, peer, 12, 32);
+    try std.testing.expectEqual(@as(i32, 32), peer.y - above.bottom());
 }

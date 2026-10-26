@@ -1066,7 +1066,7 @@ pub fn windowGeometry(_: CompositorApi, handle: layout.Handle) ?layout.Rect {
     return .{ .x = window.box.x, .y = window.box.y, .width = window.box.width, .height = window.box.height };
 }
 
-pub fn attractToWindowEdges(_: CompositorApi, handle: layout.Handle, rect: layout.Rect, threshold: i32) layout.Rect {
+pub fn attractToWindowEdges(_: CompositorApi, handle: layout.Handle, rect: layout.Rect, threshold: i32, gap: i32, border: i32) layout.Rect {
     if (threshold <= 0) return rect;
     const ref: Window.Ref = @bitCast(handle);
     const origin = ref.get() orelse return rect;
@@ -1076,12 +1076,12 @@ pub fn attractToWindowEdges(_: CompositorApi, handle: layout.Handle, rect: layou
     while (windows.next()) |candidate| {
         if (candidate == origin or candidate.workspace != workspace or candidate.state != .mapped) continue;
         if (!candidate.policy_state.isVisible()) continue;
-        result = geometry.attractToRect(result, .{
+        result = geometry.attractToWindow(result, .{
             .x = candidate.box.x,
             .y = candidate.box.y,
             .width = candidate.box.width,
             .height = candidate.box.height,
-        }, threshold);
+        }, threshold, gap +| border +| @as(i32, @intCast(candidate.rendering_requested.border.width)));
     }
     return result;
 }
