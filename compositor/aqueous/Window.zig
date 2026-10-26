@@ -854,6 +854,7 @@ pub fn create(impl: Impl) error{OutOfMemory}!*Window {
         .capture_scene = try wlr.Scene.create(),
         .workspace_link = undefined,
     };
+    errdefer window.capture_scene.tree.node.destroy();
 
     window.node.init(.window);
     window.workspace_link.init();

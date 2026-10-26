@@ -18,6 +18,7 @@ pub fn arrange(allocator: std.mem.Allocator, state: *State, usable_area: types.R
     try state.order.sync(allocator, windows);
     const handles = state.order.items.items;
     const result = try allocator.alloc(types.Placement, windows.len);
+    errdefer allocator.free(result);
     if (handles.len == 0) return result;
     const area = math.shrink(usable_area, options.gaps_outer);
     const top_count = (handles.len + 1) / 2;
@@ -66,4 +67,17 @@ test "rows uses at most two horizontal bands" {
     defer std.testing.allocator.free(placements);
     try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .width = 48, .height = 38 }, placements[0].geometry);
     try std.testing.expectEqual(types.Rect{ .x = 0, .y = 42, .width = 100, .height = 38 }, placements[2].geometry);
+}
+
+test "rows arrange releases allocations on every allocation failure" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            var state: State = .{};
+            defer state.deinit(allocator);
+            const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+            const placements = try arrange(allocator, &state, .{ .x = 0, .y = 0, .width = 1200, .height = 800 }, &windows, .{});
+            defer allocator.free(placements);
+            try std.testing.expectEqual(windows.len, placements.len);
+        }
+    }.run, .{});
 }

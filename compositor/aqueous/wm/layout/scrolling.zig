@@ -87,6 +87,7 @@ pub fn arrange(
         }
     }
     const result = try allocator.alloc(types.Placement, windows.len);
+    errdefer allocator.free(result);
     if (state.columns.items.len == 0) {
         state.viewport_x = 0;
         state.focused_column = 0;
@@ -1586,4 +1587,17 @@ test "fraction owner survives stack focus reorder and merges and follows expelle
     result = try arrange(std.testing.allocator, &state, area, &remaining, 3, options, .{});
     for (result) |placement| try std.testing.expectEqual(@as(i32, 65), placement.geometry.width);
     std.testing.allocator.free(result);
+}
+
+test "scrolling arrange releases allocations on every allocation failure" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            var state: State = .{};
+            defer state.deinit(allocator);
+            const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+            const placements = try arrange(allocator, &state, .{ .x = 0, .y = 0, .width = 1200, .height = 800 }, &windows, 2, .{}, .{});
+            defer allocator.free(placements);
+            try std.testing.expectEqual(windows.len, placements.len);
+        }
+    }.run, .{});
 }

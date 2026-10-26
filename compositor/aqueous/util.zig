@@ -5,7 +5,10 @@ const std = @import("std");
 const posix = std.posix;
 
 /// The global general-purpose allocator used throughout river's code
-pub const gpa = std.heap.c_allocator;
+pub const gpa = if (@import("builtin").is_test and @hasDecl(@import("root"), "aqueous_test_allocator"))
+    @import("root").aqueous_test_allocator
+else
+    std.heap.c_allocator;
 
 pub fn timestamp() posix.timespec {
     var timespec: posix.timespec = undefined;

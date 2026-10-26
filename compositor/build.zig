@@ -749,6 +749,35 @@ pub fn build(b: *Build) !void {
         });
         layout_test.root_module.addImport("wayland", wayland);
         const run_layout_test = b.addRunArtifact(layout_test);
+        b.step("test-layout", "Test layout geometry and allocation ownership").dependOn(&run_layout_test.step);
+
+        const run_blur_resource_test = if (vulkan_effects) blk: {
+            const tests = b.addTest(.{
+                .test_runner = .{ .path = b.path("scripts/fixtures/resource-test-runner.zig"), .mode = .simple },
+                .filters = if (b.option([]const u8, "resource-test-filter", "Run matching resource ownership tests")) |filter| &.{filter} else &.{},
+                .root_module = b.createModule(.{
+                    .root_source_file = b.path("aqueous/render_resource_tests.zig"),
+                    .target = target,
+                    .optimize = optimize,
+                    .link_libc = true,
+                }),
+                .use_llvm = use_llvm,
+                .use_lld = use_llvm,
+            });
+            tests.root_module.addImport("c", translate_c.mod);
+            tests.root_module.addImport("wayland", wayland);
+            tests.root_module.addImport("wlroots", wlroots);
+            tests.root_module.addImport("slotmap", slotmap);
+            tests.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
+            tests.root_module.linkSystemLibrary("pixman-1", .{});
+            tests.root_module.addCSourceFile(.{
+                .file = b.path("scripts/fixtures/blur-resources.c"),
+                .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Werror" },
+            });
+            const run = b.addRunArtifact(tests);
+            b.step("test-blur-resources", "Test Vulkan blur resource ownership with a mock GPU").dependOn(&run.step);
+            break :blk run;
+        } else null;
 
         const overview_model_test = b.addTest(.{
             .root_module = b.createModule(.{
@@ -990,6 +1019,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_config_test.step);
         test_step.dependOn(&run_keyboard_test.step);
         test_step.dependOn(&run_layout_test.step);
+        if (run_blur_resource_test) |run| test_step.dependOn(&run.step);
         test_step.dependOn(&run_overview_model_test.step);
         test_step.dependOn(&run_rules_test.step);
         test_step.dependOn(&run_focus_test.step);

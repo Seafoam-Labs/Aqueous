@@ -94,11 +94,43 @@ const OffscreenCall = struct {
 
 const CacheImage = struct {
     device: c.VkDevice,
+    descriptor_pool: *DescriptorPool,
     image: Image,
     descriptor: c.VkDescriptorSet,
     extent: c.VkExtent2D,
     inflight: u32 = 0,
     retired: bool = false,
+};
+
+// wlroots can deliver the last render-pass completion while destroying its
+// renderer, after the effects context has been torn down. Retired cache images
+// keep this pool alive until those callbacks have released their descriptors.
+const DescriptorPool = struct {
+    device: c.VkDevice,
+    handle: c.VkDescriptorPool,
+    refs: usize = 1,
+
+    fn ref(pool: *DescriptorPool) *DescriptorPool {
+        pool.refs += 1;
+        return pool;
+    }
+
+    fn unref(pool: *DescriptorPool) void {
+        std.debug.assert(pool.refs > 0);
+        pool.refs -= 1;
+        if (pool.refs == 0) {
+            c.vkDestroyDescriptorPool(pool.device, pool.handle, null);
+            util.gpa.destroy(pool);
+        }
+    }
+
+    fn free(pool: *DescriptorPool, descriptors: []const c.VkDescriptorSet) void {
+        if (descriptors.len == 0) return;
+        const result = c.vkFreeDescriptorSets(pool.device, pool.handle, @intCast(descriptors.len), descriptors.ptr);
+        if (result != c.VK_SUCCESS and result != c.VK_ERROR_DEVICE_LOST) {
+            std.log.warn("freeing Vulkan blur descriptors failed with result {d}", .{result});
+        }
+    }
 };
 
 const CacheEntry = struct {
@@ -223,12 +255,150 @@ const CacheUse = struct {
     resource: *CacheImage,
 };
 
+const TestGpu = struct {
+    extern fn aqueous_heap_fail_after(count: usize) void;
+    extern fn aqueous_heap_allow() void;
+    extern fn aqueous_heap_live_bytes() usize;
+    extern fn aqueous_blur_test_reset() void;
+    extern fn aqueous_blur_test_live() c_uint;
+    extern fn aqueous_blur_test_descriptors() c_uint;
+    extern fn aqueous_blur_test_attempts() c_uint;
+    extern fn aqueous_blur_test_fail(at: c_uint) void;
+    extern fn aqueous_blur_test_reject_completion(reject: bool) void;
+    extern fn aqueous_blur_test_complete() void;
+
+    fn pipeline() !BlurPipeline {
+        return init(@ptrFromInt(1), @ptrFromInt(1), null);
+    }
+
+    fn addCache(pipeline_: *BlurPipeline, cache: *OutputCache, key: u64) !*CacheImage {
+        const resource = try pipeline_.createCacheImage(.{ .width = 32, .height = 32 });
+        errdefer pipeline_.retireCacheImage(resource);
+        var damage: c.pixman_region32_t = undefined;
+        c.pixman_region32_init(&damage);
+        errdefer c.pixman_region32_fini(&damage);
+        try cache.entries.append(util.gpa, .{
+            .key = key,
+            .resource = resource,
+            .effect = .{ .box = .{ .x = 0, .y = 0, .width = 64, .height = 64 }, .radii = @splat(0) },
+            .pending_damage = damage,
+        });
+        return resource;
+    }
+};
+
+test "blur cache retirement frees descriptors only after every GPU use completes" {
+    TestGpu.aqueous_blur_test_reset();
+    var pipeline = try TestGpu.pipeline();
+    const baseline = TestGpu.aqueous_blur_test_live();
+    var outputs = [_]OutputCache{ .{}, .{} };
+    var heap_baseline: ?usize = null;
+    // The mock permits just eight descriptors, while this creates 6000 cached
+    // images across two outputs and exercises both visibility and clear paths.
+    for (0..3000) |frame| {
+        for (&outputs) |*cache| {
+            const resource = try TestGpu.addCache(&pipeline, cache, frame);
+            try pipeline.retainForPass(@ptrFromInt(1), resource);
+            try pipeline.retainForPass(@ptrFromInt(1), resource);
+            cache.beginFrame();
+            if (frame % 2 == 0) cache.removeInvisible(&pipeline) else cache.clear(&pipeline);
+            try std.testing.expectEqual(@as(u32, 2), resource.inflight);
+        }
+        try std.testing.expectEqual(@as(c_uint, 2), TestGpu.aqueous_blur_test_descriptors());
+        TestGpu.aqueous_blur_test_complete();
+        try std.testing.expectEqual(@as(c_uint, 0), TestGpu.aqueous_blur_test_descriptors());
+        try std.testing.expectEqual(baseline, TestGpu.aqueous_blur_test_live());
+        if (heap_baseline) |bytes| {
+            try std.testing.expectEqual(bytes, TestGpu.aqueous_heap_live_bytes());
+        } else heap_baseline = TestGpu.aqueous_heap_live_bytes();
+    }
+    for (&outputs) |*cache| cache.deinit(&pipeline);
+    pipeline.deinit();
+    try std.testing.expectEqual(@as(c_uint, 0), TestGpu.aqueous_blur_test_live());
+    try std.testing.expectEqual(@as(usize, 0), TestGpu.aqueous_heap_live_bytes());
+}
+
+test "blur scratch list allocation failure releases all GPU resources" {
+    TestGpu.aqueous_blur_test_reset();
+    var pipeline = try TestGpu.pipeline();
+    const baseline = TestGpu.aqueous_blur_test_live();
+    TestGpu.aqueous_heap_fail_after(0);
+    defer TestGpu.aqueous_heap_allow();
+    try std.testing.expectError(error.OutOfMemory, pipeline.resourcesFor(.{ .width = 64, .height = 64 }, @ptrFromInt(1000)));
+    try std.testing.expectEqual(baseline, TestGpu.aqueous_blur_test_live());
+    pipeline.deinit();
+}
+
+test "blur cache completion may arrive after effects context teardown" {
+    TestGpu.aqueous_blur_test_reset();
+    var pipeline = try TestGpu.pipeline();
+    const resource = try pipeline.createCacheImage(.{ .width = 32, .height = 32 });
+    try pipeline.retainForPass(@ptrFromInt(1), resource);
+    pipeline.retireCacheImage(resource);
+    // The context waits for the queue, but wlroots may dispatch completion
+    // callbacks later when its renderer is destroyed. Keep their pool alive.
+    pipeline.deinit();
+    try std.testing.expectEqual(@as(c_uint, 1), TestGpu.aqueous_blur_test_descriptors());
+    var replacement = try TestGpu.pipeline();
+    TestGpu.aqueous_blur_test_complete();
+    try std.testing.expectEqual(@as(c_uint, 0), TestGpu.aqueous_blur_test_descriptors());
+    replacement.deinit();
+    try std.testing.expectEqual(@as(c_uint, 0), TestGpu.aqueous_blur_test_live());
+}
+
+test "blur failed completion registration leaves no retained use" {
+    TestGpu.aqueous_blur_test_reset();
+    var pipeline = try TestGpu.pipeline();
+    const baseline = TestGpu.aqueous_blur_test_live();
+    const resource = try pipeline.createCacheImage(.{ .width = 32, .height = 32 });
+    TestGpu.aqueous_blur_test_reject_completion(true);
+    try std.testing.expectError(error.VulkanBlurCompletionRegistrationFailed, pipeline.retainForPass(@ptrFromInt(1), resource));
+    try std.testing.expectEqual(@as(u32, 0), resource.inflight);
+    pipeline.retireCacheImage(resource);
+    try std.testing.expectEqual(baseline, TestGpu.aqueous_blur_test_live());
+    pipeline.deinit();
+}
+
+test "blur scratch allocation failures release images and descriptors before retry" {
+    TestGpu.aqueous_blur_test_reset();
+    var pipeline = try TestGpu.pipeline();
+    const baseline = TestGpu.aqueous_blur_test_live();
+    TestGpu.aqueous_blur_test_fail(0);
+    _ = try pipeline.resourcesFor(.{ .width = 64, .height = 64 }, @ptrFromInt(1000));
+    const attempts = TestGpu.aqueous_blur_test_attempts();
+    _ = pipeline.clearScratchResources();
+    for (1..attempts + 1) |failure| {
+        TestGpu.aqueous_blur_test_fail(@intCast(failure));
+        if (pipeline.resourcesFor(.{ .width = 64, .height = 64 }, @ptrFromInt(1000))) |_| {
+            return error.ExpectedInjectedFailure;
+        } else |_| {}
+        try std.testing.expectEqual(baseline, TestGpu.aqueous_blur_test_live());
+        TestGpu.aqueous_blur_test_fail(0);
+        _ = try pipeline.resourcesFor(.{ .width = 64, .height = 64 }, @ptrFromInt(1000));
+        _ = pipeline.clearScratchResources();
+    }
+    pipeline.deinit();
+    try std.testing.expectEqual(@as(c_uint, 0), TestGpu.aqueous_blur_test_live());
+}
+
+test "blur initialization failures destroy each resource exactly once" {
+    TestGpu.aqueous_blur_test_reset();
+    var pipeline = try TestGpu.pipeline();
+    const attempts = TestGpu.aqueous_blur_test_attempts();
+    pipeline.deinit();
+    for (1..attempts + 1) |failure| {
+        TestGpu.aqueous_blur_test_fail(@intCast(failure));
+        if (TestGpu.pipeline()) |_| return error.ExpectedInjectedFailure else |_| {}
+        try std.testing.expectEqual(@as(c_uint, 0), TestGpu.aqueous_blur_test_live());
+    }
+}
+
 physical_device: c.VkPhysicalDevice,
 device: c.VkDevice,
 pipeline_cache: c.VkPipelineCache,
 sampler: c.VkSampler,
 descriptor_set_layout: c.VkDescriptorSetLayout,
-descriptor_pool: c.VkDescriptorPool,
+descriptor_pool: *DescriptorPool,
 pipeline_layout: c.VkPipelineLayout,
 offscreen_render_pass: c.VkRenderPass,
 downsample_pipeline: c.VkPipeline,
@@ -274,7 +444,7 @@ pub fn init(
     );
 
     const descriptor_pool = try createDescriptorPool(device);
-    errdefer c.vkDestroyDescriptorPool(device, descriptor_pool, null);
+    errdefer descriptor_pool.unref();
 
     const pipeline_layout = try createPipelineLayout(
         device,
@@ -297,8 +467,6 @@ pub fn init(
         .downsample_pipeline = null,
         .separable_pipeline = null,
     };
-    errdefer pipeline.deinit();
-
     pipeline.downsample_pipeline = try pipeline.createGraphicsPipeline(
         offscreen_render_pass,
         0,
@@ -306,6 +474,7 @@ pub fn init(
         &downsample_fragment_shader,
         false,
     );
+    errdefer c.vkDestroyPipeline(device, pipeline.downsample_pipeline, null);
     pipeline.separable_pipeline = try pipeline.createGraphicsPipeline(
         offscreen_render_pass,
         0,
@@ -342,7 +511,7 @@ pub fn deinit(pipeline: *BlurPipeline) void {
     }
     c.vkDestroyRenderPass(pipeline.device, pipeline.offscreen_render_pass, null);
     c.vkDestroyPipelineLayout(pipeline.device, pipeline.pipeline_layout, null);
-    c.vkDestroyDescriptorPool(pipeline.device, pipeline.descriptor_pool, null);
+    pipeline.descriptor_pool.unref();
     c.vkDestroyDescriptorSetLayout(
         pipeline.device,
         pipeline.descriptor_set_layout,
@@ -996,9 +1165,12 @@ fn resourcesFor(
     const pong = try pipeline.createImage(half_extent);
     errdefer destroyImage(pipeline.device, pong);
     const ping_descriptor = try pipeline.allocateDescriptor(ping.view);
+    errdefer pipeline.freeDescriptors(&.{ping_descriptor});
     const pong_descriptor = try pipeline.allocateDescriptor(pong.view);
+    errdefer pipeline.freeDescriptors(&.{pong_descriptor});
     const source_descriptor =
         try pipeline.allocateDescriptor(source_view);
+    errdefer pipeline.freeDescriptors(&.{source_descriptor});
 
     try pipeline.resources.append(util.gpa, .{
         .width = extent.width,
@@ -1022,7 +1194,7 @@ fn allocateDescriptor(
     var allocate_info = std.mem.zeroes(c.VkDescriptorSetAllocateInfo);
     allocate_info.sType =
         c.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocate_info.descriptorPool = pipeline.descriptor_pool;
+    allocate_info.descriptorPool = pipeline.descriptor_pool.handle;
     allocate_info.descriptorSetCount = 1;
     allocate_info.pSetLayouts = &pipeline.descriptor_set_layout;
     var descriptor_set: c.VkDescriptorSet = null;
@@ -1055,19 +1227,7 @@ fn freeDescriptors(
     pipeline: *BlurPipeline,
     descriptors: []const c.VkDescriptorSet,
 ) void {
-    if (descriptors.len == 0) return;
-    const result = c.vkFreeDescriptorSets(
-        pipeline.device,
-        pipeline.descriptor_pool,
-        @intCast(descriptors.len),
-        descriptors.ptr,
-    );
-    if (result != c.VK_SUCCESS and result != c.VK_ERROR_DEVICE_LOST) {
-        std.log.warn(
-            "freeing Vulkan blur descriptors failed with result {d}",
-            .{result},
-        );
-    }
+    pipeline.descriptor_pool.free(descriptors);
 }
 
 fn createImage(
@@ -1179,10 +1339,12 @@ fn createCacheImage(
     errdefer util.gpa.destroy(resource);
     const image = try pipeline.createImage(extent);
     errdefer destroyImage(pipeline.device, image);
+    const descriptor = try pipeline.allocateDescriptor(image.view);
     resource.* = .{
         .device = pipeline.device,
+        .descriptor_pool = pipeline.descriptor_pool.ref(),
         .image = image,
-        .descriptor = try pipeline.allocateDescriptor(image.view),
+        .descriptor = descriptor,
         .extent = extent,
     };
     pipeline.cache_image_create_count += 1;
@@ -1231,6 +1393,8 @@ fn cacheUseComplete(data: ?*anyopaque) callconv(.c) void {
 }
 
 fn destroyCacheImage(resource: *CacheImage) void {
+    resource.descriptor_pool.free(&.{resource.descriptor});
+    resource.descriptor_pool.unref();
     destroyImage(resource.device, resource.image);
     util.gpa.destroy(resource);
 }
@@ -1467,7 +1631,9 @@ fn createDescriptorSetLayout(
     return layout;
 }
 
-fn createDescriptorPool(device: c.VkDevice) !c.VkDescriptorPool {
+fn createDescriptorPool(device: c.VkDevice) !*DescriptorPool {
+    const owner = try util.gpa.create(DescriptorPool);
+    errdefer util.gpa.destroy(owner);
     const pool_size: c.VkDescriptorPoolSize = .{
         .type = c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         .descriptorCount = 4096,
@@ -1484,7 +1650,8 @@ fn createDescriptorPool(device: c.VkDevice) !c.VkDescriptorPool {
     if (result != c.VK_SUCCESS) {
         return error.VulkanBlurDescriptorPoolCreateFailed;
     }
-    return pool;
+    owner.* = .{ .device = device, .handle = pool };
+    return owner;
 }
 
 fn createPipelineLayout(
@@ -1929,10 +2096,11 @@ test "blur sample bounds stop at domain pixel centers" {
     };
 
     for (cases) |case| {
-        try std.testing.expectEqualDeep(
-            case.expected,
-            normalizedSampleBounds(case.box, case.extent),
-        );
+        // Runtime reciprocal multiplication can differ from the compile-time
+        // division above by one f32 rounding step.
+        for (case.expected, normalizedSampleBounds(case.box, case.extent)) |expected, actual| {
+            try std.testing.expectApproxEqAbs(expected, actual, std.math.floatEps(f32));
+        }
     }
 
     try std.testing.expectEqualDeep(

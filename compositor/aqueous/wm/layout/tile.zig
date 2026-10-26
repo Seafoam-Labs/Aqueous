@@ -38,6 +38,7 @@ pub fn arrange(
     try pruneHeightOverrides(allocator, state, windows);
     const handles = state.order.items.items;
     const result = try allocator.alloc(types.Placement, handles.len);
+    errdefer allocator.free(result);
     if (handles.len == 0) return result;
 
     const area = math.shrink(usable_area, options.gaps_outer);
@@ -329,4 +330,17 @@ test "tile drops height overrides when windows close" {
     defer std.testing.allocator.free(placements);
     try std.testing.expect(!state.height_overrides.contains(3));
     try std.testing.expectEqual(types.Rect{ .x = 54, .y = 0, .width = 46, .height = 80 }, placements[1].geometry);
+}
+
+test "tile arrange releases allocations on every allocation failure" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, struct {
+        fn run(allocator: std.mem.Allocator) !void {
+            var state: State = .{};
+            defer state.deinit(allocator);
+            const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+            const placements = try arrange(allocator, &state, .{ .x = 0, .y = 0, .width = 1200, .height = 800 }, &windows, .{});
+            defer allocator.free(placements);
+            try std.testing.expectEqual(windows.len, placements.len);
+        }
+    }.run, .{});
 }
