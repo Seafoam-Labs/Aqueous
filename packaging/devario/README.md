@@ -4,9 +4,9 @@ This directory follows the three-recipe layout in `packaging/arch`, with
 Devario maintainers, Shelly builds, Zig `0.16.0` and Pearl desktop defaults.
 Each recipe has its own `PKGBUILD` and `.SRCINFO`.
 
-Release `1.0.9` removes the remaining wlroots patch 0020 while retaining Vulkan
-effects and explicit synchronization. These recipes build that implementation directly; no
-packaging backport is applied.
+Release `1.0.10` raises Aqueous's soft file-descriptor limit to its hard limit,
+matching labwc. Vulkan effects and explicit synchronization remain enabled.
+These recipes build that implementation directly; no packaging backport is applied.
 
 | Recipe | Outputs | Purpose |
 | --- | --- | --- |
@@ -14,7 +14,7 @@ packaging backport is applied.
 | `aqueous-desktop/` | `aqueous-core`, `aqueous-session`, `xdg-desktop-portal-aqueous`, `aqueous-integration-pearl`, `aqueous-shell-pearl`, `devario-desktop` | Complete stable Devario Pearl desktop |
 | `aqueous-desktop-git/` | `aqueous-core-git`, `aqueous-session-git`, `xdg-desktop-portal-aqueous-git`, `aqueous-integration-pearl-git`, `aqueous-shell-pearl-git`, `devario-desktop-git` | Development replacement for the stable desktop using Pearl Git |
 
-The stable recipes check out the Git tag `v1.0.9`; publish that tag from the
+The stable recipes check out the Git tag `v1.0.10`; publish that tag from the
 release commit before building them. All PKGBUILD checksum entries use `SKIP`.
 `aqueous` is compositor-only. `aqueous-core` provides `aqueous` and conflicts
 with the minimal package because they own the same compositor files.
@@ -83,9 +83,9 @@ not activate services. Pearl Greeter handles its own greeter setup. Select
 Replace the former `aqueous-devario/PKGBUILD` and top-level `PKGBUILD` build
 jobs with one `aqueous-desktop/PKGBUILD` job. Its package base is
 `aqueous-desktop`, while the installed desktop preset remains
-`devario-desktop`. The six existing package names now share version `1.0.9-1`.
+`devario-desktop`. The six existing package names now share version `1.0.10-1`.
 The Aqueous components use exact sibling dependency pins. `devario-desktop`
-requires those components at its build version or newer (currently `>=1.0.9-1`),
+requires those components at its build version or newer (currently `>=1.0.10-1`),
 so an installed desktop preset accepts future Aqueous releases. Publish the
 updated preset once to replace its previous exact pins. The package base is a build identity;
 there is no separate `aqueous-desktop` output on Devario. Update `pkgver` or
