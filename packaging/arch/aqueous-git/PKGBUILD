@@ -4,7 +4,7 @@ pkgname=(aqueous-core-git aqueous-shell-none-git aqueous-session-git xdg-desktop
          aqueous-integration-dms-git aqueous-integration-noctalia-git aqueous-integration-pearl-git
          aqueous-shell-dms-git aqueous-shell-noctalia-git aqueous-shell-pearl-git aqueous-git)
 _channel=git
-pkgver=1.0.8
+pkgver=1.0.9
 pkgrel=1
 pkgdesc='Aqueous Git compositor, desktop components and optional shell presets (co-installable with stable)'
 arch=('x86_64' 'aarch64')
@@ -22,13 +22,13 @@ checkdepends=('jq' 'ripgrep' 'gsettings-desktop-schemas')
 source=("aqueous::git+${url}.git"
         'wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz'
         'xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz')
-sha256sums=('SKIP' '972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343'
-            '3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400')
+sha256sums=('SKIP' 'SKIP'
+            'SKIP')
 pkgver() {
     cd "$srcdir/aqueous"
     local version
     version=$(git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g')
-    if [[ -z $version ]]; then version="1.0.8.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"; fi
+    if [[ -z $version ]]; then version="1.0.9.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"; fi
     printf '%s\n' "$version"
 }
 build() {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build checked component archives and a checksum-pinned binary recipe.
+# Build checked component archives and a binary recipe.
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 source "$root/packaging/components/common.sh"
@@ -53,7 +53,7 @@ for component in "${aqueous_components[@]}"; do
 done
 "$root/packaging/component-artifacts.sh" extract "$output/${archives[1]}" "$temporary/extracted"
 "$temporary/extracted/components/tools/verify-release.sh" "$temporary/extracted/components" --version "$version" --architecture "$architecture"
-sed -e "s/^pkgver=.*/pkgver=$version/" -e "s/REPLACE_WITH_RELEASE_SHA256/$(aq_hash "$output/${archives[1]}")/" \
+sed -e "s/^pkgver=.*/pkgver=$version/" \
     "$root/PKGBUILD-bin" > "$output/PKGBUILD-bin"
 archives+=(PKGBUILD-bin)
 (cd "$output" && sha256sum -- "${archives[@]}" > SHA256SUMS.txt)

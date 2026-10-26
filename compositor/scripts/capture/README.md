@@ -101,11 +101,15 @@ Trace fields use monotonic nanoseconds (`ns`) and a per-file sequence (`seq`). P
 ### Synchronization failure regressions
 
 The production correction and validation notes are in
-[`docs/frame-sync-fix-results.md`](../../../docs/frame-sync-fix-results.md).
+[`docs/gpu-sync-fd-investigation.md`](../../../docs/gpu-sync-fd-investigation.md).
 `../test-vulkan-sync.py PATCHED_WLROOTS_SOURCE INSTALLED_PREFIX` exercises the
-complete production synchronization functions with deterministic API failures,
-FD/lock accounting, sanitizer checks and negative controls. The pinned dependency
-build runs this regression automatically.
+production Vulkan submission functions with FD accounting, explicit/implicit
+synchronization, copy-completion checks, sanitizers and negative controls. The
+pinned dependency build runs this regression automatically. Patch 0020 has been
+removed: its acquire/publication recovery guarantees are no longer part of this
+test or the production renderer. The fault-injection experiments below describe
+the earlier implementation; their recovery expectations are not current release
+acceptance criteria.
 
 To inject a one-shot failure into an actual private NVIDIA capture copy, build the
 separate test library against the same wlroots installation:

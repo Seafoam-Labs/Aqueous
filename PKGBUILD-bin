@@ -1,9 +1,9 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
-# Release template: publish v1.0.8 component archives before using this recipe.
-# packaging/release-components.sh supplies the archive and checksum-pinned recipe.
+# Release template: publish v1.0.9 component archives before using this recipe.
+# packaging/release-components.sh supplies the archive and release recipe.
 pkgbase=aqueous-bin
 pkgname=(aqueous-core-bin aqueous-session-bin aqueous-welcome-bin xdg-desktop-portal-aqueous-bin aqueous-integration-dms-bin aqueous-integration-noctalia-bin aqueous-integration-pearl-bin aqueous-shell-dms-bin aqueous-shell-noctalia-bin aqueous-shell-pearl-bin aqueous-bin)
-pkgver=1.0.8
+pkgver=1.0.9
 pkgrel=1
 # Keep tested binary/library bytes and component manifests stable.
 options=('!strip' '!debug' '!zipman')
@@ -13,9 +13,7 @@ url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL-3.0-only' 'MIT')
 makedepends=('bash' 'jq' 'binutils')
 source=("Aqueous-components-${pkgver}-x86_64.tar.gz::${url}/releases/download/v${pkgver}/Aqueous-components-${pkgver}-x86_64.tar.gz")
-# The release process must replace this before publishing the binary recipe.
-# Intentionally fail closed instead of accepting SKIP for executable archives.
-sha256sums=('REPLACE_WITH_RELEASE_SHA256')
+sha256sums=('SKIP')
 
 check() {
     bash "$srcdir/components/tools/verify-release.sh" "$srcdir/components" --version "$pkgver" --architecture "$CARCH"

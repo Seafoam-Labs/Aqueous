@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run synchronization fault tests against complete production wlroots functions.
+"""Check upstream Vulkan submission layout, FD ownership and copy completion.
 
 Uses mocked Vulkan/DRM calls, real wlroots structures and real descriptor ownership.
 No GPU required. Usage: test-vulkan-sync.py PATCHED_SOURCE INSTALLED_PREFIX
@@ -30,10 +30,8 @@ def main():
     source, prefix = map(Path, sys.argv[1:])
     selected = {
         "render/vulkan/renderer.c": [
-            "vulkan_end_command_buffer", "vulkan_wait_command_buffer", "mark_sync_failed", "submit_stage",
+            "vulkan_end_command_buffer", "vulkan_wait_command_buffer",
             "release_command_buffer_resources", "vulkan_reset_command_buffer",
-            "wait_submission", "signal_failed_pass", "vulkan_cancel_render_pass",
-            "vulkan_recover_render_pass", "vulkan_fail_render_pass",
             "buffer_export_sync_file", "vulkan_sync_foreign_texture_acquire",
             "vulkan_sync_render_buffer_acquire", "buffer_import_sync_file",
             "vulkan_sync_render_pass_release",
@@ -41,8 +39,8 @@ def main():
         "render/vulkan/pass.c": [
             "get_render_pass", "get_color_transform", "bind_pipeline",
             "encode_proj_matrix", "encode_color_matrix", "convert_pixman_box_to_vk_rect",
-            "vulkan_render_pass_destroy", "render_pass_wait_sync_file", "close_sync_files",
-            "render_pass_wait_render_buffer", "render_pass_wait_textures", "render_pass_submit",
+            "render_pass_destroy", "render_pass_wait_sync_file",
+            "render_pass_wait_render_buffer", "render_pass_submit",
         ],
         "render/vulkan/copy.c": ["vulkan_copy_buffer_finish"],
     }
@@ -68,12 +66,6 @@ def main():
         (tmp / "sync-functions.h").write_text(production)
         (tmp / "sync-command-stubs.h").write_text(stubs)
         mutations = {
-            "acquire-continues": (
-                'wlr_log(WLR_ERROR, "Failed to wait for foreign texture DMA-BUF fence");\n\t\t\t\tclose_sync_files(sync_file_fds);\n\t\t\t\treturn false;',
-                'wlr_log(WLR_ERROR, "Failed to wait for foreign texture DMA-BUF fence");\n\t\t\t\tclose_sync_files(sync_file_fds);\n\t\t\t\tcontinue;'),
-            "publication-ignored": (
-                'bool ok = copied && vulkan_sync_render_pass_release(renderer, pass);',
-                'bool ok = (vulkan_sync_render_pass_release(renderer, pass), true);'),
             "copy-readiness-bypassed": (
                 'bool copied = !render_buffer->copy_target || vulkan_copy_buffer_finish(pass);',
                 'bool copied = true;'),
@@ -83,12 +75,6 @@ def main():
             "stage-history-wait-omitted": (
                 'stage_submit.waitSemaphoreInfoCount = 1;',
                 'stage_submit.waitSemaphoreInfoCount = 0;'),
-            "device-loss-cancelled": (
-                'WLR_VK_PASS_REJECTED : WLR_VK_PASS_UNKNOWN;',
-                'WLR_VK_PASS_REJECTED : WLR_VK_PASS_REJECTED;'),
-            "recover-allocated-point": (
-                '!wait_submission(renderer, cb->timeline_point)',
-                '!wait_submission(renderer, renderer->timeline_point)'),
         }
         variants = [("plain", production, False), ("asan", production, True)]
         for label, (old, new) in mutations.items():

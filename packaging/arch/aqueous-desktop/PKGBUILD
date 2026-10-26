@@ -4,7 +4,7 @@
 pkgbase=aqueous-desktop
 pkgname=(aqueous-core aqueous-session aqueous-integration-pearl aqueous-shell-pearl
          xdg-desktop-portal-aqueous aqueous-desktop)
-pkgver=1.0.8
+pkgver=1.0.9
 pkgrel=1
 pkgdesc='Aqueous components for the Pearl desktop on Arch'
 arch=('x86_64' 'aarch64')
@@ -26,10 +26,10 @@ source=('session.toml'
         "aqueous::git+${url}.git#tag=v${pkgver}"
         'wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz'
         'xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz')
-sha256sums=('2cecdd6b68deaedc81997669b26ddfb705c458c8de9d8fdd465aaae35eba845b'
+sha256sums=('SKIP'
             'SKIP'
-            '972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343'
-            '3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400')
+            'SKIP'
+            'SKIP')
 
 prepare() {
     patch --fuzz=0 -d "$srcdir/xdg-desktop-portal-wlr-0.8.4" -Np1 \

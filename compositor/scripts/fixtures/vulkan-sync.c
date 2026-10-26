@@ -1,4 +1,5 @@
-// Deterministic API failures at the actual production synchronization calls.
+// Upstream submission/FD ownership and copy-only completion regressions.
+// Error-recovery guarantees from the removed 0020 patch are not asserted.
 #include "render/color.h"
 #include "render/vulkan.h"
 #include "util/matrix.h"
@@ -36,7 +37,7 @@ static unsigned next_sem;
 static bool sem_live[256], sem_signaled[256];
 static int sem_payload[256];
 static uint64_t sem_pending[256];
-static uint64_t expected_wait_point;
+static uint64_t expected_wait_point, last_submitted_point, prior_stage_point;
 static int exported_fds[256];
 static unsigned num_fds;
 static bool fd_owned[4096];
@@ -64,12 +65,12 @@ void vulkan_copy_buffer_record(struct wlr_vk_render_buffer *buffer, VkCommandBuf
 }
 VKAPI_ATTR VkResult VKAPI_CALL vkInvalidateMappedMemoryRanges(VkDevice dev,
         uint32_t count, const VkMappedMemoryRange *ranges) {
-    assert(completed >= renderer.last_submitted_point);
+    assert(completed >= last_submitted_point);
     return VK_SUCCESS;
 }
 static bool mock_begin_data(struct wlr_buffer *buffer, uint32_t flags,
         void **data, uint32_t *format, size_t *stride) {
-    assert(completed >= renderer.last_submitted_point);
+    assert(completed >= last_submitted_point);
     *data = copy_destination;
     *format = DRM_FORMAT_XRGB8888;
     *stride = 32 * 4 + 8;
@@ -111,7 +112,7 @@ VKAPI_ATTR void VKAPI_CALL vkDestroySemaphore(VkDevice dev, VkSemaphore sem,
     unsigned n = (uintptr_t)sem;
     assert(sem_live[n]);
     // Destruction of submitted signal semaphores requires proven completion.
-    assert(!sem_signaled[n] || completed >= renderer.last_submitted_point);
+    assert(!sem_signaled[n] || completed >= last_submitted_point);
     assert(!sem_pending[n] || completed >= sem_pending[n]);
     if (sem_payload[n] >= 0) {
         assert(close(sem_payload[n]) == 0);
@@ -145,7 +146,7 @@ static VkResult wait_semaphores(VkDevice dev, const VkSemaphoreWaitInfoKHR *info
                                 uint64_t timeout) {
     wait_count++;
     assert(timeout == 1000000000); // bounded error path
-    assert(*info->pValues == (expected_wait_point ? expected_wait_point : renderer.last_submitted_point));
+    assert(*info->pValues == (expected_wait_point ? expected_wait_point : last_submitted_point));
     if (wait_result == VK_SUCCESS)
         complete_gpu(*info->pValues);
     return wait_result;
@@ -153,7 +154,7 @@ static VkResult wait_semaphores(VkDevice dev, const VkSemaphoreWaitInfoKHR *info
 VKAPI_ATTR VkResult VKAPI_CALL vkEndCommandBuffer(VkCommandBuffer cb) { return VK_SUCCESS; }
 VKAPI_ATTR VkResult VKAPI_CALL vkResetCommandBuffer(VkCommandBuffer cb,
                                                     VkCommandBufferResetFlags flags) {
-    assert(completed >= renderer.last_submitted_point);
+    assert(completed >= last_submitted_point);
     reset_count++;
     return VK_SUCCESS;
 }
@@ -166,18 +167,19 @@ VKAPI_ATTR VkResult VKAPI_CALL vkQueueSubmit(VkQueue queue, uint32_t count,
 static VkResult queue_submit(VkQueue queue, uint32_t count, const VkSubmitInfo2KHR *info,
                              VkFence fence) {
     submit_count++;
+    last_submitted_point = renderer.timeline_point;
     // Preserve wlroots 0.20.2's submission layout: prior uploads gate staging,
     // imported source/destination fences gate rendering. This checks baseline
     // compatibility and FD ownership; it does not simulate GPU execution scopes.
     assert(count == 2);
-    assert(info[0].waitSemaphoreInfoCount == (renderer.stage.last_timeline_point > 0));
+    assert(info[0].waitSemaphoreInfoCount == (prior_stage_point > 0));
     bool waited[256] = {0};
     for (unsigned b = 0; b < count; b++) {
         for (unsigned i = 0; i < info[b].waitSemaphoreInfoCount; i++) {
             const VkSemaphoreSubmitInfoKHR *wait = &info[b].pWaitSemaphoreInfos[i];
             assert(wait->stageMask & (VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR | VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT_KHR));
             if (wait->semaphore == renderer.timeline_semaphore) {
-                assert(b == 0 && wait->value == renderer.stage.last_timeline_point);
+                assert(b == 0 && wait->value == prior_stage_point);
             } else {
                 assert(b == 1 && !waited[(uintptr_t)wait->semaphore]);
             }
@@ -245,16 +247,16 @@ static bool mock_timeline_import(struct wlr_drm_syncobj_timeline *tl, uint64_t p
     return ++publish_count != fail_publish;
 }
 static bool mock_signal(struct wlr_drm_syncobj_timeline *tl, uint64_t point) {
-    assert(sentinel || completed >= renderer.last_submitted_point);
+    assert(sentinel || completed >= last_submitted_point);
     signal_count++;
     return !fail_signal;
 }
 static void mock_unref(struct wlr_drm_syncobj_timeline *tl) {}
 static void mock_texture_destroy(struct wlr_texture *tex) {}
-static int64_t get_current_time_msec(void) { return 0; }
 const char *vulkan_strerror(VkResult result) { return "injected failure"; }
 VkCommandBuffer vulkan_record_stage_cb(struct wlr_vk_renderer *r) {
-    r->stage.cb = &r->command_buffers[1];
+    prior_stage_point = r->stage.last_timeline_point;
+    r->stage.cb = &r->command_buffers[active_output * 2 + 1];
     r->stage.cb->recording = true;
     return r->stage.cb->vk;
 }
@@ -283,7 +285,7 @@ static _Noreturn void mock_abort(void) {
 #include "sync-functions.h"
 
 static void callback(void *data) {
-    assert(completed >= renderer.last_submitted_point);
+    assert(completed >= last_submitted_point);
     callback_count++;
 }
 static void on_lost(struct wl_listener *listener, void *data) { lost_count++; }
@@ -322,7 +324,7 @@ static void init(void) {
     fail_explicit_export = fail_export_semaphore = fail_signal = sentinel = false;
     wait_result = queue_result = VK_SUCCESS;
     next_sem = num_fds = completed = 0;
-    expected_wait_point = 0;
+    expected_wait_point = last_submitted_point = prior_stage_point = 0;
     for (unsigned i = 0; i < 256; i++) sem_payload[i] = -1;
     memset(sem_pending, 0, sizeof(sem_pending));
     memset(sem_live, 0, sizeof(sem_live));
@@ -344,14 +346,11 @@ static struct wlr_vk_render_pass *new_pass(bool explicit_source, bool explicit_d
     pass->render_buffer_out = &output->linear.out;
     pass->command_buffer = &renderer.command_buffers[active_output * 2];
     pass->command_buffer->recording = true;
-    pass->command_buffer->submitted = false;
-    pass->transition_dummy = !renderer.dummy3d_image_transitioned;
     pass->signal_timeline = explicit_dest ? &dest_timeline : NULL;
     pass->signal_point = 10;
     rect_union_init(&pass->updated_region);
     struct wlr_vk_render_pass_texture *pt = wl_array_add(&pass->textures, sizeof(*pt));
     *pt = (struct wlr_vk_render_pass_texture){.texture = sample,
-                                              .buffer = mock_lock(sample->buffer),
                                               .wait_timeline =
                                                   explicit_source ? &source_timeline : NULL};
     mock_lock(output->wlr_buffer);
@@ -372,23 +371,15 @@ static void assert_fds_closed(void) {
     num_fds = 0;
 }
 static void retire(void) {
-    complete_gpu(renderer.last_submitted_point);
+    complete_gpu(last_submitted_point);
     for (unsigned i = 0; i < 4; i++)
         release_command_buffer_resources(&renderer.command_buffers[i], &renderer, 0);
 }
 static void finish(void) {
     // Device teardown in fatal-path tests proves even unknown work complete.
-    renderer.last_submitted_point = renderer.timeline_point > renderer.last_submitted_point ?
-        renderer.timeline_point : renderer.last_submitted_point;
+    last_submitted_point = renderer.timeline_point > last_submitted_point ?
+        renderer.timeline_point : last_submitted_point;
     retire();
-    // Simulate proven-complete teardown of quarantined passes, never early reuse.
-    while (renderer.failed_passes) {
-        struct wlr_vk_render_pass *p = renderer.failed_passes;
-        renderer.failed_passes = p->next_failed;
-        struct wlr_buffer *buffer = p->render_buffer->wlr_buffer;
-        vulkan_render_pass_destroy(p);
-        mock_unlock(buffer);
-    }
     for (unsigned i = 0; i < 4; i++) {
         struct wlr_vk_command_buffer *cb = &renderer.command_buffers[i];
         VkSemaphore *sem;
@@ -402,14 +393,6 @@ static void finish(void) {
     for (unsigned i = 1; i < 255; i++)
         assert(!sem_live[i]);
 }
-static void recover_next_frame(void) {
-    fail_export = fail_import = fail_publish = 0;
-    fail_explicit_export = fail_export_semaphore = false;
-    retire();
-    assert(render_pass_submit(&new_pass(false, false)->base));
-    assert(src_buffer.n_locks == 0 && dst_buffer.n_locks == 0);
-    assert_fds_closed();
-}
 static int fd_count(void) {
     int count = 0;
     for (int fd = 0; fd < 64; fd++) count += fcntl(fd, F_GETFD) >= 0;
@@ -420,19 +403,9 @@ static void stress(void) {
     init();
     for (unsigned frame = 0; frame < 6000; frame++) {
         active_output = frame % 2;
-        bool explicit = frame % 3 == 0;
-        unsigned fault = frame % 19;
-        if (fault == 0) fail_export = export_count + 2;
-        if (fault == 1) fail_import = import_count + 2;
-        if (fault == 2) fail_export_semaphore = true;
-        if (fault == 3) fail_publish = publish_count + 1;
-        bool ok = render_pass_submit(&new_pass(explicit, explicit)->base);
-        assert(ok == (fault > 3));
-        fail_export = fail_import = fail_publish = 0;
-        fail_export_semaphore = false;
+        bool explicit = (frame / 2) % 2;
+        assert(render_pass_submit(&new_pass(explicit, explicit)->base));
         assert_fds_closed();
-        // Complete both outputs before replacing the buffer generation or
-        // simulating renderer recovery/output removal. Never drop live work.
         retire();
         assert(fd_count() == baseline);
         assert(src_buffer.n_locks == 0 && dst_buffer.n_locks == 0);
@@ -441,7 +414,7 @@ static void stress(void) {
     }
     finish();
     assert(fd_count() == baseline);
-    printf("PASS: 6000 Vulkan frames, two output buffers/command slots, RLIMIT_NOFILE=64, baseline=%d after each frame and teardown\n", baseline);
+    printf("PASS: 6000 Vulkan frames, explicit/implicit sync, two output buffers/command slots, RLIMIT_NOFILE=64, baseline=%d\n", baseline);
 }
 int main(void) {
     struct rlimit limit = {64, 64};
@@ -453,12 +426,10 @@ int main(void) {
         target.copy_mapping = copy_source;
         assert(render_pass_submit(&new_pass(false, explicit)->base));
         assert(copy_complete && wait_count == 1 && signal_count == explicit);
-        // Non-packed destinations must retain row padding.
         for (unsigned y = 0; y < 32; y++) {
             for (unsigned x = 0; x < 136; x++)
                 assert(copy_destination[y * 136 + x] == (x < 128 ? 0x71 : 0xa5));
         }
-        assert(src_buffer.n_locks == 0 && dst_buffer.n_locks == 0);
         finish();
     }
     init();
@@ -466,9 +437,10 @@ int main(void) {
     target.copy_mapping = copy_source;
     fail_copy_map = true;
     assert(!render_pass_submit(&new_pass(false, true)->base));
-    assert(!copy_complete && src_buffer.n_locks == 0 && dst_buffer.n_locks == 0);
+    assert(!copy_complete && signal_count == 1);
     finish();
 
+    // A copy timeout must stop before CPU access or release publication.
     init();
     target.copy_target = true;
     wait_result = VK_TIMEOUT;
@@ -478,220 +450,12 @@ int main(void) {
         render_pass_submit(&copy_pass->base);
         assert(!"copy timeout must not publish incomplete pixels");
     }
-    assert(!copy_complete && signal_count == 0 && wait_count == 1);
-    assert(src_buffer.n_locks == 1 && dst_buffer.n_locks == 1);
-    renderer.failed_passes = copy_pass;
-    finish();
-    // Each of two source and destination planes: partial exports/imports close
-    // every unconsumed FD, no render batch submitted, next frame succeeds.
-    for (unsigned operation = 0; operation < 2; operation++) {
-        for (unsigned plane = 1; plane <= 4; plane++) {
-            init();
-            if (operation == 0)
-                fail_export = plane;
-            else
-                fail_import = plane;
-            assert(!render_pass_submit(&new_pass(false, true)->base));
-            assert((operation == 0 ? export_count : import_count) == plane);
-            assert(submit_count == 0 && callback_count == 1 && signal_count == 1);
-            assert(!target.linear.out.transitioned && !renderer.dummy3d_image_transitioned);
-            assert(!texture.owned && !texture.transitioned && !renderer.sync_failed);
-            assert_fds_closed();
-            recover_next_frame();
-            finish();
-        }
-    }
-    init();
-    fail_explicit_export = true;
-    renderer.stage.cb = &renderer.command_buffers[1];
-    renderer.stage.cb->recording = true;
-    assert(!render_pass_submit(&new_pass(true, true)->base));
-    assert(stage_count == 1 && submit_count == 0 && wait_count == 1);
-    assert(callback_count == 1 && signal_count == 1);
-    recover_next_frame();
-    finish();
-
-    // A failed independent upload cannot leave an unsubmitted point available
-    // for later waits/reuse. Unknown acceptance is terminal on this route too.
-    for (unsigned fault = 0; fault < 3; fault++) {
-        init();
-        fail_explicit_export = true;
-        renderer.stage.cb = &renderer.command_buffers[1];
-        renderer.stage.cb->recording = true;
-        queue_result = fault == 0 ? VK_ERROR_OUT_OF_HOST_MEMORY :
-            fault == 1 ? VK_ERROR_OUT_OF_DEVICE_MEMORY : VK_ERROR_DEVICE_LOST;
-        struct wlr_vk_render_pass *upload_pass = new_pass(true, true);
-        expect_fatal = fault == 2;
-        if (setjmp(fatal_jump) == 0) {
-            assert(!render_pass_submit(&upload_pass->base));
-            assert(fault < 2 && renderer.sync_failed && lost_count == 1);
-        } else {
-            assert(fatal_count == 1);
-            renderer.failed_passes = upload_pass;
-        }
-        assert(stage_count == 1 && submit_count == 0 && wait_count == 0);
-        assert(callback_count == 0 && signal_count == 0 && reset_count == 0);
-        assert(renderer.last_submitted_point == 0 && renderer.stage.last_timeline_point == 0);
-        assert(src_buffer.n_locks == 1 && dst_buffer.n_locks == 1);
-        finish();
-    }
-
-    // Repeated acquire failures on a reused slot must not retain imported
-    // temporary payloads or an allocated-but-never-submitted timeline point.
-    init();
-    for (unsigned i = 0; i < 5; i++) {
-        fail_import = import_count + 2;
-        assert(!render_pass_submit(&new_pass(false, true)->base));
-        assert(!renderer.sync_failed && callback_count == i + 1);
-        assert(renderer.command_buffers[0].timeline_point == 0);
-        assert_fds_closed();
-    }
-    recover_next_frame();
-    finish();
-
-    // Cancellation recovery cannot manufacture completion of previous work.
-    init();
-    fail_explicit_export = true;
-    renderer.last_submitted_point = 7;
-    wait_result = VK_TIMEOUT;
-    assert(!render_pass_submit(&new_pass(true, true)->base));
-    assert(renderer.sync_failed && lost_count == 1 && callback_count == 0 && signal_count == 0);
-    assert(src_buffer.n_locks == 1 && dst_buffer.n_locks == 1);
-    finish();
-
-    // Renderer replacement must stop the standalone upload/readback route too.
-    init();
-    renderer.sync_failed = true;
-    renderer.stage.cb = &renderer.command_buffers[1];
-    renderer.stage.cb->recording = true;
-    assert(!submit_stage(&renderer));
-    assert(stage_count == 0 && renderer.stage.cb != NULL);
-    finish();
-
-    // A failed queue submission must not leave a reusable timeline point or
-    // execute callbacks for commands whose lifecycle is uncertain.
-    init();
-    queue_result = VK_ERROR_DEVICE_LOST;
-    struct wlr_vk_render_pass *lost_pass = new_pass(false, true);
-    expect_fatal = true;
-    if (setjmp(fatal_jump) == 0) {
-        render_pass_submit(&lost_pass->base);
-        assert(!"unknown submission must stop before returning to the caller");
-    }
-    assert(fatal_count == 1 && callback_count == 0 && signal_count == 0 && reset_count == 0);
-    assert(src_buffer.n_locks == 1 && dst_buffer.n_locks == 1);
-    assert(renderer.last_submitted_point == 0 && renderer.stage.last_timeline_point == 0);
-    renderer.failed_passes = lost_pass;
-    finish();
-
-    // OOM rejection guarantees no work was accepted. Stage recording already
-    // contains ownership barriers, so retain it for safe renderer replacement.
-    for (unsigned i = 0; i < 2; i++) {
-        init();
-        queue_result = i ? VK_ERROR_OUT_OF_HOST_MEMORY : VK_ERROR_OUT_OF_DEVICE_MEMORY;
-        assert(!render_pass_submit(&new_pass(false, true)->base));
-        assert(renderer.failed_passes->submission == WLR_VK_PASS_REJECTED);
-        assert(renderer.sync_failed && lost_count == 1 && callback_count == 0 && signal_count == 0);
-        assert(wait_count == 0 && reset_count == 0);
-        finish();
-    }
-    for (unsigned i = 1; i <= 5; i++) {
-        init();
-        fail_create = i;
-        assert(!render_pass_submit(&new_pass(false, true)->base));
-        assert(submit_count == 0);
-        assert(callback_count == (i < 5));
-        assert(renderer.sync_failed == (i == 5));
-        finish();
-    }
-
-    // Recovery must wait for the submitted pass, never an allocated future
-    // timeline point. Completion can also already be known from a copy.
-    init();
-    struct wlr_vk_render_pass *recover_pass = new_pass(false, true);
-    recover_pass->command_buffer->submitted = true;
-    recover_pass->command_buffer->recording = false;
-    recover_pass->command_buffer->timeline_point = 7;
-    recover_pass->submission = WLR_VK_PASS_PENDING;
-    renderer.timeline_point = 9;
-    renderer.last_submitted_point = expected_wait_point = 7;
-    assert(vulkan_recover_render_pass(recover_pass));
-    assert(wait_count == 1 && completed == 7 && recover_pass->submission == WLR_VK_PASS_COMPLETE);
-    assert(vulkan_recover_render_pass(recover_pass) && wait_count == 1);
-    renderer.failed_passes = recover_pass;
-    finish();
-
-    // Completion export and partial publication, including explicit release.
-    for (unsigned operation = 0; operation < 6; operation++) {
-        init();
-        if (operation == 0)
-            fail_export_semaphore = true;
-        else
-            fail_publish = operation == 5 ? 1 : operation;
-        assert(!render_pass_submit(&new_pass(false, operation == 5)->base));
-        assert(submit_count == 1 && wait_count == 1 && callback_count == 0);
-        assert(!renderer.sync_failed && reset_count == 0);
-        assert(renderer.command_buffers[0].binary_semaphore == VK_NULL_HANDLE);
-        assert(signal_count == (operation == 5));
-        assert_fds_closed();
-        recover_next_frame();
-        finish();
-    }
-    // A wait timeout/device loss cannot release locks, reset commands, signal
-    // a release point, invoke completion callbacks, or report a good frame.
-    for (unsigned i = 0; i < 2; i++) {
-        init();
-        fail_export_semaphore = true;
-        wait_result = i == 0 ? VK_TIMEOUT : VK_ERROR_DEVICE_LOST;
-        struct wlr_vk_render_pass *p = new_pass(false, true);
-        expect_fatal = true;
-        if (setjmp(fatal_jump) == 0) {
-            render_pass_submit(&p->base);
-            assert(!"unfenced live capture must not return to its caller");
-        }
-        assert(fatal_count == 1 && lost_count == 0);
-        assert(callback_count == 0 && reset_count == 0 && signal_count == 0);
-        assert(src_buffer.n_locks == 1 && dst_buffer.n_locks == 1);
-        // Test teardown after simulated device completion, not the fatal path.
-        renderer.failed_passes = p;
-        finish();
-    }
-    init();
-    fail_export_semaphore = fail_signal = true;
-    assert(!render_pass_submit(&new_pass(false, true)->base));
-    assert(renderer.sync_failed && lost_count == 1 && signal_count == 1);
-    finish();
-
-    // Poll error bits cannot masquerade as an acquired implicit dependency.
-    for (unsigned mode = 0; mode < 3; mode += 2) {
-        init();
-        device.implicit_sync_interop = false;
-        poll_mode = mode;
-        assert(!render_pass_submit(&new_pass(false, true)->base));
-        assert(submit_count == 0 && callback_count == 1);
-        finish();
-    }
-    // Valid already-signalled Vulkan sync-file sentinel; no fd=-1 DRM import.
-    init();
-    sentinel = true;
-    assert(render_pass_submit(&new_pass(false, true)->base));
-    assert(signal_count == 1 && publish_count == 0 && wait_count == 0);
-    finish();
-    // Healthy path stays asynchronous, repeated reuse must not resignal a
-    // binary semaphore with an unconsumed signal or double-run callbacks.
-    init();
-    for (unsigned i = 0; i < 20; i++) {
-        assert(render_pass_submit(&new_pass(false, false)->base));
-        assert(wait_count == 0 && callback_count == i);
-        unsigned pending = 0;
-        for (unsigned n = 1; n < 255; n++) pending += sem_payload[n] >= 0;
-        assert(pending == 4); // all source/destination plane payloads still live
-        retire();
-        assert(callback_count == i + 1);
-    }
+    assert(fatal_count == 1 && !copy_complete && signal_count == 0 && wait_count == 1);
+    complete_gpu(last_submitted_point);
+    render_pass_destroy(copy_pass);
+    mock_unlock(&dst_buffer);
     finish();
     stress();
-    puts("PASS: acquire/export/import/publication faults, FD/lock ownership, recovery, stage "
-         "dependencies, callbacks");
+    puts("PASS: copy completion, padded readback, failed mapping and timeout isolation");
     return 0;
 }

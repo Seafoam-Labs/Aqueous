@@ -438,3 +438,43 @@ Shelly-generated metadata, and the stable Pearl packaging checks pass.
 Confirmation of the reported fix still requires reproducing the Ghostty
 workflow on the GTX 1080 Ti with driver 580.178.04, checking descriptor growth,
 and comparing with the submission override restored.
+
+
+## Complete 0020 removal (2026-10-26)
+
+The affected machine still exits the session during ordinary application use,
+including Firefox. Remove the remaining `0020-vulkan-sync-failure-handling.patch`
+from the shell and Nix builds. Vulkan effects and explicit synchronization remain
+enabled; this change does not modify their configuration or advertisement.
+
+This restores upstream 0.20.2 acquisition timing, texture-buffer lifetime,
+transition bookkeeping, command-buffer reset/retirement and submission error
+handling previously changed by 0020. It also removes 0020's renderer-wide failed
+state, quarantined passes, bounded recovery and general synchronization aborts.
+Upstream's handling of acquisition/publication failures is restored too; the
+previous error-recovery guarantees must not be claimed for this build.
+
+Patch 0030 is rebased without the removed submission enum or recovery helpers.
+Normal DMA-BUF submission uses upstream release/error behavior. Its separate
+CPU-copy path still waits for GPU completion before accessing mapped pixels;
+a failed completion wait terminates inside the copy helper, as it did via 0020's
+helper before this rollback. A completed copy with failed CPU access returns
+failure but still processes its release semaphore. This copy-only check is not
+renderer-wide 0020 recovery. Patch 0037 and the other independent patches remain.
+
+The Vulkan synchronization fixture now checks successful explicit/implicit-sync
+submissions, upstream wait layout, FD ownership and copy completion. Tests tied
+to the removed recovery implementation are retired. Retained negative controls
+omit acquisition waits, omit prior-stage waits, or bypass copy completion.
+
+Validation outputs for this change are under `/tmp/aqueous-remove-0020`.
+This rollback still requires the same Ghostty/Firefox workload on the affected
+GTX 1080/580 machine; local checks cannot confirm that crash is fixed.
+
+Validation completed: the full private wlroots builder and its regression suite
+pass, including ASan/UBSan and 6,000 explicit/implicit-sync Vulkan frames with
+three rejected negative controls. The real Vulkan presentation test passes
+allocation fallback, output isolation, hotplug, pixel checks, reuse, resize,
+capture import, commit and reset. Aqueous builds in ReleaseSafe with
+`-Dvulkan-effects=true -Dxwayland`; all 592 tests pass. The installed compositor's
+private wlroots library is byte-identical to the newly built dependency.

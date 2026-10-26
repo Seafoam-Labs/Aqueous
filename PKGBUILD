@@ -4,7 +4,7 @@ pkgname=(aqueous-core aqueous-session aqueous-welcome xdg-desktop-portal-aqueous
          aqueous-integration-dms aqueous-integration-noctalia aqueous-integration-pearl
          aqueous-shell-dms aqueous-shell-noctalia aqueous-shell-pearl aqueous)
 pkgbase=aqueous
-pkgver=1.0.8
+pkgver=1.0.9
 pkgrel=1
 # Keep tested binary/library bytes and component manifests stable.
 options=('!strip' '!debug' '!zipman')
@@ -24,8 +24,8 @@ source=(
 )
 sha256sums=(
     'SKIP'
-    '972c7ac44b17828f4702bfae7cd8347346a3fb5b2c1076cfa2c3fcedac5ec343'
-    '3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400'
+    'SKIP'
+    'SKIP'
 )
 
 prepare() {

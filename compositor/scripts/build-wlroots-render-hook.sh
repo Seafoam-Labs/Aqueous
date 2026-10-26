@@ -25,7 +25,6 @@ patch_files=(
     "$here/patches/wlroots/0017-xdg-toplevel-drag-v1.patch"
     "$here/patches/wlroots/0018-pointer-constraint-initial-region.patch"
     "$here/patches/wlroots/0019-overlay-backend-recovery.patch"
-    "$here/patches/wlroots/0020-vulkan-sync-failure-handling.patch"
     "$here/patches/wlroots/0021-drm-lease-lifetime.patch"
     "$here/patches/wlroots/0022-pointer-enter-serial-validation.patch"
     "$here/patches/wlroots/0023-commit-timing-v1.patch"

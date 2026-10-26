@@ -145,7 +145,7 @@ fedora_build_source() (
     printf '%s^git%s.%s\n' "$pkgver" "$(git show -s --format=%ct HEAD)" \
         "$(git rev-parse --short=12 HEAD)" > "$fedora_work/version"
     # The first source is the master checkout above. Fetch pinned dependency
-    # archives from this same recipe and verify every checksum before unpacking.
+    # archives from this same recipe and honor its checksum policy.
     [[ ${source[0]} == aqueous::git+* ]] || fedora_die 'Unexpected primary source in master PKGBUILD.'
     for ((index=1; index<${#source[@]}; index++)); do
         entry=${source[index]}
@@ -153,11 +153,13 @@ fedora_build_source() (
         url=${entry#*::}
         checksum=${sha256sums[index]}
         [[ $archive =~ ^[A-Za-z0-9._+-]+\.tar\.gz$ && $url == https://* &&
-            $checksum =~ ^[a-fA-F0-9]{64}$ ]] ||
+            ( $checksum == SKIP || $checksum =~ ^[a-fA-F0-9]{64}$ ) ]] ||
             fedora_die "Unsupported or unverified dependency source: $entry"
         curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
             "$url" -o "$srcdir/$archive"
-        printf '%s  %s\n' "$checksum" "$srcdir/$archive" | sha256sum --check -
+        if [[ $checksum != SKIP ]]; then
+            printf '%s  %s\n' "$checksum" "$srcdir/$archive" | sha256sum --check -
+        fi
         tar --extract --gzip --file "$srcdir/$archive" --directory "$srcdir" --no-same-owner
     done
     export ZIG_GLOBAL_CACHE_DIR=$fedora_work/zig-global

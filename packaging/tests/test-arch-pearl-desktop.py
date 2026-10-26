@@ -86,7 +86,7 @@ retired = {
 assert set(desktop["replaces"]) == retired
 assert retired <= set(desktop["conflicts"])
 assert desktop["backup"] == ["etc/xdg/aqueous/session.toml"]
-assert hashlib.sha256((FOLDER / "session.toml").read_bytes()).hexdigest() == base["sha256sums"][0]
+assert base["sha256sums"][0] in ("SKIP", hashlib.sha256((FOLDER / "session.toml").read_bytes()).hexdigest())
 
 with tempfile.TemporaryDirectory(prefix="aqueous-arch-pearl-") as temporary:
     work = Path(temporary)

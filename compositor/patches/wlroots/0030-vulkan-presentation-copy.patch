@@ -20,15 +20,15 @@
  
  	// Framebuffer and image view for rendering directly onto the buffer image,
  	// without any color transform.
-@@ -339,6 +345,7 @@
+@@ -338,6 +344,7 @@
  	struct wl_list descriptor_pools; // wlr_vk_descriptor_pool.link
  	struct wl_list render_format_setups; // wlr_vk_render_format_setup.link
  
 +	struct wlr_drm_format_set copy_formats;
  	bool offscreen_enabled;
- 	bool sync_failed;
- 	uint64_t last_submitted_point;
-@@ -499,8 +506,13 @@
+ 
+ 	struct wl_list textures; // wlr_vk_texture.link
+@@ -491,8 +498,13 @@
  bool vulkan_sync_render_buffer_acquire(struct wlr_vk_render_buffer *render_buffer,
  	int sync_file_fds[static WLR_DMABUF_MAX_PLANES]);
  
@@ -107,9 +107,10 @@
 +}
 --- /dev/null
 +++ b/render/vulkan/copy.c
-@@ -0,0 +1,162 @@
+@@ -0,0 +1,164 @@
 +// SPDX-License-Identifier: MIT
 +// Experimental bounded synchronous readback. Automatic deployment is gated.
++#include <stdlib.h>
 +#include <string.h>
 +#include <drm_fourcc.h>
 +#include <wlr/interfaces/wlr_buffer.h>
@@ -243,9 +244,10 @@
 +        pass->renderer->dev->dev, &wait, 1000000000ULL);
 +    if (waited != VK_SUCCESS) {
 +        wlr_vk_error("Vulkan presentation copy completion (1 second limit)", waited);
-+        return false;
++        // Copy-only: never expose CPU pixels or retire this pass while GPU
++        // writes may still be pending. Normal DMA-BUF rendering is unaffected.
++        abort();
 +    }
-+    pass->submission = WLR_VK_PASS_COMPLETE;
 +    VkMappedMemoryRange range = {
 +        .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
 +        .memory = buffer->copy_memory, .offset = 0, .size = VK_WHOLE_SIZE,
@@ -384,16 +386,16 @@
  	'util.c',
 --- a/render/vulkan/pass.c
 +++ b/render/vulkan/pass.c
-@@ -602,7 +602,7 @@
+@@ -584,7 +584,7 @@
  	// also add acquire/release barriers for the current render buffer
  	VkImageLayout src_layout = VK_IMAGE_LAYOUT_GENERAL;
  	if (!pass->render_buffer_out->transitioned) {
 -		src_layout = VK_IMAGE_LAYOUT_PREINITIALIZED;
 +		src_layout = render_buffer->copy_target ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_PREINITIALIZED;
+ 		pass->render_buffer_out->transitioned = true;
  	}
  
- 	if (pass->two_pass) {
-@@ -666,6 +666,12 @@
+@@ -650,6 +650,12 @@
  		.subresourceRange.levelCount = 1,
  	};
  
@@ -406,7 +408,7 @@
  	++idx;
  
  	vkCmdPipelineBarrier(stage_cb->vk, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-@@ -676,6 +682,7 @@
+@@ -660,6 +666,7 @@
  		VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 0, NULL,
  		barrier_count, release_barriers);
  
@@ -414,21 +416,26 @@
  	free(acquire_barriers);
  	free(release_barriers);
  
-@@ -805,7 +812,12 @@
+@@ -774,13 +781,16 @@
  		wl_list_insert(&stage_cb->stage_buffers, &stage_buf->link);
  	}
  
--	bool ok = vulkan_sync_render_pass_release(renderer, pass);
+-	if (!vulkan_sync_render_pass_release(renderer, pass)) {
 +	bool copied = !render_buffer->copy_target || vulkan_copy_buffer_finish(pass);
-+	if (!copied && pass->submission != WLR_VK_PASS_COMPLETE) {
-+        vulkan_fail_render_pass(pass);
-+        return false;
-+    }
-+    bool ok = copied && vulkan_sync_render_pass_release(renderer, pass);
- 	if (!ok) {
- 		wlr_log(WLR_ERROR, "Render submitted, but completion fence publication failed");
- 		if (!vulkan_recover_render_pass(pass)) {
-@@ -1449,8 +1461,11 @@
++	bool released = vulkan_sync_render_pass_release(renderer, pass);
++	if (!released) {
+ 		wlr_log(WLR_ERROR, "Failed to sync render buffer");
+ 	}
+ 
++	bool ok = !render_buffer->copy_target || (copied && released);
+ 	render_pass_destroy(pass);
+ 	wlr_buffer_unlock(render_buffer->wlr_buffer);
+-	return true;
++	return ok;
+ 
+ error:
+ 	free(render_wait);
+@@ -1408,8 +1418,11 @@
  	bool using_two_pass_pathway = !using_linear_pathway && !using_srgb_pathway;
  
  	if (using_linear_pathway && !buffer->linear.out.image_view) {
@@ -442,7 +449,7 @@
  		if (!vulkan_setup_one_pass_framebuffer(buffer, &attribs, false)) {
  			wlr_log(WLR_ERROR, "Failed to set up blend image");
  			return NULL;
-@@ -1468,8 +1483,11 @@
+@@ -1427,8 +1440,11 @@
  		}
  
  		if (!buffer->two_pass.out.image_view) {
@@ -469,7 +476,7 @@
  	vkGetPhysicalDeviceFormatProperties2(dev->phdev, format->vk, &fmtp);
 --- a/render/vulkan/renderer.c
 +++ b/render/vulkan/renderer.c
-@@ -778,6 +778,9 @@
+@@ -654,6 +654,9 @@
  			buffer->two_pass.blend_descriptor_set);
  	}
  
@@ -479,7 +486,7 @@
  	vkDestroyImage(dev, buffer->image, NULL);
  	for (size_t i = 0u; i < buffer->mem_count; ++i) {
  		vkFreeMemory(dev, buffer->memories[i], NULL);
-@@ -1054,16 +1057,31 @@
+@@ -930,16 +933,31 @@
  	wl_list_insert(&renderer->render_buffers, &buffer->link);
  
  	struct wlr_dmabuf_attributes dmabuf = {0};
@@ -514,7 +521,7 @@
  	if (!buffer->image) {
  		goto error;
  	}
-@@ -1094,7 +1112,6 @@
+@@ -970,7 +988,6 @@
  		destroy_render_buffer(buffer);
  	}
  
@@ -522,7 +529,7 @@
  	return NULL;
  }
  
-@@ -1164,6 +1181,7 @@
+@@ -1036,6 +1053,7 @@
  
  bool vulkan_sync_render_buffer_acquire(struct wlr_vk_render_buffer *render_buffer,
  		int sync_file_fds[static WLR_DMABUF_MAX_PLANES]) {
@@ -530,7 +537,7 @@
  	return buffer_export_sync_file(render_buffer->renderer, render_buffer->wlr_buffer,
  		DMA_BUF_SYNC_WRITE, sync_file_fds);
  }
-@@ -1190,6 +1208,22 @@
+@@ -1062,6 +1080,22 @@
  	VkResult res;
  	struct wlr_vk_command_buffer *cb = pass->command_buffer;
  
@@ -553,7 +560,7 @@
  	if (!renderer->dev->implicit_sync_interop && pass->signal_timeline == NULL) {
  		// We have no choice but to block here sadly
  		return vulkan_wait_command_buffer(cb, renderer);
-@@ -1248,7 +1282,7 @@
+@@ -1113,7 +1147,7 @@
  		struct wlr_renderer *wlr_renderer, uint32_t buffer_caps) {
  	struct wlr_vk_renderer *renderer = vulkan_get_renderer(wlr_renderer);
  	if (buffer_caps & WLR_BUFFER_CAP_DMABUF) {
@@ -562,7 +569,7 @@
  	} else if (buffer_caps & WLR_BUFFER_CAP_DATA_PTR) {
  		return &renderer->dev->shm_texture_formats;
  	} else {
-@@ -1259,12 +1293,14 @@
+@@ -1124,12 +1158,14 @@
  static const struct wlr_drm_format_set *vulkan_get_render_formats(
  		struct wlr_renderer *wlr_renderer) {
  	struct wlr_vk_renderer *renderer = vulkan_get_renderer(wlr_renderer);
@@ -578,7 +585,7 @@
  	if (!dev) {
  		free(renderer);
  		return;
-@@ -1384,7 +1420,7 @@
+@@ -1233,7 +1269,7 @@
  }
  
  bool vulkan_read_pixels(struct wlr_vk_renderer *vk_renderer,
@@ -587,7 +594,7 @@
  		uint32_t drm_format, uint32_t stride,
  		uint32_t width, uint32_t height, uint32_t src_x, uint32_t src_y,
  		uint32_t dst_x, uint32_t dst_y, void *data) {
-@@ -1505,9 +1541,9 @@
+@@ -1354,9 +1390,9 @@
  			VK_PIPELINE_STAGE_TRANSFER_BIT,
  			VK_ACCESS_TRANSFER_WRITE_BIT);
  	vulkan_change_layout(cb, src_image,
@@ -600,7 +607,7 @@
  			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
  			VK_PIPELINE_STAGE_TRANSFER_BIT,
  			VK_ACCESS_TRANSFER_READ_BIT);
-@@ -1563,14 +1599,14 @@
+@@ -1412,14 +1448,14 @@
  			VK_PIPELINE_STAGE_TRANSFER_BIT,
  			VK_ACCESS_TRANSFER_WRITE_BIT,
  			VK_IMAGE_LAYOUT_GENERAL,
@@ -619,7 +626,7 @@
  			VK_ACCESS_MEMORY_READ_BIT);
  
  	if (!vulkan_submit_stage_wait(vk_renderer)) {
-@@ -2700,7 +2736,8 @@
+@@ -2546,7 +2582,8 @@
  	}
  
  	renderer->dev = dev;
