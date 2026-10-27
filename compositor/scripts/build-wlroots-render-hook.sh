@@ -52,6 +52,7 @@ patch_files=(
     "$here/patches/wlroots/0043-scene-buffer-windows-scrgb.patch"
     "$here/patches/wlroots/0044-color-management-extended-target-volume.patch"
     "$here/patches/wlroots/0045-scene-live-snapshot.patch"
+    "$here/patches/wlroots/0046-ext-capture-cursor-no-buffer.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
