@@ -80,6 +80,18 @@ results use `apply --result v1 --operation-id ID`; query lost replies with
 now live at `compositor/aqueous/ConfigDocument.zig` and `ConfigTransaction.zig`;
 backend imports retain their compatibility wrapper.
 
+If Apply cannot acquire the writer lock before processing its operation ID, its
+structured response includes `admission: "busy"` and failure code
+`config_writer_busy`. This confirms only that the current invocation did not
+start transaction work. `save: "uncertain"` and `receipt: "unavailable"` preserve
+the possibility that an earlier invocation with the same ID already ran.
+A client submitting a fresh, exclusively owned ID can retain its draft and retry
+with a bounded deadline, provided every prior attempt was explicitly rejected
+at admission. Display preview deadlines still apply. After a lost reply, query
+`operation-status`; an absent, incomplete or expired receipt never authorizes
+replay or deletion of pending recovery state. Older clients that ignore
+`admission` conservatively retain their existing recovery behavior.
+
 
 Helper 0.8.3 adds negotiated display preview feature diagnostics. Use
 `aqueous-config preview-features --shell none` for capability and qualification

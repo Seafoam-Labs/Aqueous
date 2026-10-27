@@ -39,7 +39,12 @@ fn prune(a: A, io: std.Io) !void {
 }
 
 pub fn begin(a: A, io: std.Io, id: []const u8, shell: []const u8, request: []const u8) !?[]u8 {
-    const lock = try tx.Lock.acquire(a, io, true);
+    const lock = tx.Lock.acquire(a, io, true) catch |err| {
+        // This invocation has not inspected or recovered an earlier operation.
+        // Keep admission failure distinct from failures after transaction work.
+        if (err == error.ConfigWriterBusy) return error.OperationAdmissionBusy;
+        return err;
+    };
     defer lock.release();
     _ = try tx.recover(a, io);
     const started = try timestamp(id);

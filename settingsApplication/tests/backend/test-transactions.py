@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Crash/replay tests. All configuration, state, and command effects are isolated."""
 import json
+import fcntl
 import os
 from pathlib import Path
 import subprocess
@@ -61,6 +62,32 @@ for stage in ['journal_prepared',*[f'written_file_{i}' for i in range(6)],'journ
         f.call('apply',req,('--result','v1','--operation-id',id))
         assert not (f.root/'reloads').exists(), 'replay executed an external effect'
         assert status['reload']=='unknown'
+
+# Admission contention describes this invocation, not an operation's history.
+with Fixture() as f:
+    req=f.request(); id=f.opid()
+    lock_path=f.root/'state/aqueous/config-writer/lock'
+    with lock_path.open('r+') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        result=f.call('apply',req,('--result','v1','--operation-id',id))
+        assert result['admission']=='busy' and result['operation_id']==id,result
+        assert result['save']=='uncertain' and result['receipt']=='unavailable',result
+        assert result['failure']['code']=='config_writer_busy' and result['failure']['retryable'],result
+        assert result['reload']==result['display']=='not_requested',result
+        assert not (f.root/'state/aqueous/config-writer/receipts'/f'{id}.intent').exists()
+        assert all(p.read_text()=='' for p in f.files.values())
+    # An absent receipt remains ambiguous; only the caller that observed the
+    # admission rejection knows this newly allocated ID is safe to resubmit.
+    assert f.status(id)['reason']=='absent'
+    saved=f.call('apply',req,('--result','v1','--operation-id',id))
+    assert saved['save']=='saved',saved
+    with lock_path.open('r+') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        busy=f.call('apply',req,('--result','v1','--operation-id',id))
+        assert busy['admission']=='busy' and busy['save']=='uncertain',busy
+    assert f.status(id)==saved
+    assert f.call('apply',req,('--result','v1','--operation-id',id))==saved
+    assert (f.root/'reloads').read_text().splitlines()==['reload']
 
 # Validation cannot perform recovery writes as a hidden side effect.
 with Fixture() as f:

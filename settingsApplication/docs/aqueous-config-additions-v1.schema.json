@@ -770,6 +770,10 @@
         "result_version": {
           "const": 1
         },
+        "admission": {
+          "const": "busy",
+          "description": "This Apply invocation could not acquire the writer lock and performed no transaction work. It does not establish the outcome of an earlier invocation using this operation ID."
+        },
         "save": {
           "enum": [
             "unchanged",

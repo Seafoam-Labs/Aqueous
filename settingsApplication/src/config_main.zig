@@ -58,7 +58,24 @@ fn run(allocator: Allocator, io: std.Io, args: []const []const u8, writer: *std.
         if (op != .apply or !std.mem.eql(u8, format, "v1")) return error.InvalidResultFormat;
         if (option(args, "--operation-id")) |id| {
             control.operation_id = id;
-            if (try backend.receipts.begin(allocator, io, id, @tagName(shell), request)) |bytes| {
+            const existing = backend.receipts.begin(allocator, io, id, @tagName(shell), request) catch |err| {
+                if (err != error.OperationAdmissionBusy) return err;
+                // Only this invocation is known not to have started. The same
+                // ID may already have a receipt, so do not claim its save failed.
+                return std.json.Stringify.value(.{
+                    .ok = false,
+                    .protocol = 1,
+                    .result_version = 1,
+                    .operation_id = id,
+                    .admission = "busy",
+                    .save = "uncertain",
+                    .receipt = "unavailable",
+                    .reload = "not_requested",
+                    .display = "not_requested",
+                    .failure = .{ .code = "config_writer_busy", .message = "Configuration busy; try again", .retryable = true },
+                }, .{}, writer);
+            };
+            if (existing) |bytes| {
                 defer allocator.free(bytes);
                 return writer.writeAll(bytes);
             }
