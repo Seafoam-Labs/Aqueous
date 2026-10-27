@@ -3,7 +3,7 @@
 pkgbase=aqueous-desktop
 pkgname=(aqueous-core aqueous-session aqueous-integration-pearl aqueous-shell-pearl
          xdg-desktop-portal-aqueous devario-desktop)
-pkgver=1.0.11
+pkgver=1.0.12
 pkgrel=1
 pkgdesc='Aqueous components for the Devario Pearl desktop'
 arch=('x86_64' 'aarch64')

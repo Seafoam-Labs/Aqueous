@@ -1,6 +1,6 @@
 pkgbase = aqueous-git
 	pkgdesc = Aqueous Git compositor, desktop components and optional shell presets (co-installable with stable)
-	pkgver = 1.0.11
+	pkgver = 1.0.12
 	pkgrel = 1
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = x86_64
@@ -99,12 +99,12 @@ pkgname = aqueous-core-git
 
 pkgname = aqueous-shell-none-git
 	pkgdesc = Shell-free Aqueous portal provider preset
-	depends = aqueous-session-git=1.0.11-1
+	depends = aqueous-session-git=1.0.12-1
 	depends = xdg-desktop-portal-gtk
 
 pkgname = aqueous-session-git
 	pkgdesc = Aqueous Git login session and runtime
-	depends = aqueous-core-git=1.0.11-1
+	depends = aqueous-core-git=1.0.12-1
 	depends = bash
 	depends = jq
 	depends = coreutils
@@ -136,45 +136,45 @@ pkgname = xdg-desktop-portal-aqueous-git
 
 pkgname = aqueous-integration-dms-git
 	pkgdesc = DMS integration for Aqueous Git
-	depends = aqueous-session-git=1.0.11-1
-	depends = xdg-desktop-portal-aqueous-git=1.0.11-1
+	depends = aqueous-session-git=1.0.12-1
+	depends = xdg-desktop-portal-aqueous-git=1.0.12-1
 
 pkgname = aqueous-integration-noctalia-git
 	pkgdesc = Noctalia integration for Aqueous Git
-	depends = aqueous-session-git=1.0.11-1
+	depends = aqueous-session-git=1.0.12-1
 
 pkgname = aqueous-integration-pearl-git
 	pkgdesc = Pearl integration for Aqueous Git
-	depends = aqueous-session-git=1.0.11-1
+	depends = aqueous-session-git=1.0.12-1
 
 pkgname = aqueous-shell-dms-git
 	pkgdesc = Optional DMS shell preset for Aqueous Git
 	depends = xdg-desktop-portal-gtk
-	depends = aqueous-integration-dms-git=1.0.11-1
+	depends = aqueous-integration-dms-git=1.0.12-1
 	depends = dms-shell
 
 pkgname = aqueous-shell-noctalia-git
 	pkgdesc = Optional Noctalia shell preset for Aqueous Git
 	depends = xdg-desktop-portal-gtk
-	depends = aqueous-integration-noctalia-git=1.0.11-1
+	depends = aqueous-integration-noctalia-git=1.0.12-1
 	depends = noctalia
 
 pkgname = aqueous-shell-pearl-git
 	pkgdesc = Optional Pearl shell preset for Aqueous Git
 	depends = pearl-capture-picker-git>=1
-	depends = xdg-desktop-portal-aqueous-git=1.0.11-1
-	depends = aqueous-integration-pearl-git=1.0.11-1
+	depends = xdg-desktop-portal-aqueous-git=1.0.12-1
+	depends = aqueous-integration-pearl-git=1.0.12-1
 	depends = pearl-git
 
 pkgname = aqueous-git
 	pkgdesc = Aqueous Git desktop with optional shell presets
-	depends = aqueous-shell-none-git=1.0.11-1
-	depends = aqueous-core-git=1.0.11-1
-	depends = aqueous-session-git=1.0.11-1
-	depends = xdg-desktop-portal-aqueous-git=1.0.11-1
-	depends = aqueous-integration-dms-git=1.0.11-1
-	depends = aqueous-integration-noctalia-git=1.0.11-1
-	depends = aqueous-integration-pearl-git=1.0.11-1
-	provides = aqueous-desktop-git=1.0.11-1
+	depends = aqueous-shell-none-git=1.0.12-1
+	depends = aqueous-core-git=1.0.12-1
+	depends = aqueous-session-git=1.0.12-1
+	depends = xdg-desktop-portal-aqueous-git=1.0.12-1
+	depends = aqueous-integration-dms-git=1.0.12-1
+	depends = aqueous-integration-noctalia-git=1.0.12-1
+	depends = aqueous-integration-pearl-git=1.0.12-1
+	provides = aqueous-desktop-git=1.0.12-1
 	conflicts = aqueous-desktop-git
 	replaces = aqueous-desktop-git

@@ -1,6 +1,6 @@
 pkgbase = aqueous-desktop
 	pkgdesc = Aqueous components for the Devario Pearl desktop
-	pkgver = 1.0.11
+	pkgver = 1.0.12
 	pkgrel = 1
 	url = https://github.com/Seafoam-Labs/Aqueous
 	arch = x86_64
@@ -60,7 +60,7 @@ pkgbase = aqueous-desktop
 	options = !debug
 	options = !zipman
 	source = session.toml
-	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v1.0.11
+	source = aqueous::git+https://github.com/Seafoam-Labs/Aqueous.git#tag=v1.0.12
 	source = wlroots-0.20.2.tar.gz::https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz
 	source = xdg-desktop-portal-wlr-0.8.4.tar.gz::https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v0.8.4.tar.gz
 	sha256sums = SKIP
@@ -101,7 +101,7 @@ pkgname = aqueous-core
 	depends = xcb-util-renderutil
 	depends = brightnessctl
 	depends = playerctl
-	provides = aqueous=1.0.11
+	provides = aqueous=1.0.12
 	conflicts = aqueous
 	conflicts = aqueous-bin
 	conflicts = aqueous-git<1.0.2.r6
@@ -112,7 +112,7 @@ pkgname = aqueous-core
 pkgname = aqueous-session
 	pkgdesc = Aqueous login session and shell-neutral desktop configuration
 	arch = any
-	depends = aqueous-core=1.0.11-1
+	depends = aqueous-core=1.0.12-1
 	depends = bash
 	depends = jq
 	depends = coreutils
@@ -140,7 +140,7 @@ pkgname = aqueous-session
 pkgname = aqueous-integration-pearl
 	pkgdesc = Pearl shell integration for the Aqueous session
 	arch = any
-	depends = aqueous-session=1.0.11-1
+	depends = aqueous-session=1.0.12-1
 	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
@@ -152,8 +152,8 @@ pkgname = aqueous-shell-pearl
 	pkgdesc = Pearl shell dependency preset for Aqueous
 	arch = any
 	depends = pearl-capture-picker>=1
-	depends = xdg-desktop-portal-aqueous=1.0.11-1
-	depends = aqueous-integration-pearl=1.0.11-1
+	depends = xdg-desktop-portal-aqueous=1.0.12-1
+	depends = aqueous-integration-pearl=1.0.12-1
 	depends = pearl
 	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
@@ -179,11 +179,11 @@ pkgname = devario-desktop
 	pkgdesc = Devario desktop with stable Aqueous, Pearl and Pearl Greeter
 	arch = any
 	license = GPL-3.0-only
-	depends = aqueous-core>=1.0.11-1
-	depends = aqueous-session>=1.0.11-1
-	depends = xdg-desktop-portal-aqueous>=1.0.11-1
-	depends = aqueous-integration-pearl>=1.0.11-1
-	depends = aqueous-shell-pearl>=1.0.11-1
+	depends = aqueous-core>=1.0.12-1
+	depends = aqueous-session>=1.0.12-1
+	depends = xdg-desktop-portal-aqueous>=1.0.12-1
+	depends = aqueous-integration-pearl>=1.0.12-1
+	depends = aqueous-shell-pearl>=1.0.12-1
 	depends = pearl
 	depends = pearl-greeter
 	depends = rtkit

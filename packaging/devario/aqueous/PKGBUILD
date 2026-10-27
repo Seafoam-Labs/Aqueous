@@ -1,7 +1,7 @@
 # Maintainer: Devario maintainers
 # Minimal stable compositor for consumers such as pearl-greeter.
 pkgname=aqueous
-pkgver=1.0.11
+pkgver=1.0.12
 pkgrel=1
 pkgdesc='Aqueous Wayland compositor (stable, compositor only for Devario)'
 arch=('x86_64' 'aarch64')
