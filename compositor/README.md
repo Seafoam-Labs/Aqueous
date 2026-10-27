@@ -585,6 +585,27 @@ session with:
 scripts/test-vulkan-effects.sh /tmp/aqueous-vulkan-effects
 ```
 
+Window rounding is configured with `[decoration] corner_radius = 15` in
+`wm.toml` (integer logical pixels, 0–128; zero disables compositor rounding).
+It reloads live for content, borders and blur. A radius change ends any current
+cosmetic window motion so frozen content and new borders cannot disagree.
+Fullscreen and no-effects builds stay square; application-drawn transparent
+corners remain transparent.
+
+Check default rounding, live changes, borderless windows, geometry clamping and
+fullscreen transitions in a private headless session:
+
+```sh
+python3 scripts/test-corner-radius.py --renderer vulkan
+python3 scripts/test-corner-radius.py --renderer vulkan --scale 1.5 --uncached
+python3 scripts/test-corner-radius.py --renderer pixman --compositor /path/to/no-effects/aqueous --ctl /path/to/no-effects/aqueousctl
+```
+
+The fixture uses temporary configuration and requires a C compiler,
+`wayland-scanner`, Wayland development files, `grim`, and Python/Pillow. Vulkan
+runs additionally need a render device. Screenshots and logs remain in the
+printed `/tmp/aqueous-corners-*` directory.
+
 See `doc/vulkan-effects-baseline.md` for fixture geometry, artifacts, timing
 semantics, and the current blur-cache behavior.
 

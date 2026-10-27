@@ -212,6 +212,14 @@ left   = 0
 right  = 0
 
 # -----------------------------------------------------------------------------
+# Window corners (available in the default Vulkan-effects build).
+# Applies live to content, borders and blur. 0 disables compositor rounding;
+# transparent corners drawn by applications cannot be filled by this setting.
+# -----------------------------------------------------------------------------
+[decoration]
+corner_radius = 15 # logical pixels, 0–128; try 8 for subtler rounding
+
+# -----------------------------------------------------------------------------
 # Backdrop blur (available in the default Vulkan-effects build). Applied behind
 # window and layer-shell content with masks controlled by rules.toml.
 # -----------------------------------------------------------------------------

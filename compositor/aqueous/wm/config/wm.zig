@@ -141,6 +141,7 @@ pub const Snapshot = struct {
     force_ssd: bool = false,
     fullscreen_hides_bar: bool = true,
     maximize_full_output: bool = false,
+    corner_radius: u31 = 15,
     blur_enabled: bool = false,
     blur_radius: i32 = 5,
     blur_passes: i32 = 3,
@@ -184,7 +185,7 @@ pub const Snapshot = struct {
     }
 };
 
-const Section = union(enum) { none, bell, layout, rules, render, struts, state, blur, opacity, scaling, workspace_transition, input, device: enum { mouse, touchpad, trackpoint }, output, workspace };
+const Section = union(enum) { none, bell, layout, rules, render, struts, state, decoration, blur, opacity, scaling, workspace_transition, input, device: enum { mouse, touchpad, trackpoint }, output, workspace };
 
 pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []const u8) void {
     const tablet_policy = @import("tablet").parse(source);
@@ -241,6 +242,11 @@ pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []c
                 if (std.mem.eql(u8, key, "fullscreen_hides_bar")) snapshot.fullscreen_hides_bar = parseBool(value) orelse snapshot.fullscreen_hides_bar;
                 if (std.mem.eql(u8, key, "maximize_full_output")) snapshot.maximize_full_output = parseBool(value) orelse snapshot.maximize_full_output;
             },
+            .decoration => if (std.mem.eql(u8, key, "corner_radius")) {
+                // Parse the raw value so quoted strings are not accepted as integers.
+                const radius = parseNonNegative(std.mem.trim(u8, line[equal + 1 ..], " \t")) orelse continue;
+                if (radius <= 128) snapshot.corner_radius = @intCast(radius);
+            },
             .blur => {
                 if (std.mem.eql(u8, key, "enabled")) snapshot.blur_enabled = parseBool(value) orelse snapshot.blur_enabled;
                 if (std.mem.eql(u8, key, "radius")) snapshot.blur_radius = parseNonNegative(value) orelse snapshot.blur_radius;
@@ -285,6 +291,7 @@ fn parseSection(name: []const u8) Section {
     if (std.mem.eql(u8, name, "render")) return .render;
     if (std.mem.eql(u8, name, "struts")) return .struts;
     if (std.mem.eql(u8, name, "state")) return .state;
+    if (std.mem.eql(u8, name, "decoration")) return .decoration;
     if (std.mem.eql(u8, name, "blur")) return .blur;
     if (std.mem.eql(u8, name, "opacity")) return .opacity;
     if (std.mem.eql(u8, name, "scaling")) return .scaling;
@@ -653,6 +660,31 @@ test "blur appearance validates ranges and preserves neutral defaults" {
     try std.testing.expectEqual(@as(f64, 0.75), wm_snapshot.blur_brightness);
     try std.testing.expectEqual(@as(f64, 0.4), wm_snapshot.blur_vibrancy);
     try std.testing.expectEqual(@as(f64, 0.6), wm_snapshot.blur_vibrancy_darkness);
+}
+
+test "window corner radius defaults, bounds and replacement snapshots" {
+    var wm_snapshot: Snapshot = .{};
+    var layout_snapshot: layout.Snapshot = .{};
+    try std.testing.expectEqual(@as(u31, 15), wm_snapshot.corner_radius);
+    for ([_]u31{ 0, 8, 15, 128 }) |radius| {
+        var buffer: [128]u8 = undefined;
+        const source = try std.fmt.bufPrint(&buffer, "[decoration]\ncorner_radius = {d} # logical pixels\n", .{radius});
+        apply(&wm_snapshot, &layout_snapshot, source);
+        try std.testing.expectEqual(radius, wm_snapshot.corner_radius);
+    }
+    for ([_][]const u8{ "-1", "129", "2147483648", "8.5", "nan", "true", "\"8\"", "'8'", "invalid" }) |value| {
+        var buffer: [128]u8 = undefined;
+        const source = try std.fmt.bufPrint(&buffer, "[decoration]\ncorner_radius = {s}\n", .{value});
+        apply(&wm_snapshot, &layout_snapshot, source);
+        try std.testing.expectEqual(@as(u31, 128), wm_snapshot.corner_radius);
+        // Reload starts from defaults, including when a setting is invalid.
+        var replacement: Snapshot = .{};
+        apply(&replacement, &layout_snapshot, source);
+        try std.testing.expectEqual(@as(u31, 15), replacement.corner_radius);
+    }
+    var replacement: Snapshot = .{};
+    apply(&replacement, &layout_snapshot, "[blur]\nradius = 8\n");
+    try std.testing.expectEqual(@as(u31, 15), replacement.corner_radius);
 }
 
 test "comments inside quoted values are preserved" {

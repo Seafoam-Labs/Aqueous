@@ -87,8 +87,8 @@ pub const Border = struct {
     g: u32 = 0,
     a: u32 = 0,
     /// Corner radius applied to the border rects and window content. Defaults
-    /// to `fx.corner_radius`, which is 0 in the no-effects diagnostic build.
-    corner_radius: u31 = fx.corner_radius,
+    /// to `fx.default_corner_radius`, which is 0 in the no-effects diagnostic build.
+    corner_radius: u31 = fx.default_corner_radius,
 };
 
 const BorderNodes = struct {
@@ -475,6 +475,8 @@ anim_initialized: bool = false,
 anim_snapshot: bool = false,
 /// Fullscreen style committed by the previous render transaction.
 rendered_fullscreen: bool = false,
+/// Rounding committed by the previous render transaction.
+rendered_corner_radius: u31 = fx.default_corner_radius,
 /// Original geometry of each buffer cloned into `anim_tree`. Clipped scrolling
 /// animations recrop these buffers on every frame so the viewport remains
 /// fixed in layout coordinates while the clone moves behind it.
@@ -604,6 +606,7 @@ pub fn policyApplyPlacement(
     visible: bool,
     border_width: u31,
     border_color: u32,
+    corner_radius: u31,
     tiled: bool,
     maximized: bool,
 ) void {
@@ -647,6 +650,7 @@ pub fn policyApplyPlacement(
     window.rendering_requested.border = .{
         .edges = if (border_width > 0) .{ .top = true, .bottom = true, .left = true, .right = true } else .{},
         .width = border_width,
+        .corner_radius = if (build_options.vulkan_effects) corner_radius else 0,
         .r = ((border_color >> 16) & 0xff) * expand,
         .g = ((border_color >> 8) & 0xff) * expand,
         .b = (border_color & 0xff) * expand,
@@ -1843,14 +1847,18 @@ pub fn renderFinish(window: *Window) void {
             (window.box.width != window.rendering_sent.width or
                 window.box.height != window.rendering_sent.height));
     window.rendered_fullscreen = fullscreen != null;
-    if (fullscreen_changed) {
+    const corners_changed = window.rendered_corner_radius != requested.border.corner_radius;
+    window.rendered_corner_radius = requested.border.corner_radius;
+    if (fullscreen_changed or corners_changed) {
+        // Frozen surfaces retain their old mask. Finish cosmetic motion when
+        // rounding changes so content, borders and blur switch together.
         window.cancelSlide();
         // A follow-up configure/focus transaction must not seed this snapped
         // incoming window off-screen again while another window finishes.
         window.slide_seeded = true;
     }
     const transitioning = (is_incoming or is_outgoing) and transition_dir != 0 and
-        !fullscreen_changed;
+        !fullscreen_changed and !corners_changed;
     // Capture the prior settled visibility before applying this transaction.
     // Scrolling layouts keep a fixed clip even for off-screen placements, so a
     // previously visible member can animate out through that aperture instead
@@ -1897,8 +1905,8 @@ pub fn renderFinish(window: *Window) void {
     } else if (transitioning and is_incoming) {
         window.setAnimationTarget(base_x, base_y, true);
         window.cur_anim_rate = server.wm.workspace_transition.rate;
-    } else if (fullscreen != null or fullscreen_changed or window.interactive != .none or !output_enabled) {
-        // Fullscreen toggles and pointer-driven geometry snap. Disabled
+    } else if (fullscreen != null or fullscreen_changed or corners_changed or window.interactive != .none or !output_enabled) {
+        // Fullscreen/rounding changes and pointer-driven geometry snap. Disabled
         // outputs cannot advance a new animation after their slide is cancelled.
         window.setAnimationTarget(base_x, base_y, false);
     } else {

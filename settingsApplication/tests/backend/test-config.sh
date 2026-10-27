@@ -64,6 +64,7 @@ jq -e '
   .protocol == 1 and
   .helper_version == "1.0.11" and
   (.fields | length) >= 145 and
+  (.fields[] | select(.id == "decoration.corner_radius") | .value == 15 and .type == "integer" and .file == "wm") and
   (.fields[] | select(.id == "layout.default") | .options | index("composable") != null and index("stacking") != null and index("float") == null) and
   (.fields[] | select(.id == "layout.options.float.placement") | .value == "minimal-overlap" and .configured_section == "layout.options.stacking") and
   (.fields[] | select(.id == "layout.options.scrolling.prefer_vertical_on_portrait") | .value == true and .file == "layout") and
@@ -141,6 +142,7 @@ jq -n \
         {id: "bell.sound_file", value: "sounds/a $bell.wav"},
         {id: "bell.volume", value: 0.25},
         {id: "blur.enabled", value: false},
+        {id: "decoration.corner_radius", value: 0},
         {id: "display.apply_on_reload", value: false},
         {id: "layout.gaps_outer", value: 18},
         {id: "layout.border_focused", value: "0x4088c0d0"},
@@ -165,6 +167,7 @@ jq -e '
 ' "$applied" >/dev/null
 
 rg -q '^# fixture comment must survive$' "$config_root/wm.toml"
+rg -q '^corner_radius = 0$' "$config_root/wm.toml"
 rg -q '^enabled = false # keep inline$' "$config_root/wm.toml"
 rg -q '^apply_on_reload = true$' "$config_root/wm.toml"
 rg -q '^apply_on_reload = false$' "$config_root/outputs.toml"
@@ -181,6 +184,7 @@ rg -Fq 'mode = "both"' "$config_root/wm.toml"
 rg -Fq 'sound_file = "sounds/a $bell.wav"' "$config_root/wm.toml"
 rg -Fq 'volume = 0.25' "$config_root/wm.toml"
 run_helper snapshot --json | jq -e '
+  (.fields[] | select(.id == "decoration.corner_radius") | .value == 0) and
   (.fields[] | select(.id == "bell.mode") | .value == "both") and
   (.fields[] | select(.id == "bell.sound_file") | .value == "sounds/a $bell.wav") and
   (.fields[] | select(.id == "bell.volume") | .value == 0.25)

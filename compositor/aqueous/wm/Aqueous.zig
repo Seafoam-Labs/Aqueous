@@ -698,6 +698,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             aqueous.api.applyPlacement(
                 placement.*,
                 cycle_focus == placement.handle,
+                aqueous.config.wm.corner_radius,
             );
         }
     }

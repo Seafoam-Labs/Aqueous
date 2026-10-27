@@ -1183,6 +1183,7 @@ pub fn applyPlacement(
     _: CompositorApi,
     placement: layout.Placement,
     focused: bool,
+    corner_radius: u31,
 ) void {
     const ref: Window.Ref = @bitCast(placement.handle);
     const window = ref.get() orelse return;
@@ -1207,6 +1208,7 @@ pub fn applyPlacement(
         placement.visible,
         @intCast(@max(0, placement.border.width)),
         border_color,
+        corner_radius,
         placement.tiled,
         placement.maximized,
     );

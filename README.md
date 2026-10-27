@@ -110,6 +110,20 @@ hot-reloaded on the Wayland event loop. Invalid updates do not require a
 compositor restart. Start with the repository's `wm.toml` and annotated
 `*.toml.example` files.
 
+Window rounding is available under Appearance in configuration clients such as
+Pearl, or in `wm.toml`:
+
+```toml
+[decoration]
+corner_radius = 8 # 0 for square corners; default 15; integer range 0–128
+```
+
+The radius uses logical pixels and applies live to managed window content,
+borders, and backdrop blur, including windows without compositor borders.
+Fullscreen windows and builds without Vulkan effects remain square. Small
+windows clamp the radius to their geometry. This controls compositor clipping;
+transparent corners already drawn by an application remain transparent.
+
 ```toml
 # layout.toml
 [layout]

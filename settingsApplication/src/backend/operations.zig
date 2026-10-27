@@ -2402,6 +2402,36 @@ test "schema ids are unique and defaults validate" {
     }
 }
 
+test "corner radius schema validates typed and raw values and projects saved values" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var files: config.ConfigFiles = .{ .allocator = a, .items = undefined };
+    for (&files.items) |*item| item.* = .{ .name = "", .path = try a.dupe(u8, ""), .document = try config.Document.init(a, "") };
+    const spec = schema.find("decoration.corner_radius").?;
+    const document = &files.items[@intFromEnum(spec.file)].document;
+    try std.testing.expectEqual(schema.Category.appearance, spec.category);
+    const defaults = try singleWindowTestField(a, &files, spec);
+    try std.testing.expectEqual(@as(i64, 15), defaults.object.get("value").?.integer);
+    for ([_]i64{ 0, 8, 15, 128 }) |radius| {
+        try setFieldRaw(document, spec, try encodeTomlValue(a, spec, .{ .integer = radius }));
+        try validateKnownFields(&files);
+        const saved = try singleWindowTestField(a, &files, spec);
+        try std.testing.expectEqual(radius, saved.object.get("value").?.integer);
+    }
+    try std.testing.expectError(error.ValueTooSmall, encodeTomlValue(a, spec, .{ .integer = -1 }));
+    try std.testing.expectError(error.ValueTooLarge, encodeTomlValue(a, spec, .{ .integer = 129 }));
+    try std.testing.expectError(error.InvalidInteger, encodeTomlValue(a, spec, .{ .float = 8.5 }));
+    for ([_][]const u8{ "8.5", "nan", "true", "\"8\"", "'8'", "invalid" }) |raw| {
+        try setFieldRaw(document, spec, raw);
+        try std.testing.expectError(error.InvalidInteger, validateKnownFields(&files));
+    }
+    try setFieldRaw(document, spec, "-1");
+    try std.testing.expectError(error.ValueTooSmall, validateKnownFields(&files));
+    try setFieldRaw(document, spec, "129");
+    try std.testing.expectError(error.ValueTooLarge, validateKnownFields(&files));
+}
+
 test "typed colors serialize as canonical AARRGGBB" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

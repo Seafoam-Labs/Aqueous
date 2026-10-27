@@ -110,6 +110,7 @@ pub const fields = [_]Field{
     b("state.fullscreen_hides_bar", .appearance, "Fullscreen hides bar", "Let fullscreen windows use the bar area.", .wm, "state", "fullscreen_hides_bar", true),
     b("state.maximize_full_output", .appearance, "Maximize to full output", "Maximized windows ignore reserved struts.", .wm, "state", "maximize_full_output", false),
     b("blur.enabled", .appearance, "Backdrop blur", "Blur content behind eligible windows.", .wm, "blur", "enabled", false),
+    f("decoration.corner_radius", .appearance, "Window corner radius", "Window rounding in logical pixels; zero disables compositor rounding. Requires Vulkan effects. Application-drawn transparent corners remain.", .wm, "decoration", "corner_radius", .integer, "15", 0, 128),
     f("blur.radius", .appearance, "Blur radius", "Backdrop blur radius in pixels.", .wm, "blur", "radius", .integer, "5", 0, 128),
     f("blur.passes", .appearance, "Blur passes", "Higher values increase blur and GPU cost.", .wm, "blur", "passes", .integer, "3", 0, 32),
     f("blur.noise", .appearance, "Blur noise", "Stable screen-space noise added to the blurred backdrop.", .wm, "blur", "noise", .double, "0.0", 0, 1),

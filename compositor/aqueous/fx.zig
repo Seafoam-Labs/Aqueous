@@ -10,9 +10,10 @@ const EffectMetadata = @import("render/EffectMetadata.zig");
 const render_metrics = @import("render_metrics.zig");
 const scene_opacity = @import("scene_opacity.zig");
 
-/// Corner radius (in layout pixels) applied to window content and borders.
+/// Default corner radius (in layout pixels) for window content and borders.
+/// Integrated policy supplies the configured radius on each placement.
 /// Builds with no effects backend retain square corners.
-pub const corner_radius: u31 =
+pub const default_corner_radius: u31 =
     if (build_options.vulkan_effects) 15 else 0;
 
 pub const CornerRadii = EffectMetadata.CornerRadii;
