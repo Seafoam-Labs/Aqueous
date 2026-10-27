@@ -294,7 +294,8 @@ spawn_terminal        = "Super+Return"     # default
 screenshot            = "Print"            # default; select a region and copy it
 close_focused         = "Super+Q"          # default
 toggle_overview       = "Super+W"          # default; active-workspace window overview
-cycle_focus           = "Super+Tab"        # default
+cycle_focus           = ["Super+Tab", "Alt+Tab"] # animated cycling within this workspace
+cycle_focus_reverse   = ["Super+Shift+Tab", "Alt+Shift+Tab"]
 lock_screen           = "Super+Ctrl+L"     # default; runs [actions].lock_screen
 
 # --- Directional focus (scrolling: left/right columns, up/down column members) ---
@@ -450,7 +451,7 @@ unminimize_last       = "Super+Shift+N"        # default — restore most-recent
 untrap_pointer        = "Super+grave"          # default; reserved for pointer untrap
 
 # Examples of the array form and explicit unbind:
-#   cycle_focus = ["Super+Tab", "Alt+Tab"]
+#   cycle_focus = "Super+Tab"               # restrict cycling to one shortcut
 #   close_focused = []                      # disables Super+Q entirely
 
 

@@ -70,7 +70,7 @@ pub fn dismiss(self: *Self) void {
 /// Finish only user selection, never lifecycle cancellation.
 pub fn finish(self: *Self) void {
     const workspace = self.selectedWorkspace();
-    const handoff: @TypeOf(self.handoff) = if (self.all and self.warp_allowed and self.seat != null and self.selected != null and workspace != null)
+    const handoff: @TypeOf(self.handoff) = if (self.warp_allowed and self.seat != null and self.selected != null and workspace != null)
         .{ .seat = self.seat.?, .ref = @as(Window.Ref, @bitCast(self.selected.?)), .workspace = workspace.?.id, .output_id = workspace.?.output.policyId(), .owner = self.owner }
     else
         null;
@@ -194,7 +194,10 @@ pub fn step(self: *Self, origin: *Output, seat: *Seat, workspace: u32, reverse: 
     self.position = at + 1;
     self.total = ring.ids.items.len;
     self.all = all;
-    self.warp_allowed = all;
+    // The deck hides the live scene, so automatic focus warps must wait for
+    // dismissal. Workspace cycling honors the ordinary mouse-follows-focus
+    // preference; the global switcher always offers its destination handoff.
+    self.warp_allowed = all or server.aqueous.config.wm.input.mouse_follows_focus;
     self.serial +%= 1;
     self.reduced_motion = reduced_motion;
     self.activating = true;
@@ -266,7 +269,9 @@ pub fn validate(self: *Self) void {
     self.total = ring.ids.items.len;
     server.overview.syncDeckScene(output) catch self.dismiss();
 }
-pub fn builtin(self: *Self, reverse: bool) void {
+pub const Scope = enum { workspace, all };
+
+pub fn builtin(self: *Self, reverse: bool, scope: Scope) void {
     var seats = server.input_manager.seats.iterator(.forward);
     const seat = self.input_seat orelse blk: {
         const only = seats.next() orelse return;
@@ -275,7 +280,7 @@ pub fn builtin(self: *Self, reverse: bool) void {
     };
     const output = seat.selected_output orelse return;
     const ws = output.active_workspace orelse return;
-    self.step(output, seat, ws.id, reverse, false, true) catch {};
+    self.step(output, seat, ws.id, reverse, false, scope == .all) catch {};
 }
 
 pub const Metadata = struct {

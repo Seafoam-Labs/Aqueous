@@ -69,6 +69,11 @@ move_to_output_right = "Super+Ctrl+Alt+Right"
         env.update(XDG_RUNTIME_DIR=str(runtime), XDG_CONFIG_HOME=str(case / 'config'),
                    HOME=str(case / 'home'), WLR_BACKENDS='headless', WLR_HEADLESS_OUTPUTS='2',
                    WLR_RENDERER='pixman', AQUEOUS_CONFIG=str(wm))
+        # Do not inherit system layout/input policy over the fixture's wm.toml.
+        (case / 'config/aqueous').mkdir()
+        for name in ('LAYOUT', 'INPUT', 'RULES', 'OUTPUTS'):
+            path = case / 'config/aqueous' / f'{name.lower()}.toml'
+            path.write_text('')
         for key in ('WAYLAND_DISPLAY', 'DISPLAY', 'LD_PRELOAD', 'DBUS_SESSION_BUS_ADDRESS'):
             env.pop(key, None)
         children = []

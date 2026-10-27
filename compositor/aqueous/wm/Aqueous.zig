@@ -1286,7 +1286,10 @@ pub fn handleKey(aqueous: *Aqueous, keysym: u32, modifiers: u32, pressed: bool) 
         }
         const binding = aqueous.keyBindingVerb(keysym, modifiers) orelse "";
         // Modifier transitions alone do not end presentation.
-        if (!(keysym >= 0xffe1 and keysym <= 0xffee) and !std.mem.startsWith(u8, binding, "builtin:window_switcher_")) switcher.finish();
+        const cycling = std.mem.startsWith(u8, binding, "builtin:window_switcher_") or
+            std.mem.eql(u8, binding, "builtin:cycle_focus") or
+            std.mem.eql(u8, binding, "builtin:cycle_focus_reverse");
+        if (!(keysym >= 0xffe1 and keysym <= 0xffee) and !cycling) switcher.finish();
     }
     if (aqueous.overview != null) return aqueous.handleOverviewKey(keysym, modifiers, pressed);
     if (!pressed and aqueous.untrap_keysym == keysym) {
@@ -1924,8 +1927,8 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
     if (std.mem.eql(u8, action, "spawn_terminal")) return aqueous.spawn(aqueous.config.actions.spawn_terminal.slice());
     if (std.mem.eql(u8, action, "screenshot")) return aqueous.spawn(aqueous.config.actions.screenshot.slice());
     if (std.mem.eql(u8, action, "lock_screen")) return aqueous.spawn(aqueous.config.actions.lock_screen.slice());
-    if (std.mem.eql(u8, action, "window_switcher_next")) return @import("../main.zig").server.window_switcher.builtin(false);
-    if (std.mem.eql(u8, action, "window_switcher_previous")) return @import("../main.zig").server.window_switcher.builtin(true);
+    if (std.mem.eql(u8, action, "window_switcher_next")) return @import("../main.zig").server.window_switcher.builtin(false, .all);
+    if (std.mem.eql(u8, action, "window_switcher_previous")) return @import("../main.zig").server.window_switcher.builtin(true, .all);
     if (std.mem.eql(u8, action, "window_switcher_dismiss")) return @import("../main.zig").server.window_switcher.finish();
     if (std.mem.eql(u8, action, "toggle_overview")) return aqueous.toggleOverview();
     if (std.mem.eql(u8, action, "close_focused")) {
@@ -1969,7 +1972,8 @@ fn runBuiltin(aqueous: *Aqueous, value: []const u8) void {
         if (parseComposableSlot(argument)) |slot| aqueous.moveToComposableSlot(slot);
         return;
     }
-    if (std.mem.eql(u8, action, "cycle_focus")) return aqueous.cycleFocus(1);
+    if (std.mem.eql(u8, action, "cycle_focus")) return @import("../main.zig").server.window_switcher.builtin(false, .workspace);
+    if (std.mem.eql(u8, action, "cycle_focus_reverse")) return @import("../main.zig").server.window_switcher.builtin(true, .workspace);
     if (std.mem.eql(u8, action, "focus_left")) return aqueous.directionalFocus(-1, 0);
     if (std.mem.eql(u8, action, "focus_right")) return aqueous.directionalFocus(1, 0);
     if (std.mem.eql(u8, action, "focus_up")) return aqueous.directionalFocus(0, -1);
@@ -2399,36 +2403,6 @@ fn focusOutput(aqueous: *Aqueous, delta: i32, move: bool) void {
     }
     aqueous.api.warpPointerToOutput(target.id);
     aqueous.api.requestManageCycle();
-}
-
-fn cycleFocus(aqueous: *Aqueous, delta: i32) void {
-    var snapshot = aqueous.api.policySnapshot(util.gpa) catch return;
-    defer snapshot.deinit(util.gpa);
-    const focused = aqueous.api.focusedWindow();
-    const selected_output = aqueous.api.selectedOutputId();
-    for (snapshot.outputs) |output| {
-        if (selected_output != null and output.id != selected_output.?) continue;
-        var candidates: std.ArrayListUnmanaged(layout_types.Handle) = .empty;
-        defer candidates.deinit(util.gpa);
-        candidates.ensureTotalCapacity(util.gpa, output.windows.len) catch return;
-        for (output.windows) |window| candidates.appendAssumeCapacity(window.handle);
-        const context: OutputFocusContext = .{
-            .aqueous = aqueous,
-            .windows = output.windows,
-            .output_id = output.id,
-            .workspace_number = output.workspace_number,
-        };
-        const target = aqueous.focus_history.cycle(
-            workspaceKey(output.id, output.workspace_number),
-            focused,
-            delta,
-            candidates.items,
-            context,
-            outputFocusCandidateValid,
-        ) catch return;
-        if (target != 0) aqueous.requestFocus(target);
-        return;
-    }
 }
 
 fn directionalFocus(aqueous: *Aqueous, dx: i32, dy: i32) void {
