@@ -459,7 +459,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 fullscreen_owner = window.handle;
             }
             if (state.kind() == .minimized) {
-                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = .empty, .z_order = -1, .visible = false, .border = .none, .tiled = false });
+                requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = .empty, .z_order = -1, .visible = false, .border = .none, .tiling = .untiled });
                 continue;
             }
             if (effect.fullscreen) {
@@ -470,7 +470,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                     .stack_order = 0,
                     .visible = true,
                     .border = .none,
-                    .tiled = false,
+                    .tiling = .untiled,
                 });
                 if (effect.workspace_visible and window.accepts_focus and state.focus_allowed) focusable.appendAssumeCapacity(window);
                 continue;
@@ -485,7 +485,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                     .stack_order = 0,
                     .visible = true,
                     .border = output_layout.layoutOptions(.floating).border,
-                    .tiled = false,
+                    .tiling = .untiled,
                     .maximized = true,
                 });
                 if (effect.workspace_visible and window.accepts_focus and state.focus_allowed) focusable.appendAssumeCapacity(window);
@@ -511,7 +511,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                         .stack_order = 0,
                         .visible = false,
                         .border = .none,
-                        .tiled = false,
+                        .tiling = .untiled,
                     });
                     continue;
                 }
@@ -536,7 +536,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                     .stack_order = 0,
                     .visible = true,
                     .border = output_layout.layoutOptions(.floating).border,
-                    .tiled = false,
+                    .tiling = .untiled,
                 });
                 if (effect.workspace_visible and window.accepts_focus and state.focus_allowed) focusable.appendAssumeCapacity(window);
                 continue;
@@ -643,7 +643,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             }
         }
         for (placements) |*placement| {
-            if (!placement.tiled) {
+            if (placement.tiling != .tiled) {
                 placement.z_order = stacking.floating_band;
                 if (!workspace_stack.contains(placement.handle)) new_floats.appendAssumeCapacity(placement.handle);
             }
@@ -665,7 +665,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                             placement.geometry = rect;
                     }
                 }
-                placement.tiled = state.snap_state != .none;
+                if (state.snap_state != .none) placement.tiling = .snapped;
             }
             placement.z_order = stacking.layeredZ(
                 placement.z_order,
@@ -3750,7 +3750,7 @@ fn applyGlobalConfig(aqueous: *Aqueous) void {
 fn raiseFocusedPlacement(stack: *WorkspaceStack, placements: []const layout_types.Placement, focused: ?layout_types.Handle) void {
     const handle = focused orelse return;
     for (placements) |placement| {
-        if (placement.handle != handle or placement.tiled or !placement.visible) continue;
+        if (placement.handle != handle or placement.tiling == .tiled or !placement.visible) continue;
         _ = stack.raise(handle);
         return;
     }
@@ -3903,7 +3903,7 @@ fn floatingPlacement(area: layout_types.Rect, handle: layout_types.Handle, place
         .z_order = stacking.floating_band,
         .visible = true,
         .border = border,
-        .tiled = false,
+        .tiling = .untiled,
     };
 }
 

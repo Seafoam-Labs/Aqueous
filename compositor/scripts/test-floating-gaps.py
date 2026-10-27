@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Headless regression for floating snap ownership, gaps, regions and reloads.
+"""Headless regression for snapped focus/stacking, ownership, gaps and reloads.
 
 Use a compositor built with -Dvulkan-effects=false. Artifacts stay in /tmp.
 """
@@ -65,6 +65,62 @@ def main():
         entities = json.loads(ctl('shell', 'snapshot', '--json'))['upsert']
         native_id = next(w['id'] for w in entities if w['kind'] == 'window' and w.get('app_id') == name)
         ctl('window', 'activate', '--id', native_id, '--seat', 'default', '--json')
+        wait_focused(name)
+
+    def wait_focused(name):
+        wait(lambda: 'focused' in window(name)['states'], f'{name}: not focused')
+
+    def pointer_at(x, y):
+        run(['wlrctl', 'pointer', 'move', '-10000', '-10000'])
+        run(['wlrctl', 'pointer', 'move', str(x), str(y)])
+
+    def pointer_inside(name):
+        return (work / name / 'pointer-inside').exists()
+
+    def overlap(name):
+        a, b = window('gap-one')['geometry'], window('gap-two')['geometry']
+        x, y = max(a['x'], b['x']) + 40, max(a['y'], b['y']) + 40
+        assert x < min(a['x'] + a['width'], b['x'] + b['width'])
+        assert y < min(a['y'] + a['height'], b['y'] + b['height'])
+        pointer_at(x, y)
+        wait(lambda: pointer_inside(name), f'overlap does not hit {name}')
+
+    def click(name):
+        count = len(list((work / name).glob('button-*')))
+        run(['wlrctl', 'pointer', 'click'])
+        wait(lambda: (work / name / f'button-{count + 1}').exists(), f'click did not reach {name}')
+
+    def tiled_edges(name, expected):
+        path = work / name / 'tiled-edges'
+        wait(lambda: path.exists() and path.read_text().strip() == str(expected),
+             f'{name}: expected tiled edge mask {expected}')
+
+    def input_policy(follows=False, raises=True, delay=0):
+        (work / 'input.toml').write_text(f'''[input]
+focus_follows_mouse = {str(follows).lower()}
+raise_on_focus = {str(raises).lower()}
+raise_on_focus_delay_ms = {delay}
+''')
+        ctl('session', 'reload', '--json')
+
+    def check_focus_raise():
+        for method in ('keyboard', 'hover', 'click'):
+            input_policy()
+            pointer_at(0, 0)
+            focus('gap-two')
+            if method == 'keyboard':
+                run(['wlrctl', 'keyboard', 'type', '\t', 'modifiers', 'SUPER'])
+            else:
+                if method == 'hover':
+                    input_policy(follows=True)
+                g = window('gap-one')['geometry']
+                pointer_at(g['x'] + 10, g['y'] + 10)
+                if method == 'click':
+                    click('gap-one')
+            wait_focused('gap-one')
+            overlap('gap-one')
+            click('gap-one')
+        input_policy()
 
     def press(key):
         run(['wlrctl', 'keyboard', 'type', key, 'modifiers', 'SUPER,CTRL'])
@@ -156,6 +212,55 @@ toggle_floating = "Super+Ctrl+V"
         create('gap-two')
         focus('gap-one')
         original = [window('gap-one')['geometry'][key] for key in ('x', 'y', 'width', 'height')]
+        tiled_edges('gap-one', 0)
+        check_focus_raise()
+        press('h'); geometry('gap-one', [16, 16, 608, 688])
+        tiled_edges('gap-one', 15)
+        check_focus_raise()
+        geometry('gap-one', [16, 16, 608, 688])
+        tiled_edges('gap-one', 15)
+
+        # Disabling raising still focuses the snapped window below its peer.
+        focus('gap-two')
+        input_policy(raises=False)
+        focus('gap-one')
+        overlap('gap-two')
+        wait_focused('gap-one')
+        click('gap-two')
+        wait_focused('gap-two')
+
+        # Keep the pointer over the overlap to observe the timer's restack
+        # without a click that would replace/cancel the pending focus raise.
+        input_policy(delay=1000)
+        started = time.monotonic()
+        run(['wlrctl', 'keyboard', 'type', '\t', 'modifiers', 'SUPER'])
+        wait_focused('gap-one')
+        assert pointer_inside('gap-two'), 'delayed raise occurred immediately'
+        wait(lambda: pointer_inside('gap-one'), 'delayed raise did not restack the snapped window')
+        assert time.monotonic() - started >= .8, 'raise delay was not respected'
+        click('gap-one')
+        input_policy()
+
+        # Unsnapping restores both freeform geometry and untiled client hints.
+        press('u'); geometry('gap-one', original)
+        tiled_edges('gap-one', 0)
+        check_focus_raise()
+
+        # Explicit floating overlays use the same snapped classification.
+        press('v')
+        wait(lambda: 'floating' in window('gap-one')['states'], 'not an overlay')
+        press('h'); geometry('gap-one', [16, 16, 608, 688])
+        tiled_edges('gap-one', 15)
+        check_focus_raise()
+        press('u'); geometry('gap-one', original)
+        tiled_edges('gap-one', 0)
+        press('v')
+        wait(lambda: 'floating' not in window('gap-one')['states'], 'overlay did not return to layout')
+        configure(layout='tile')
+        tiled_edges('gap-one', 15)
+        configure()
+        geometry('gap-one', original)
+        tiled_edges('gap-one', 0)
         press('h'); geometry('gap-one', [16, 16, 608, 688])
         focus('gap-two'); press('l'); geometry('gap-two', [656, 16, 608, 688])
         # 656 - 4 - (16 + 608 + 4) == 24 visible pixels.
@@ -233,7 +338,7 @@ p4 = [0.5, 1.0]
         (region_sync / 'move').write_text(f'{g["x"] + 5} {g["y"] + 5} 639 360\n')
         wait(lambda: (region_sync / 'move-done').exists(), 'region drag unfinished')
         geometry('gap-region-drag', [336, 16, 288, 688])
-        print('PASS: border gaps, keyboard and titlebar snaps, overlay ownership, named zones, reload, legacy overrides, region bounds and restore')
+        print('PASS: snapped focus/stacking, tiled hints, raise policy/delay, border gaps, keyboard and titlebar snaps, overlay ownership, named zones, reload, legacy overrides, region bounds and restore')
     finally:
         for child in reversed(children):
             if child.poll() is None:

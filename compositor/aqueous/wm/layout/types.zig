@@ -127,7 +127,9 @@ pub const Placement = struct {
     stack_order: u64 = 0,
     visible: bool,
     border: Border,
-    tiled: bool = true,
+    /// Snapped windows retain tiled client hints while participating in
+    /// floating raise order. This does not change their geometry ownership.
+    tiling: enum { untiled, tiled, snapped } = .tiled,
     maximized: bool = false,
 };
 

@@ -1209,7 +1209,7 @@ pub fn applyPlacement(
         @intCast(@max(0, placement.border.width)),
         border_color,
         corner_radius,
-        placement.tiled,
+        placement.tiling != .untiled,
         placement.maximized,
     );
 }

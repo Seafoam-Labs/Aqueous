@@ -392,7 +392,7 @@ test "all managed layouts advertise tiled placements while floating does not" {
             .{ .fallback = .dwindle },
         );
         defer std.testing.allocator.free(placements);
-        try std.testing.expect(placements[0].tiled);
+        try std.testing.expect(placements[0].tiling == .tiled);
     }
 
     var floating_state: State = .{};
@@ -409,7 +409,7 @@ test "all managed layouts advertise tiled placements while floating does not" {
         .{},
     );
     defer std.testing.allocator.free(floating_placements);
-    try std.testing.expect(!floating_placements[0].tiled);
+    try std.testing.expect(floating_placements[0].tiling == .untiled);
 }
 
 test "floating geometry survives temporary layout switches" {
@@ -717,7 +717,7 @@ test "tile admission preserves natural size for a later floating layout" {
         types.Rect{ .x = 480, .y = 260, .width = 320, .height = 200 },
         placements[0].geometry,
     );
-    try std.testing.expect(!placements[0].tiled);
+    try std.testing.expect(placements[0].tiling == .untiled);
 }
 
 fn expectPlacementOrder(placements: []const types.Placement, expected: []const types.Handle) !void {
@@ -941,7 +941,7 @@ test "single tile centering follows zero one two one transitions in every suppor
             if (count == 1) {
                 try std.testing.expectEqual(types.Rect{ .x = -1793, .y = 48, .width = 1202, .height = 801 }, result[0].geometry);
                 try std.testing.expectEqual(@as(i32, 2), result[0].border.width);
-                try std.testing.expect(result[0].tiled and result[0].visible);
+                try std.testing.expect(result[0].tiling == .tiled and result[0].visible);
             } else if (count == 2) {
                 var baseline_state: State = .{};
                 defer baseline_state.deinit(allocator);
