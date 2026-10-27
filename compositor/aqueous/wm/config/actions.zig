@@ -148,6 +148,9 @@ pub fn initDefaults(snapshot: *Snapshot) void {
     snapshot.primary_modifier = primaryMask();
     _ = snapshot.screenshot.set(default_screenshot_command);
     for (defaults) |entry| addBuiltin(snapshot, entry[0], entry[1]);
+    addBuiltin(snapshot, "cycle_focus_reverse", "Super+Shift+Tab");
+    addBuiltinNoRemove(snapshot, "cycle_focus", "Alt+Tab");
+    addBuiltinNoRemove(snapshot, "cycle_focus_reverse", "Alt+Shift+Tab");
     addBuiltin(snapshot, "wheel_scroll_left", "Super+WheelUp");
     addBuiltin(snapshot, "wheel_scroll_right", "Super+WheelDown");
     // Meta always names physical Super, including when Alt is primary.
@@ -296,6 +299,23 @@ test "key chord parsing supports modifiers named and media keys" {
     try std.testing.expectEqual(parseChord("CapsLock").?, parseChord("Caps_Lock").?);
     try std.testing.expectEqual(parseChord("CapsLock").?, parseChord("Caps").?);
     try std.testing.expect(parseChord("Super+Shift") == null);
+}
+
+test "workspace cycle defaults support both modifiers and explicit replacement or unbinding" {
+    var snapshot: Snapshot = .{};
+    initDefaults(&snapshot);
+    for ([_][]const u8{ "Super+Tab", "Alt+Tab", "Super+Shift+Tab", "Alt+Shift+Tab" }, 0..) |text, index| {
+        const chord = parseChord(text).?;
+        try std.testing.expectEqualStrings(if (index < 2) "builtin:cycle_focus" else "builtin:cycle_focus_reverse", snapshot.find(chord.keysym, chord.modifiers).?);
+    }
+    addBuiltinList(&snapshot, "cycle_focus", "\"Super+Tab\"");
+    const alt = parseChord("Alt+Tab").?;
+    try std.testing.expect(snapshot.find(alt.keysym, alt.modifiers) == null);
+    addBuiltinList(&snapshot, "cycle_focus", "[]");
+    const super = parseChord("Super+Tab").?;
+    try std.testing.expect(snapshot.find(super.keysym, super.modifiers) == null);
+    const reverse = parseChord("Alt+Shift+Tab").?;
+    try std.testing.expectEqualStrings("builtin:cycle_focus_reverse", snapshot.find(reverse.keysym, reverse.modifiers).?);
 }
 
 test "gesture bindings can be captured, resolved, and replaced" {

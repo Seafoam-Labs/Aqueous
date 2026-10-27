@@ -49,6 +49,34 @@ Run `python3 scripts/test-tiled-output-drag.py` against the diagnostic pixman
 build to check output transfers with real pointer events. `--compositor` and
 `--ctl` select an alternate build; `--modifier Alt` checks a modifier override.
 
+## Workspace cycling
+
+Super+Tab and Alt+Tab animate through eligible windows on the initiating seat's
+current workspace; Shift reverses the order. `cycle_focus` and
+`cycle_focus_reverse` share a stable workspace ring that survives focus changes
+and dismissal. New or restored windows append; closed, moved, minimized, and
+`skip_switcher` windows leave the ring. Modal parents are skipped in favor of
+their active dialog. The stack displays three cards, but every eligible window
+is reachable. Escape or 1.5 seconds of inactivity dismisses the stack and keeps
+the selected window focused. Reduced motion uses the same selection order.
+With `mouse_follows_focus`, the pointer moves into the selected window after
+the stack closes; physical pointer input cancels that pending move.
+
+Existing explicit bindings override defaults. To enable both shortcuts in an
+existing configuration, set these entries in `[keybinds]`:
+
+```toml
+cycle_focus = ["Super+Tab", "Alt+Tab"]
+cycle_focus_reverse = ["Super+Shift+Tab", "Alt+Shift+Tab"]
+```
+
+`window_switcher_next` and `window_switcher_previous` remain separate, unbound
+actions for animated cycling across all workspaces and outputs.
+
+Run `python3 scripts/test-workspace-cycle.py --compositor BIN --ctl CTL` to check
+the shipped shortcuts, scope, stable order, animation, and window lifecycle in
+a private headless session. Use `--renderer vulkan` with an effects build.
+
 ## Building
 
 Required development libraries include Wayland, wayland-protocols 1.49 or newer,

@@ -55,6 +55,38 @@ test "stable ring wraps through every window and survives idle external focus an
     try ring.reconcile(a, &.{});
     try std.testing.expectEqual(null, ring.next(30, true));
 }
+test "workspace rings stay independent of focus history and append transferred windows" {
+    const a = std.testing.allocator;
+    const History = @import("../focus/history.zig");
+    var history = History.init(a);
+    defer history.deinit();
+    var first: Ring = .{};
+    defer first.deinit(a);
+    var second: Ring = .{};
+    defer second.deinit(a);
+    try first.reconcile(a, &.{ 10, 20, 30, 40 });
+    try second.reconcile(a, &.{ 50, 60 });
+    var focused: u64 = 10;
+    for ([_]u64{ 20, 30, 40, 10, 20, 30, 40, 10 }) |expected| {
+        try history.record(1, focused);
+        focused = first.next(focused, false).?;
+        try history.record(1, focused);
+        try std.testing.expectEqual(expected, focused);
+        try first.reconcile(a, &.{ 10, 20, 30, 40 });
+        try std.testing.expectEqualSlices(u64, &.{ 50, 60 }, second.ids.items);
+    }
+    // External focus changes only the cursor, including reverse traversal.
+    try history.record(1, 30);
+    try std.testing.expectEqual(@as(?u64, 20), first.next(30, true));
+    try first.reconcile(a, &.{ 10, 30, 40 });
+    try second.reconcile(a, &.{ 20, 50, 60 });
+    try std.testing.expectEqualSlices(u64, &.{ 10, 30, 40 }, first.ids.items);
+    try std.testing.expectEqualSlices(u64, &.{ 50, 60, 20 }, second.ids.items);
+    // Restoring a minimized or moved window appends without reordering survivors.
+    try first.reconcile(a, &.{ 10, 20, 30, 40 });
+    try std.testing.expectEqualSlices(u64, &.{ 10, 30, 40, 20 }, first.ids.items);
+}
+
 test "cards preserve aspect ratio inside portrait and landscape bounds" {
     for ([_]layout.Rect{ .{ .x = -800, .y = 0, .width = 800, .height = 1200 }, .{ .x = 0, .y = 40, .width = 1920, .height = 1040 } }) |area| {
         for (0..3) |slot| {

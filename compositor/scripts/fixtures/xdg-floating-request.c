@@ -180,12 +180,12 @@ static void pointer_enter(
     struct wl_surface *surface,
     wl_fixed_t surface_x,
     wl_fixed_t surface_y) {
-    (void)data;
     (void)pointer;
     (void)serial;
     (void)surface;
     (void)surface_x;
     (void)surface_y;
+    if (!publish_marker(data, "pointer-inside")) fail(data, "unable to publish pointer enter");
 }
 
 static void pointer_leave(
@@ -193,10 +193,13 @@ static void pointer_leave(
     struct wl_pointer *pointer,
     uint32_t serial,
     struct wl_surface *surface) {
-    (void)data;
     (void)pointer;
     (void)serial;
     (void)surface;
+    char path[PATH_MAX];
+    if (!sync_path(path, sizeof(path), data, "pointer-inside") || unlink(path) != 0) {
+        fail(data, "unable to publish pointer leave");
+    }
 }
 
 static void pointer_motion(
@@ -286,7 +289,7 @@ static void registry_global(
     } else if (strcmp(interface, wl_seat_interface.name) == 0) {
         app->seat = wl_registry_bind(registry, name, &wl_seat_interface, 1);
     } else if (strcmp(interface, xdg_wm_base_interface.name) == 0) {
-        app->wm_base = wl_registry_bind(registry, name, &xdg_wm_base_interface, 1);
+        app->wm_base = wl_registry_bind(registry, name, &xdg_wm_base_interface, version < 2 ? version : 2);
         xdg_wm_base_add_listener(app->wm_base, &wm_base_listener, NULL);
     } else if (strcmp(interface, zwlr_virtual_pointer_manager_v1_interface.name) == 0) {
         app->virtual_pointer_manager = wl_registry_bind(
@@ -312,10 +315,34 @@ static void toplevel_configure(
     int32_t height,
     struct wl_array *states) {
     (void)toplevel;
-    (void)states;
     struct app *app = data;
     app->pending_width = width;
     app->pending_height = height;
+    unsigned int tiled_edges = 0;
+    uint32_t *state;
+    wl_array_for_each(state, states) {
+        switch (*state) {
+            case XDG_TOPLEVEL_STATE_TILED_LEFT: tiled_edges |= 1; break;
+            case XDG_TOPLEVEL_STATE_TILED_RIGHT: tiled_edges |= 2; break;
+            case XDG_TOPLEVEL_STATE_TILED_TOP: tiled_edges |= 4; break;
+            case XDG_TOPLEVEL_STATE_TILED_BOTTOM: tiled_edges |= 8; break;
+            default: break;
+        }
+    }
+    char path[PATH_MAX], temporary[PATH_MAX];
+    if (!sync_path(path, sizeof(path), app, "tiled-edges") ||
+        !sync_path(temporary, sizeof(temporary), app, "tiled-edges.tmp")) {
+        fail(app, "unable to format tiled edges path");
+        return;
+    }
+    FILE *file = fopen(temporary, "w");
+    if (file == NULL) {
+        fail(app, "unable to open tiled edges file");
+        return;
+    }
+    const bool written = fprintf(file, "%u\n", tiled_edges) > 0;
+    const bool closed = fclose(file) == 0;
+    if (!written || !closed || rename(temporary, path) != 0) fail(app, "unable to publish tiled edges");
 }
 
 static void toplevel_close(void *data, struct xdg_toplevel *toplevel) {
@@ -335,6 +362,12 @@ static void surface_configure(void *data, struct xdg_surface *xdg_surface, uint3
     int32_t height = app->pending_height;
     if (width <= 0) width = app->last_width > 0 ? app->last_width : 320;
     if (height <= 0) height = app->last_height > 0 ? app->last_height : 200;
+    // Focus-only configures can reuse the committed buffer. Longer focus
+    // regressions must not exhaust the fixture's buffer array.
+    if (app->configured && width == app->last_width && height == app->last_height) {
+        wl_surface_commit(app->surface);
+        return;
+    }
     if (!attach_buffer(app, width, height)) {
         fail(app, "unable to attach configured buffer");
         return;

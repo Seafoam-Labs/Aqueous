@@ -78,6 +78,10 @@ env = {k: v for k, v in os.environ.items() if not k.startswith('AQUEOUS_')}
 env.update(XDG_RUNTIME_DIR=str(runtime), XDG_CONFIG_HOME=str(base / 'config'),
            HOME=str(base / 'home'), WLR_BACKENDS='headless', WLR_HEADLESS_OUTPUTS='1',
            WLR_RENDERER='pixman', AQUEOUS_CONFIG=str(wm))
+for name in ('LAYOUT', 'INPUT', 'RULES', 'OUTPUTS'):
+    path = base / f'{name.lower()}.toml'
+    path.write_text('')
+    env[f'AQUEOUS_{name}'] = str(path)
 for key in ('WAYLAND_DISPLAY', 'DISPLAY', 'LD_PRELOAD', 'DBUS_SESSION_BUS_ADDRESS'):
     env.pop(key, None)
 children = []
@@ -310,6 +314,11 @@ try:
 
             # Unbound scrolling stays with the application, preserving focus
             # and pointer position even when automatic focus warps are enabled.
+            # Cycling now presents a deck which temporarily hides the live scene.
+            wait_for(lambda: not any(r.get('switcher_window') for r in
+                                    json.loads(subprocess.check_output(
+                                        [str(CTL), 'shell', 'snapshot', '--json'], env=env,
+                                        timeout=5))['upsert'] if r['kind'] == 'session'))
             send('mods 0')
             before_focus, point, before_axes = focused(), pointer_xy(), all_axes()
             send('scroll 0 0 15 1')

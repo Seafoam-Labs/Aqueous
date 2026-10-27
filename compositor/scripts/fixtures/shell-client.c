@@ -269,11 +269,14 @@ int main(int argc, char **argv) {
             char command[1024]; if (!fgets(command, sizeof(command), stdin)) break;
             if (!strncmp(command, "quit", 4)) running = 0;
             else if (!strncmp(command, "chord ", 6)) {
-                unsigned code, mods;
-                assert(sscanf(command + 6, "%u %u", &code, &mods) == 2);
+                unsigned code, mods, count = 1;
+                assert(sscanf(command + 6, "%u %u %u", &code, &mods, &count) >= 2);
+                assert(count > 0 && count <= 100);
                 zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, mods, 0, 0, 0);
-                zwp_virtual_keyboard_v1_key(virtual_keyboard, 1, code, WL_KEYBOARD_KEY_STATE_PRESSED);
-                zwp_virtual_keyboard_v1_key(virtual_keyboard, 2, code, WL_KEYBOARD_KEY_STATE_RELEASED);
+                for (unsigned i = 0; i < count; ++i) {
+                    zwp_virtual_keyboard_v1_key(virtual_keyboard, 2 * i + 1, code, WL_KEYBOARD_KEY_STATE_PRESSED);
+                    zwp_virtual_keyboard_v1_key(virtual_keyboard, 2 * i + 2, code, WL_KEYBOARD_KEY_STATE_RELEASED);
+                }
                 zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, 0, 0, 0, 0);
             } else if (!strcmp(command, "pointer-lock\n") || !strcmp(command, "pointer-lock-no-commit\n")) {
                 assert(window && pointer && constraints && !pointer_lock);
