@@ -657,7 +657,9 @@ fn handlePowerManagerSetMode(
         .disabled_soft => {
             if (event.mode == .on) output.scheduled.state = .enabled else return;
         },
-        .disabled_hard, .destroying => unreachable,
+        // A client can retain its power object while output management removes
+        // the head from the desktop. Ignore a request racing that transition.
+        .disabled_hard, .destroying => return,
     }
 
     server.wm.dirtyWindowing();
