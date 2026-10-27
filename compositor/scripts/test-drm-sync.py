@@ -40,21 +40,41 @@ syncobj = structure(surface, 'wlr_linux_drm_syncobj_surface_v1')
 syncobj += structure(merger, 'export_waiter')
 syncobj += '\n'.join(function(merger, name) for name in [
     'sync_file_merge', 'wlr_drm_syncobj_merger_create', 'wlr_drm_syncobj_merger_ref',
-    'merger_wait_point', 'merger_wait_sync_file',
+    'merger_log_failure', 'merger_wait_point', 'merger_wait_sync_file',
     'wlr_drm_syncobj_merger_unref', 'merger_add_exportable', 'export_waiter_handle_ready',
     'wlr_drm_syncobj_merger_add'])
 syncobj += '\n'.join(function(surface, name) for name in [
     'surface_synced_finish_state', 'surface_synced_move_state', 'surface_synced_commit',
     'wlr_linux_drm_syncobj_v1_state_add_release_point'])
 syncobj += function((source / 'types/scene/surface.c').read_text(), 'handle_scene_buffer_output_sample')
+scene = (source / 'types/scene/wlr_scene.c').read_text()
+syncobj += structure(scene, 'render_list_entry')
+syncobj += '\n'.join(function(scene, name) for name in [
+    'scene_entry_prepare_release', 'scene_render_list_submit'])
+# Verify the tested submission boundary is wired into the real scene builder.
+entry = function(scene, 'scene_entry_render')
+assert entry.index('scene_entry_prepare_release(') < entry.index('wlr_render_pass_add_texture(')
+assert '.release_deferred = true' in entry
+build = function(scene, 'wlr_scene_output_build_state')
+assert 'scene_render_list_submit(render_pass, list_data, list_len, scene_output)' in build
+assert 'wlr_render_pass_submit(' not in build
+timeline = (source / 'render/drm_syncobj.c').read_text()
+errors = '\n'.join(function(timeline, name) for name in [
+    'wlr_drm_syncobj_timeline_export_sync_file', 'wlr_drm_syncobj_timeline_import_sync_file',
+    'wlr_drm_syncobj_timeline_check', 'wlr_drm_syncobj_timeline_signal',
+    'wlr_drm_syncobj_timeline_waiter_init'])
 with tempfile.TemporaryDirectory(prefix='aqueous-drm-sync-') as tmp:
     tmp = Path(tmp)
     for fixture, header, code in [('drm-sync', 'drm-sync-functions.h', production),
+                                   ('syncobj-errors', 'syncobj-errors.h', errors),
                                    ('syncobj-lifetime', 'syncobj-functions.h', syncobj)]:
         (tmp / header).write_text(code)
         variants = [('plain', code, False), ('asan', code, True)]
         if args.no_negative_controls:
             pass
+        elif fixture == 'syncobj-errors':
+            assert 'errno = error;' in code
+            variants.append(('lost-original-error', code.replace('errno = error;', '(void)error;'), False))
         elif fixture == 'drm-sync':
             # Restore the lost-local-FD defect independently of blob cleanup.
             old = 'state->primary_in_fence_fd = wlr_drm_syncobj_timeline_export_sync_file('
@@ -77,6 +97,11 @@ with tempfile.TemporaryDirectory(prefix='aqueous-drm-sync-') as tmp:
                     'bool ok = (merger_add_exportable(merger, add->src_timeline, add->src_point), true); merger->failed = false;'),
                 'ignored-scene-failure': ('event->release_timeline, event->release_point, output->event_loop)) {',
                     'event->release_timeline, event->release_point, output->event_loop) && false) {'),
+                'pre-submit-release': ('!event->release_deferred) {', 'true) {'),
+                'lost-generation-ref': ('entry->release_merger = wlr_drm_syncobj_merger_ref(state->release_merger);',
+                    'entry->release_merger = state->release_merger;'),
+                'wait-rejected-frame': ('if (submitted || !vulkan) {', 'if (true) {'),
+                'missing-submitted-release': ('if (submitted || !vulkan) {', 'if (!submitted || !vulkan) {'),
             }
             for label, (old, new) in mutations.items():
                 assert code.count(old) == 1, label

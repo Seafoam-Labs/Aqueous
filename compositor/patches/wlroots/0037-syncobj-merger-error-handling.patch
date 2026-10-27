@@ -1,13 +1,210 @@
---- a/render/drm_syncobj_merger.c
-+++ b/render/drm_syncobj_merger.c
-@@ -1,4 +1,6 @@
+--- a/include/render/drm_syncobj_merger.h
++++ b/include/render/drm_syncobj_merger.h
+@@ -12,6 +12,8 @@
+ 	struct wlr_drm_syncobj_timeline *dst_timeline;
+ 	uint64_t dst_point;
+ 	int sync_fd;
++	unsigned recovery_count; // diagnostic context for synchronous callers
++	bool failed; // an input dependency could not be retained or proven complete
+ };
+ 
+ /**
+@@ -28,7 +30,8 @@
+ 
+ /**
+  * Target timeline point is materialized when all inputs are, and the merger is
+- * destroyed.
++ * destroyed. Publication failures use a bounded completion wait; an unresolved
++ * dependency or failed final signal is fatal, never an already-signalled fence.
+  */
+ void wlr_drm_syncobj_merger_unref(struct wlr_drm_syncobj_merger *merger);
+ /**
+@@ -36,6 +39,7 @@
+  *
+  * If the point is not materialized, the supplied event loop is used to schedule
+  * a wait.
++ * On failure the merger is poisoned and must not publish a release point.
+  */
+ bool wlr_drm_syncobj_merger_add(struct wlr_drm_syncobj_merger *merger,
+ 	struct wlr_drm_syncobj_timeline *dst_timeline, uint64_t dst_point,
+--- a/include/wlr/types/wlr_linux_drm_syncobj_v1.h
++++ b/include/wlr/types/wlr_linux_drm_syncobj_v1.h
+@@ -67,7 +67,12 @@
+  * a new buffer has been committed.
+  *
+  * Because the given release point may not be materialized, a wl_event_loop must
+- * be supplied to schedule a wait internally, if needed
++ * be supplied to schedule a wait internally, if needed.
++ *
++ * Returns false if a dependency could neither be retained nor proven complete
++ * by bounded error recovery. The caller must stop dispatching before clients
++ * can reuse the buffer. Deferred failures and final publication failures are
++ * fatal if bounded recovery cannot make release safe.
+  */
+ bool wlr_linux_drm_syncobj_v1_state_add_release_point(
+ 	struct wlr_linux_drm_syncobj_surface_v1_state *state,
+--- a/include/wlr/types/wlr_scene.h
++++ b/include/wlr/types/wlr_scene.h
+@@ -188,6 +188,8 @@
+ 	bool direct_scanout;
+ 	struct wlr_drm_syncobj_timeline *release_timeline;
+ 	uint64_t release_point;
++	// Scene composition retains the surface release merger until submission.
++	bool release_deferred;
+ };
+ 
+ struct wlr_scene_frame_done_event {
+--- a/render/drm_syncobj.c
++++ b/render/drm_syncobj.c
+@@ -1,4 +1,5 @@
  #include <assert.h>
 +#include <errno.h>
+ #include <xf86drm.h>
+ #include <stdlib.h>
+ #include <unistd.h>
+@@ -106,26 +107,36 @@
+ 		uint64_t src_point) {
+ 	int sync_file_fd = -1;
+ 
++	int error = 0;
+ 	uint32_t syncobj_handle;
+ 	if (drmSyncobjCreate(timeline->drm_fd, 0, &syncobj_handle) != 0) {
++		error = errno;
+ 		wlr_log_errno(WLR_ERROR, "drmSyncobjCreate failed");
++		errno = error;
+ 		return -1;
+ 	}
+ 
+ 	if (drmSyncobjTransfer(timeline->drm_fd, syncobj_handle, 0,
+ 			timeline->handle, src_point, 0) != 0) {
++		error = errno;
+ 		wlr_log_errno(WLR_ERROR, "drmSyncobjTransfer failed");
++		errno = error;
+ 		goto out;
+ 	}
+ 
+ 	if (drmSyncobjExportSyncFile(timeline->drm_fd,
+ 			syncobj_handle, &sync_file_fd) != 0) {
++		error = errno;
+ 		wlr_log_errno(WLR_ERROR, "drmSyncobjExportSyncFile failed");
++		errno = error;
+ 		goto out;
+ 	}
+ 
+ out:
+ 	drmSyncobjDestroy(timeline->drm_fd, syncobj_handle);
++	if (error != 0) {
++		errno = error;
++	}
+ 	return sync_file_fd;
+ }
+ 
+@@ -133,21 +144,28 @@
+ 		uint64_t dst_point, int sync_file_fd) {
+ 	bool ok = false;
+ 
++	int error = 0;
+ 	uint32_t syncobj_handle;
+ 	if (drmSyncobjCreate(timeline->drm_fd, 0, &syncobj_handle) != 0) {
++		error = errno;
+ 		wlr_log_errno(WLR_ERROR, "drmSyncobjCreate failed");
++		errno = error;
+ 		return false;
+ 	}
+ 
+ 	if (drmSyncobjImportSyncFile(timeline->drm_fd, syncobj_handle,
+ 			sync_file_fd) != 0) {
++		error = errno;
+ 		wlr_log_errno(WLR_ERROR, "drmSyncobjImportSyncFile failed");
++		errno = error;
+ 		goto out;
+ 	}
+ 
+ 	if (drmSyncobjTransfer(timeline->drm_fd, timeline->handle, dst_point,
+ 			syncobj_handle, 0, 0) != 0) {
++		error = errno;
+ 		wlr_log_errno(WLR_ERROR, "drmSyncobjTransfer failed");
++		errno = error;
+ 		goto out;
+ 	}
+ 
+@@ -155,6 +173,9 @@
+ 
+ out:
+ 	drmSyncobjDestroy(timeline->drm_fd, syncobj_handle);
++	if (error != 0) {
++		errno = error;
++	}
+ 	return ok;
+ }
+ 
+@@ -170,6 +191,7 @@
+ 	int ret = drmSyncobjTimelineWait(timeline->drm_fd, &timeline->handle, &point, 1, 0, flags, NULL);
+ 	if (ret != 0 && ret != -etime) {
+ 		wlr_log_errno(WLR_ERROR, "drmSyncobjTimelineWait() failed");
++		errno = -ret;
+ 		return false;
+ 	}
+ 
+@@ -179,7 +201,9 @@
+ 
+ bool wlr_drm_syncobj_timeline_signal(struct wlr_drm_syncobj_timeline *timeline, uint64_t point) {
+ 	if (drmSyncobjTimelineSignal(timeline->drm_fd, &timeline->handle, &point, 1) != 0) {
++		int error = errno;
+ 		wlr_log(WLR_ERROR, "drmSyncobjTimelineSignal() failed");
++		errno = error;
+ 		return false;
+ 	}
+ 	return true;
+@@ -212,11 +236,14 @@
+ #if HAVE_EVENTFD
+ 	ev_fd = eventfd(0, EFD_CLOEXEC);
+ 	if (ev_fd < 0) {
++		int error = errno;
+ 		wlr_log_errno(WLR_ERROR, "eventfd() failed");
++		errno = error;
+ 	}
+ #else
+ 	ev_fd = -1;
+ 	wlr_log(WLR_ERROR, "eventfd() is unavailable");
++	errno = ENOSYS;
+ #endif
+ 	if (ev_fd < 0) {
+ 		return false;
+@@ -229,15 +256,19 @@
+ 		.fd = ev_fd,
+ 	};
+ 	if (drmIoctl(timeline->drm_fd, DRM_IOCTL_SYNCOBJ_EVENTFD, &syncobj_eventfd) != 0) {
++		int error = errno;
+ 		wlr_log_errno(WLR_ERROR, "DRM_IOCTL_SYNCOBJ_EVENTFD failed");
+ 		close(ev_fd);
++		errno = error;
+ 		return false;
+ 	}
+ 
+ 	struct wl_event_source *source = wl_event_loop_add_fd(loop, ev_fd, WL_EVENT_READABLE, handle_eventfd_ready, waiter);
+ 	if (source == NULL) {
++		int error = errno;
+ 		wlr_log(WLR_ERROR, "Failed to add FD to event loop");
+ 		close(ev_fd);
++		errno = error;
+ 		return false;
+ 	}
+ 
+--- a/render/drm_syncobj_merger.c
++++ b/render/drm_syncobj_merger.c
+@@ -1,4 +1,10 @@
+ #include <assert.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <inttypes.h>
++#include <stdio.h>
++#include <sys/resource.h>
 +#include <poll.h>
  #include <stdint.h>
  #include <stdlib.h>
  #include <unistd.h>
-@@ -7,6 +9,7 @@
+@@ -7,6 +13,7 @@
  #include <wlr/util/log.h>
  #include <xf86drm.h>
  #include "render/drm_syncobj_merger.h"
@@ -15,10 +212,61 @@
  
  #include "config.h"
  
-@@ -55,6 +58,36 @@
+@@ -19,7 +26,9 @@
+ 	// The kernel will automatically prune signalled fences
+ 	struct sync_merge_data merge_data = { .fd2 = fd2 };
+ 	if (ioctl(fd1, SYNC_IOC_MERGE, &merge_data) < 0) {
++		int error = errno;
+ 		wlr_log_errno(WLR_ERROR, "ioctl(SYNC_IOC_MERGE) failed");
++		errno = error;
+ 		return -1;
+ 	}
+ 
+@@ -30,6 +39,7 @@
+ 
+ static int sync_file_merge(int fd1, int fd2) {
+ 	wlr_log(WLR_ERROR, "sync_file support is unavailable");
++	errno = ENOSYS;
+ 	return -1;
+ }
+ 
+@@ -55,6 +65,70 @@
  	return merger;
  }
  
++// Error-path diagnostics must work even when EMFILE prevents opening /proc.
++// Count without allocating a descriptor, with a bounded scan for huge limits.
++static void merger_log_failure(struct wlr_drm_syncobj_merger *merger,
++		struct wlr_drm_syncobj_timeline *timeline, uint64_t point,
++		const char *operation, int error) {
++	int saved_errno = errno;
++	merger->recovery_count++;
++	struct rlimit limit = {0};
++	bool have_limit = getrlimit(RLIMIT_NOFILE, &limit) == 0;
++	rlim_t scan = have_limit && limit.rlim_cur < 65536 ? limit.rlim_cur : 65536;
++	unsigned count = 0;
++	for (rlim_t fd = 0; fd < scan; fd++) {
++		if (fcntl((int)fd, F_GETFD) >= 0) {
++			count++;
++		}
++	}
++	char path[64], device[256] = "unknown";
++	snprintf(path, sizeof(path), "/proc/self/fd/%d", timeline->drm_fd);
++	ssize_t n = readlink(path, device, sizeof(device) - 1);
++	if (n >= 0) {
++		device[n] = '\0';
++	}
++	wlr_log(WLR_ERROR, "Release dependency failure: operation=%s error=%d "
++		"device=%s drm_fd=%d handle=%"PRIu32" point=%"PRIu64" "
++		"destination_fd=%d destination_point=%"PRIu64" "
++		"open_fds=%u%s fd_scan_limit=%ju soft_limit=%ju hard_limit=%ju",
++		operation, error, device, timeline->drm_fd, timeline->handle, point,
++		merger->dst_timeline->drm_fd, merger->dst_point, count,
++		!have_limit || scan < limit.rlim_cur ? "+" : "", (uintmax_t)scan,
++		(uintmax_t)limit.rlim_cur, (uintmax_t)limit.rlim_max);
++	errno = saved_errno;
++}
++
 +// Recovery is only used after a failed synchronization operation. Never wait
 +// for mere availability here: the omitted dependency must actually complete.
 +static bool merger_wait_point(struct wlr_drm_syncobj_merger *merger,
@@ -30,6 +278,7 @@
 +			1, deadline * 1000000, DRM_SYNCOBJ_WAIT_FLAGS_WAIT_FOR_SUBMIT, NULL);
 +	} while (ret == -EINTR && get_current_time_msec() < deadline);
 +	if (ret != 0) {
++		merger_log_failure(merger, timeline, point, "completion-wait", -ret);
 +		wlr_log(WLR_ERROR, "Cannot establish release dependency completion (1 second limit): %d", ret);
 +		merger->failed = true;
 +		return false;
@@ -52,7 +301,7 @@
  void wlr_drm_syncobj_merger_unref(struct wlr_drm_syncobj_merger *merger) {
  	if (merger == NULL) {
  		return;
-@@ -65,12 +98,26 @@
+@@ -65,12 +139,30 @@
  		return;
  	}
  
@@ -68,6 +317,9 @@
 +	if (merger->sync_fd >= 0) {
 +		published = wlr_drm_syncobj_timeline_import_sync_file(merger->dst_timeline,
  			merger->dst_point, merger->sync_fd);
++		if (!published) {
++			merger_log_failure(merger, merger->dst_timeline, merger->dst_point, "import-release", errno);
++		}
 +		if (!published && merger_wait_sync_file(merger->sync_fd)) {
 +			published = wlr_drm_syncobj_timeline_signal(merger->dst_timeline, merger->dst_point);
 +		}
@@ -77,12 +329,13 @@
 +		published = wlr_drm_syncobj_timeline_signal(merger->dst_timeline, merger->dst_point);
 +	}
 +	if (!published) {
++		merger_log_failure(merger, merger->dst_timeline, merger->dst_point, "publish-release", errno);
 +		wlr_log(WLR_ERROR, "Cannot publish buffer release after bounded recovery; terminating");
 +		abort();
  	}
  	wlr_drm_syncobj_timeline_unref(merger->dst_timeline);
  	free(merger);
-@@ -79,11 +126,19 @@
+@@ -79,11 +171,22 @@
  static bool merger_add_exportable(struct wlr_drm_syncobj_merger *merger,
  		struct wlr_drm_syncobj_timeline *src_timeline, uint64_t src_point) {
  	int new_sync = wlr_drm_syncobj_timeline_export_sync_file(src_timeline, src_point);
@@ -91,12 +344,15 @@
 -		new_sync = sync_file_merge(merger->sync_fd, fd2);
 -		close(fd2);
 +	if (new_sync < 0) {
++		merger_log_failure(merger, src_timeline, src_point, "export-sync-file", errno);
 +		return merger_wait_point(merger, src_timeline, src_point);
 +	}
 +	if (merger->sync_fd >= 0) {
 +		int merged = sync_file_merge(merger->sync_fd, new_sync);
++		int merge_errno = errno;
 +		close(new_sync);
 +		if (merged < 0) {
++			merger_log_failure(merger, src_timeline, src_point, "merge-sync-file", merge_errno);
 +			// Preserve all earlier inputs. Only this new input may be omitted,
 +			// and only once it is known to have completed.
 +			return merger_wait_point(merger, src_timeline, src_point);
@@ -106,7 +362,7 @@
  	}
  	merger->sync_fd = new_sync;
  	return true;
-@@ -98,33 +153,43 @@
+@@ -98,33 +201,46 @@
  
  static void export_waiter_handle_ready(struct wlr_drm_syncobj_timeline_waiter *waiter) {
  	struct export_waiter *add = wl_container_of(waiter, add, waiter);
@@ -137,6 +393,7 @@
  	int flags = DRM_SYNCOBJ_WAIT_FLAGS_WAIT_AVAILABLE;
  	if (!wlr_drm_syncobj_timeline_check(src_timeline, src_point, flags, &exportable)) {
 -		return false;
++		merger_log_failure(merger, src_timeline, src_point, "check-availability", errno);
 +		return merger_wait_point(merger, src_timeline, src_point);
  	}
  	if (exportable) {
@@ -145,44 +402,18 @@
  	struct export_waiter *add = calloc(1, sizeof(*add));
  	if (add == NULL) {
 -		return false;
++		merger_log_failure(merger, src_timeline, src_point, "allocate-waiter", ENOMEM);
 +		return merger_wait_point(merger, src_timeline, src_point);
  	}
  	if (!wlr_drm_syncobj_timeline_waiter_init(&add->waiter, src_timeline, src_point,
  			flags, loop, export_waiter_handle_ready)) {
  		free(add);
 -		return false;
++		merger_log_failure(merger, src_timeline, src_point, "initialize-waiter", errno);
 +		return merger_wait_point(merger, src_timeline, src_point);
  	}
  	add->merger = merger;
  	add->src_timeline = wlr_drm_syncobj_timeline_ref(src_timeline);
---- a/include/render/drm_syncobj_merger.h
-+++ b/include/render/drm_syncobj_merger.h
-@@ -12,6 +12,7 @@
- 	struct wlr_drm_syncobj_timeline *dst_timeline;
- 	uint64_t dst_point;
- 	int sync_fd;
-+	bool failed; // an input dependency could not be retained or proven complete
- };
- 
- /**
-@@ -28,7 +29,8 @@
- 
- /**
-  * Target timeline point is materialized when all inputs are, and the merger is
-- * destroyed.
-+ * destroyed. Publication failures use a bounded completion wait; an unresolved
-+ * dependency or failed final signal is fatal, never an already-signalled fence.
-  */
- void wlr_drm_syncobj_merger_unref(struct wlr_drm_syncobj_merger *merger);
- /**
-@@ -36,6 +38,7 @@
-  *
-  * If the point is not materialized, the supplied event loop is used to schedule
-  * a wait.
-+ * On failure the merger is poisoned and must not publish a release point.
-  */
- bool wlr_drm_syncobj_merger_add(struct wlr_drm_syncobj_merger *merger,
- 	struct wlr_drm_syncobj_timeline *dst_timeline, uint64_t dst_point,
 --- a/types/scene/surface.c
 +++ b/types/scene/surface.c
 @@ -2,6 +2,7 @@
@@ -193,12 +424,15 @@
  #include <wlr/types/wlr_alpha_modifier_v1.h>
  #include <wlr/types/wlr_color_management_v1.h>
  #include <wlr/types/wlr_color_representation_v1.h>
-@@ -219,8 +220,11 @@
+@@ -218,9 +219,13 @@
+ 
  	struct wlr_linux_drm_syncobj_surface_v1_state *syncobj_surface_state =
  		wlr_linux_drm_syncobj_v1_get_surface_state(surface->surface);
- 	if (syncobj_surface_state != NULL && event->release_timeline != NULL) {
+-	if (syncobj_surface_state != NULL && event->release_timeline != NULL) {
 -		wlr_linux_drm_syncobj_v1_state_add_release_point(syncobj_surface_state,
 -			event->release_timeline, event->release_point, output->event_loop);
++	if (syncobj_surface_state != NULL && event->release_timeline != NULL &&
++			!event->release_deferred) {
 +		if (!wlr_linux_drm_syncobj_v1_state_add_release_point(syncobj_surface_state,
 +				event->release_timeline, event->release_point, output->event_loop)) {
 +			wlr_log(WLR_ERROR, "Cannot retain scene buffer release dependency; terminating before unsafe reuse");
@@ -207,19 +441,115 @@
  	}
  }
  
---- a/include/wlr/types/wlr_linux_drm_syncobj_v1.h
-+++ b/include/wlr/types/wlr_linux_drm_syncobj_v1.h
-@@ -67,7 +67,12 @@
-  * a new buffer has been committed.
-  *
-  * Because the given release point may not be materialized, a wl_event_loop must
-- * be supplied to schedule a wait internally, if needed
-+ * be supplied to schedule a wait internally, if needed.
-+ *
-+ * Returns false if a dependency could neither be retained nor proven complete
-+ * by bounded error recovery. The caller must stop dispatching before clients
-+ * can reuse the buffer. Deferred failures and final publication failures are
-+ * fatal if bounded recovery cannot make release safe.
-  */
- bool wlr_linux_drm_syncobj_v1_state_add_release_point(
- 	struct wlr_linux_drm_syncobj_surface_v1_state *state,
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -1,5 +1,8 @@
+ #include "types/wlr_scene.h"
+ #include "render/color.h"
++#include "render/drm_syncobj_merger.h"
++#include <inttypes.h>
++#include <wlr/types/wlr_linux_drm_syncobj_v1.h>
+ #include "render/color_pipeline.h"
+ #include "render/drm_format_set.h"
+ #include "types/wlr_output.h"
+@@ -1606,6 +1609,8 @@
+ }
+ 
+ struct render_list_entry {
++	// Storage is allocated with the render list, before any sampling work.
++	struct wlr_drm_syncobj_merger *release_merger;
+ 	struct wlr_scene_node *node;
+ 	bool highlight_transparent_region;
+ 	double x, y;
+@@ -1664,6 +1669,66 @@
+ 	return luminance_multiplier;
+ }
+ 
++// Keep the exact buffer generation alive across submission and callbacks. A
++// buffer lock alone cannot prevent explicit-sync clients from reusing it.
++static void scene_entry_prepare_release(struct render_list_entry *entry,
++		struct wlr_scene_buffer *buffer, struct wlr_scene_output *output) {
++	assert(entry->release_merger == NULL);
++	if (output->in_timeline == NULL) {
++		return;
++	}
++	struct wlr_scene_surface *surface = wlr_scene_surface_try_from_buffer(buffer);
++	if (surface == NULL) {
++		return;
++	}
++	struct wlr_linux_drm_syncobj_surface_v1_state *state =
++		wlr_linux_drm_syncobj_v1_get_surface_state(surface->surface);
++	if (state != NULL && state->release_merger != NULL) {
++		// Every sampling output contributes, even when it is not the output
++		// used for presentation feedback and frame pacing.
++		entry->release_merger = wlr_drm_syncobj_merger_ref(state->release_merger);
++	}
++}
++
++static bool scene_render_list_submit(struct wlr_render_pass *pass,
++		struct render_list_entry *entries, int len, struct wlr_scene_output *output) {
++	bool vulkan = false;
++#if WLR_HAS_VULKAN_RENDERER
++	vulkan = wlr_renderer_is_vk(output->output->renderer);
++#endif
++	bool submitted = wlr_render_pass_submit(pass);
++	for (int i = 0; i < len; i++) {
++		struct wlr_drm_syncobj_merger *merger = entries[i].release_merger;
++		if (merger == NULL) {
++			continue;
++		}
++		// The pinned Vulkan failure handler returns only for work that was
++		// not submitted, or after establishing completion. Unknown/pending
++		// submissions terminate there. Do not wait for a rejected frame's
++		// unsubmitted point; dropping just this ref preserves older inputs.
++		// Other renderers retain their existing release-point contract.
++		if (submitted || !vulkan) {
++			unsigned recoveries = merger->recovery_count;
++			bool ok = wlr_drm_syncobj_merger_add(merger, output->in_timeline,
++				output->in_point, output->output->event_loop);
++			if (!ok || merger->recovery_count != recoveries) {
++				wlr_log(WLR_ERROR, "Scene release recovery: output=%s renderer=%s "
++					"submission=%s drm_fd=%d handle=%"PRIu32" point=%"PRIu64" result=%s",
++					output->output->name, vulkan ? "vulkan" : "other",
++					submitted ? "submitted" : "failed",
++					output->in_timeline->drm_fd, output->in_timeline->handle,
++					output->in_point, ok ? "recovered" : "fatal");
++			}
++			if (!ok) {
++				abort(); // completion cannot be proved; never release early
++			}
++		}
++		entries[i].release_merger = NULL;
++		wlr_drm_syncobj_merger_unref(merger);
++	}
++	return submitted;
++}
++
+ static void scene_entry_render(struct render_list_entry *entry, const struct render_data *data) {
+ 	struct wlr_scene_node *node = entry->node;
+ 
+@@ -1793,6 +1858,7 @@
+ 				data->render_pass, scene_buffer_render_hook_bridge, &hook_call);
+ 		}
+ #endif
++		scene_entry_prepare_release(entry, scene_buffer, data->output);
+ 		wlr_render_pass_add_texture(data->render_pass, &texture_options);
+ #if WLR_HAS_VULKAN_RENDERER
+ 		if (texture_hook_installed) {
+@@ -1805,6 +1871,7 @@
+ 			.direct_scanout = false,
+ 			.release_timeline = data->output->in_timeline,
+ 			.release_point = data->output->in_point,
++			.release_deferred = true,
+ 		};
+ 		wl_signal_emit_mutable(&scene_buffer->events.output_sample, &sample_event);
+ 
+@@ -3482,7 +3549,7 @@
+ 	wlr_output_add_software_cursors_to_render_pass(output, render_pass, &render_data.damage);
+ 	pixman_region32_fini(&render_data.damage);
+ 
+-	if (!wlr_render_pass_submit(render_pass)) {
++	if (!scene_render_list_submit(render_pass, list_data, list_len, scene_output)) {
+ 		wlr_buffer_unlock(buffer);
+ 
+ 		// if we failed to render the buffer, it will have undefined contents

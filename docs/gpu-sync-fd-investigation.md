@@ -1,6 +1,15 @@
 # GPU synchronization descriptor ownership investigation
 
-Current status (2026-10-26): the affected user reports that 1.0.10 works after
+Current status (2026-10-27): consolidated patch 0037 defers composed-buffer release registration
+until render submission, fixing the pre-submission recovery ordering identified
+in the [ndri crash report](https://termbin.com/ndri). It adds resource/error
+diagnostics and preserves release dependencies from other frames and outputs.
+Local build, fault-injection, sanitizer and software-rendering checks pass;
+the affected Intel/NVIDIA 580 configuration still requires hardware validation.
+This is not a confirmed fix for an underlying driver leak. Details follow in
+the final section.
+
+Previous status (2026-10-26): the affected user reports that 1.0.10 works after
 raising Aqueous's soft FD limit to its inherited hard limit, matching labwc.
 Both parts of patch 0020 are restored at the user's request; the higher
 FD limit remains. This is a successful user report for 1.0.10, not a measurement
@@ -525,3 +534,104 @@ Validation completed:
 The sandbox blocked the initial Wayland test client connection; the complete
 dependency suite passed when rerun outside the sandbox. These checks do not
 replace a run of the restored patches on the affected GTX 1080 Ti/580 setup.
+
+## Scene release registration after submission (2026-10-27)
+
+The `ndri` core summary shows SIGABRT in
+`handle_scene_buffer_output_sample`, reached through `scene_entry_render` and
+`Output.buildSceneStateInternal`. This matches the original patch 0037's explicit abort when
+release-dependency registration fails. The paste lacks the preceding compositor
+errors and therefore does not identify the original failing operation or prove
+FD exhaustion in this particular crash. NVIDIA 580.178.04 and Intel Vulkan
+threads are present; their presence does not establish the active rendering GPU
+or attribute the failure to either driver.
+
+Source inspection establishes a recovery ordering problem: composition emits
+the sample event before submitting the render pass. If availability checking,
+waiter allocation or waiter initialization fails there, the original 0037 waits for the
+current frame's completion while the same thread has not submitted it yet.
+The bounded wait cannot complete that frame.
+
+`0037-syncobj-merger-error-handling.patch`, used by both shell and Nix builds,
+combines release-merger safety handling with the following composition changes:
+
+- Each existing render-list entry reserves storage for a release-merger
+  reference. Immediately before recording a texture draw, the entry retains
+  the exact surface buffer generation's merger. This needs no new descriptor
+  or allocation. The reference survives surface replacement/detach during
+  submission callbacks.
+- Sample events retain their presentation feedback and timeline information;
+  `release_deferred` tells the scene surface listener that composition owns
+  release registration. Direct scanout and hardware-layer events continue to
+  use their existing path.
+- After submission, the scene registers the submitted pass's timeline point
+  with every retained merger. Here "after submission" does not imply GPU
+  completion: normal release fences remain asynchronous. An export, merge or
+  waiter failure can use 0037's bounded completion recovery now that work has
+  been submitted. Earlier aggregate fences remain intact.
+- Every output that samples a surface contributes its dependency, including
+  outputs other than the surface's frame-pacing output. Presentation feedback
+  still follows the original frame-pacing policy.
+- On a failed Vulkan submission, only the new reservation is dropped. This
+  relies explicitly on the pinned 0020/0030 implementation: returning failure
+  means this pass was not submitted or its completion was established.
+  Unknown acceptance and unresolved submitted work terminate inside the
+  renderer. Quarantined, unsubmitted passes retain their renderer resources
+  for teardown. No wait is issued for a rejected frame's unsubmitted point,
+  and dependencies from previous frames or other outputs are not discarded.
+  Other renderers retain registration on failure because that Vulkan-specific
+  guarantee cannot be assumed for them.
+
+If completion still cannot be established, the terminal safety policy remains.
+Deleting the abort without retaining or resolving dependencies would permit
+early client buffer reuse. This patch does not disable explicit sync, alter
+driver selection, or further increase the FD limit.
+
+Failure diagnostics record the operation, original error number, source DRM
+device path/FD/handle/point, destination FD/point, and FD count/limits. Counts
+use `fcntl`, so they still work at EMFILE without opening `/proc/self/fd`.
+The scan is capped at 65,536 descriptors; a `+` marks a lower bound when the
+soft limit exceeds that cap or could not be read, and `fd_scan_limit` records
+the scanned range. Scene recovery also logs output, renderer type, submission
+result and recovery outcome. Export/import, availability, signal and waiter
+helpers preserve the original error across logging and cleanup. These are
+failure-only diagnostics, not continuous FD-growth measurements.
+
+Validation artifacts are under `/tmp/aqueous-scene-release`:
+
+- Full private wlroots reconstruction/build and the dependency regression
+  suite passed with the combined behavior. Shell and Nix patch lists agree.
+- `test-drm-sync.py` passes normally and with ASan/UBSan/LeakSanitizer. Its
+  production scene helpers are tested with mocked submission/DRM operations
+  and real descriptors: allocation/waiter failure enabled before submission,
+  post-submission export/merge/waiter failures, surface detach during
+  submission, rejected and completed-but-failed frames, two outputs retaining
+  one buffer, and fatal unresolved completion. The existing 6,000 release
+  cycles and atomic resource tests also pass.
+- Negative controls detect restored pre-submission registration, a missing
+  generation reference, waiting on a rejected frame, dropping a submitted
+  dependency, and loss of the original error, alongside the existing ownership
+  and premature-release controls. Diagnostics are checked with all 64 allowed
+  descriptors occupied.
+- The production Vulkan submission fixture passes its 6,000-frame and failure
+  tests, including cancellation, completed publication failure and terminal
+  unknown/pending submissions. Real software Vulkan presentation passes
+  allocation fallback, output isolation/hotplug, pixels, reuse, resize, capture,
+  commit and reset.
+- Aqueous builds in ReleaseSafe with Vulkan effects and Xwayland against the
+  private dependency; all 656 tests across 124 build steps pass.
+
+The sandbox blocked the first local Wayland test client and LeakSanitizer
+process inspection; those checks passed outside the sandbox. No system
+compositor or library was replaced. There is no `/dev/dri` in this environment.
+The scene ordering regressions exercise extracted production functions, not a
+physical explicit-sync client/GPU/KMS pipeline. Verification on the affected
+Intel/NVIDIA 580 setup must still check normal application use, two outputs,
+and FD growth over time. A successful recovery here does not establish or fix
+the cause of any continuing driver-owned FD retention.
+
+The composition changes and diagnostics were initially a separate patch 0038,
+then folded into 0037. Reconstructing the pinned archive and applying the
+consolidated patch produces byte-identical source files to the previously
+tested two-patch series. The consolidated patch applies without context fuzz;
+the separate 0038 file and its shell/Nix entries are removed.

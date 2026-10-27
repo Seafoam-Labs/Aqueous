@@ -3,11 +3,13 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <poll.h>
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/eventfd.h>
 #include <sys/resource.h>
@@ -15,6 +17,8 @@
 #include <sys/ioctl.h>
 #include <xf86drm.h>
 #include <wlr/render/drm_syncobj.h>
+#include <wlr/config.h>
+#include <wlr/render/vulkan.h>
 #include <wlr/types/wlr_linux_drm_syncobj_v1.h>
 #include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_scene.h>
@@ -33,6 +37,29 @@ static int64_t now_msec;
 static jmp_buf fatal_jump;
 static struct wlr_output sampled_output;
 static struct wlr_linux_drm_syncobj_surface_v1_state sampled_state;
+static struct wlr_scene_surface sampled_surface;
+static bool enforce_submission_order, submission_called, detach_on_submit;
+static bool available_after_submit = true;
+static unsigned submission_mode; // 0 success, 1 rejected, 2 completed but publication failed
+static unsigned submitted_dependency;
+struct wlr_scene_surface *wlr_scene_surface_try_from_buffer(struct wlr_scene_buffer *buffer) {
+    return &sampled_surface;
+}
+bool wlr_renderer_is_vk(struct wlr_renderer *renderer) { return true; }
+bool wlr_render_pass_submit(struct wlr_render_pass *pass) {
+    assert(enforce_submission_order && !submission_called);
+    submission_called = true;
+    available = available_after_submit;
+    if (submission_mode == 1) expected_dependencies &= ~submitted_dependency;
+    if (submission_mode == 2) complete_dependencies |= submitted_dependency;
+    if (detach_on_submit) {
+        // The recorded generation must survive surface replacement/destruction.
+        assert(sampled_state.release_merger->n_ref >= 2);
+        wlr_drm_syncobj_merger_unref(sampled_state.release_merger);
+        sampled_state.release_merger = NULL;
+    }
+    return submission_mode == 0;
+}
 static struct wlr_output *get_surface_frame_pacing_output(struct wlr_surface *s) {
     return &sampled_output;
 }
@@ -42,6 +69,10 @@ struct wlr_linux_drm_syncobj_surface_v1_state *wlr_linux_drm_syncobj_v1_get_surf
     return &sampled_state;
 }
 static struct wlr_drm_syncobj_timeline_waiter *waiters[16];
+static char diagnostic[2048];
+static void capture_diagnostic(enum wlr_log_importance importance, const char *format, va_list args) {
+    vsnprintf(diagnostic, sizeof(diagnostic), format, args);
+}
 static int fd_count(void) {
     int count = 0;
     for (int fd = 0; fd < 64; fd++) count += fcntl(fd, F_GETFD) >= 0;
@@ -73,6 +104,7 @@ static _Noreturn void mock_abort(void) {
 int drmSyncobjTimelineWait(int fd, uint32_t *handles, uint64_t *points,
         unsigned count, int64_t deadline, unsigned flags, uint32_t *first) {
     assert(count == 1 && points[0] > 0);
+    assert(!enforce_submission_order || (submission_called && submission_mode == 0));
     assert(flags == DRM_SYNCOBJ_WAIT_FLAGS_WAIT_FOR_SUBMIT);
     assert(deadline > now_msec * 1000000 && deadline <= (now_msec + 1000) * 1000000);
     waits++;
@@ -105,7 +137,8 @@ void wlr_drm_syncobj_timeline_unref(struct wlr_drm_syncobj_timeline *t) {
     if (t) { assert(t->n_refs > 1); t->n_refs--; }
 }
 int wlr_drm_syncobj_timeline_export_sync_file(struct wlr_drm_syncobj_timeline *t, uint64_t p) {
-    if (fail_export) return -1;
+    assert(!enforce_submission_order || (submission_called && submission_mode == 0));
+    if (fail_export) { errno = EMFILE; return -1; }
     int fd = new_fd();
     fd_dependencies[fd] = 1u << t->handle;
     return fd;
@@ -122,6 +155,7 @@ bool wlr_drm_syncobj_timeline_signal(struct wlr_drm_syncobj_timeline *t, uint64_
     signals++; return true;
 }
 bool wlr_drm_syncobj_timeline_check(struct wlr_drm_syncobj_timeline *t, uint64_t p, uint32_t flags, bool *result) {
+    assert(!enforce_submission_order || (submission_called && submission_mode == 0));
     assert(flags == DRM_SYNCOBJ_WAIT_FLAGS_WAIT_AVAILABLE);
     *result = available; return !fail_check;
 }
@@ -139,7 +173,7 @@ int ioctl(int fd, unsigned long request, ...) {
 bool wlr_drm_syncobj_timeline_waiter_init(struct wlr_drm_syncobj_timeline_waiter *w,
         struct wlr_drm_syncobj_timeline *t, uint64_t p, uint32_t flags,
         struct wl_event_loop *loop, wlr_drm_syncobj_timeline_ready_callback callback) {
-    if (fail_waiter) return false;
+    if (fail_waiter) { errno = EMFILE; return false; }
     assert(waiters_len < 16);
     w->callback = callback;
     w->ev_fd = eventfd(0, EFD_CLOEXEC);
@@ -162,6 +196,9 @@ void wlr_drm_syncobj_timeline_waiter_finish(struct wlr_drm_syncobj_timeline_wait
 #undef poll
 
 static void reset_faults(void) {
+    enforce_submission_order = submission_called = detach_on_submit = false;
+    available_after_submit = true;
+    submission_mode = submitted_dependency = 0;
     available = true;
     fail_export = fail_merge = fail_import = fail_waiter = false;
     fail_check = fail_alloc = fail_signal = expect_fatal = interrupt_once = false;
@@ -368,6 +405,113 @@ int main(void) {
     discard_fatal_merger(m);
     sampled_state.release_merger = NULL;
 
+    // Run the production scene reservation/callback/submission boundary with
+    // actual merger ownership and OS descriptors. GPU calls alone are mocked.
+    for (unsigned mode = 0; mode < 3; mode++) {
+        for (unsigned fault = 0; fault < 5; fault++) {
+            reset_faults();
+            m = wlr_drm_syncobj_merger_create(&dst, 1);
+            sampled_state.release_merger = m;
+            // Preserve an earlier frame or a second output's in-flight fence.
+            expected_dependencies = 1u << 2;
+            assert(wlr_drm_syncobj_merger_add(m, &src[1], 1, loop));
+            int old_fd = m->sync_fd;
+            struct render_list_entry entries[2] = {0}; // also an unsampled entry
+            struct wlr_scene_buffer buffer = {0};
+            scene_output.in_timeline = &src[0];
+            scene_output.in_point = 2;
+            sampled_output.name = "test-output";
+            submitted_dependency = 1u << 1;
+            expected_dependencies |= submitted_dependency;
+            enforce_submission_order = true;
+            available = false;
+            submission_mode = mode;
+            detach_on_submit = true;
+            // All allocation/waiter setup is broken before submission. The
+            // retained render-list entry must need neither an FD nor a heap record.
+            fail_alloc = fail_waiter = true;
+            scene_entry_prepare_release(&entries[0], &buffer, &scene_output);
+            assert(m->n_ref == 2 && entries[0].release_merger == m);
+            sample_event.release_deferred = true;
+            sample_event.release_point = 2;
+            handle_scene_buffer_output_sample(&scene_surface.output_sample, &sample_event);
+            assert(waits == 0 && waiters_len == 0 && m->sync_fd == old_fd);
+            // After submission cover export/merge and unavailable-point recovery.
+            fail_alloc = fault == 3;
+            fail_waiter = fault == 4;
+            fail_export = fault == 1;
+            fail_merge = fault == 2;
+            available_after_submit = fault < 3;
+            assert(scene_render_list_submit((void *)&buffer, entries, 2, &scene_output) == (mode == 0));
+            assert(submission_called && !sampled_state.release_merger);
+            assert(!entries[0].release_merger && !entries[1].release_merger);
+            assert(waits == (mode == 0 && fault != 0 ? 1u : 0u));
+            assert(imports == 1 && signals == 0); // previous output still pending
+            assert(fd_count() == baseline && dst.n_refs == 1 && src[0].n_refs == 1);
+        }
+    }
+
+    // A real post-submission failure remains fatal when completion cannot be
+    // established. No client release may escape even after surface detach.
+    reset_faults();
+    m = wlr_drm_syncobj_merger_create(&dst, 1);
+    sampled_state.release_merger = m;
+    struct render_list_entry failed_entry = {0};
+    struct wlr_scene_buffer failed_buffer = {0};
+    scene_entry_prepare_release(&failed_entry, &failed_buffer, &scene_output);
+    enforce_submission_order = detach_on_submit = true;
+    submitted_dependency = expected_dependencies = 1u << 1;
+    fail_export = expect_fatal = true;
+    wait_result = -ETIME;
+    if (setjmp(fatal_jump) == 0) {
+        scene_render_list_submit((void *)&failed_buffer, &failed_entry, 1, &scene_output);
+        assert(!"unresolved submitted work must not release the buffer");
+    }
+    assert(submission_called && fatal_count == 1 && imports == 0 && signals == 0);
+    discard_fatal_merger(m);
+
+    // Retain two output reservations before either frame is submitted. The
+    // first completion cannot publish the client release ahead of the second.
+    reset_faults();
+    m = wlr_drm_syncobj_merger_create(&dst, 1);
+    sampled_state.release_merger = m;
+    struct render_list_entry output_entries[2] = {0};
+    struct wlr_scene_buffer shared_buffer = {0};
+    struct wlr_output other_output = {.name = "second-output", .event_loop = loop};
+    struct wlr_scene_output second_output = {
+        .output = &other_output, .in_timeline = &src[1], .in_point = 3};
+    scene_entry_prepare_release(&output_entries[0], &shared_buffer, &scene_output);
+    // This differs from the frame-pacing output returned by the surface mock.
+    scene_entry_prepare_release(&output_entries[1], &shared_buffer, &second_output);
+    assert(m->n_ref == 3);
+    expected_dependencies = (1u << 1) | (1u << 2);
+    enforce_submission_order = detach_on_submit = true;
+    assert(scene_render_list_submit((void *)&shared_buffer, &output_entries[0], 1, &scene_output));
+    assert(imports == 0 && signals == 0 && m->n_ref == 1);
+    submission_called = detach_on_submit = false;
+    assert(scene_render_list_submit((void *)&shared_buffer, &output_entries[1], 1, &second_output));
+    assert(imports == 1 && signals == 0 && fd_count() == baseline && dst.n_refs == 1);
+
+    // Diagnostics must still count descriptors and preserve the first error
+    // when no descriptor is available to open /proc/self/fd.
+    reset_faults();
+    m = wlr_drm_syncobj_merger_create(&dst, 1);
+    int diagnostic_fds[64], diagnostic_len = 0, diagnostic_fd;
+    while ((diagnostic_fd = open("/dev/null", O_RDONLY | O_CLOEXEC)) >= 0)
+        diagnostic_fds[diagnostic_len++] = diagnostic_fd;
+    assert(errno == EMFILE && fd_count() == 64);
+    wlr_log_init(WLR_ERROR, capture_diagnostic);
+    errno = EMFILE;
+    merger_log_failure(m, &src[0], 2, "initialize-waiter", EMFILE);
+    assert(errno == EMFILE && m->recovery_count == 1);
+    assert(strstr(diagnostic, "operation=initialize-waiter"));
+    assert(strstr(diagnostic, "error=24") && strstr(diagnostic, "open_fds=64 "));
+    assert(strstr(diagnostic, "soft_limit=64 hard_limit=64"));
+    wlr_log_init(WLR_SILENT, NULL);
+    while (diagnostic_len) assert(close(diagnostic_fds[--diagnostic_len]) == 0);
+    wlr_drm_syncobj_merger_unref(m);
+    assert(fd_count() == baseline);
+
     // A failed waiter setup frees its heap record, even when recovery succeeds.
     reset_faults();
     available = false; fail_waiter = true;
@@ -377,5 +521,5 @@ int main(void) {
         wlr_drm_syncobj_merger_unref(m);
     }
     assert(fd_count() == baseline && dst.n_refs == 1);
-    printf("PASS: 6000 two-output releases; dependency-preserving export/merge recovery, deferred failures, publication failure, bounded EINTR/timeouts, no early release; RLIMIT_NOFILE=64 baseline=%d\n", baseline);
+    printf("PASS: 6000 two-output releases; scene submission ordering, surface detach, rejected/completed failures, multi-output fences, EMFILE diagnostics, bounded recovery, no early release; RLIMIT_NOFILE=64 baseline=%d\n", baseline);
 }
