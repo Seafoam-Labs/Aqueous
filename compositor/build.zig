@@ -16,19 +16,23 @@ const Translator = @import("translate_c").Translator;
 pub fn build(b: *Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const use_llvm = b.option(bool, "llvm", "Force use of Zig's LLVM backend and the lld linker") orelse false;
 
-    const gpu_pin_tests = b.addTest(.{ .root_module = b.createModule(.{
-        .root_source_file = b.path("aqueous/GpuPin.zig"),
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-    }) });
+    const gpu_pin_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("aqueous/GpuPin.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+        .use_llvm = use_llvm,
+        .use_lld = use_llvm,
+    });
     const run_gpu_pin_tests = b.addRunArtifact(gpu_pin_tests);
     b.step("test-gpu-pin", "Verify GPU identity policy and stale selector cleanup").dependOn(&run_gpu_pin_tests.step);
 
     const strip = b.option(bool, "strip", "Omit debug information") orelse false;
     const pie = b.option(bool, "pie", "Build a Position Independent Executable") orelse false;
-    const use_llvm = b.option(bool, "llvm", "Force use of Zig's LLVM backend and the lld linker") orelse false;
 
     const omit_frame_pointer = switch (optimize) {
         .Debug, .ReleaseSafe => false,
@@ -946,6 +950,8 @@ pub fn build(b: *Build) !void {
                 .optimize = optimize,
                 .link_libc = true,
             }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
         });
         icon_state_test.root_module.addImport("c", translate_c.mod);
         icon_state_test.root_module.addImport("wlroots", wlroots);
