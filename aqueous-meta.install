@@ -12,8 +12,8 @@ desktop_setup_message() {
     login shell with:
         uwsm start aqueous.desktop
 
-    Welcome to Aqueous lets you select Pearl, DMS, Noctalia, or Nothing.
-    Shelly requests installation authentication through welcome's password popup.
+    Install the desired shell preset and set shell in
+    ~/.config/aqueous/session.toml before the next login.
     The selected shell manages authentication for its own desktop features.
 EOF
 }

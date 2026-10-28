@@ -1,6 +1,6 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
 # Maintainer: Caroline Snyder <hirpeng@gmail.com>
-pkgname=(aqueous-core aqueous-session aqueous-welcome xdg-desktop-portal-aqueous
+pkgname=(aqueous-core aqueous-session xdg-desktop-portal-aqueous
          aqueous-integration-dms aqueous-integration-noctalia aqueous-integration-pearl
          aqueous-shell-dms aqueous-shell-noctalia aqueous-shell-pearl aqueous)
 pkgbase=aqueous
@@ -53,10 +53,10 @@ build() {
         aarch64) AQUEOUS_ZIG_CPU=baseline ;;
         *) printf 'Unsupported package architecture: %s\n' "${CARCH:-$(uname -m)}" >&2; return 1 ;;
     esac
-    ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-welcome-zig-global" \
-    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-welcome-zig-local" \
-        zig build --build-file "$srcdir/aqueous/welcome/build.zig" \
-        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-welcome-dist"
+    ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-picker-zig-global" \
+    ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-picker-zig-local" \
+        zig build --build-file "$srcdir/aqueous/aqueous-portal-picker/build.zig" \
+        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-picker-dist"
 
     # Canonical configuration helper; Pearl supplies the settings UI.
     ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-config-zig-global" \
@@ -152,8 +152,7 @@ check() {
 _stage_component() {
     AQUEOUS_COMPOSITOR_DIST="$srcdir/aqueous-dist" \
     AQUEOUS_CONFIG_BINARY="$srcdir/aqueous-config-dist/bin/aqueous-config" \
-    AQUEOUS_WELCOME_BINARY="$srcdir/aqueous-welcome-dist/bin/aqueous-welcome" \
-    AQUEOUS_PICKER_BINARY="$srcdir/aqueous-welcome-dist/bin/aqueous-portal-picker" \
+    AQUEOUS_PICKER_BINARY="$srcdir/aqueous-picker-dist/bin/aqueous-portal-picker" \
     AQUEOUS_PORTAL_BINARY="$srcdir/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" \
     AQUEOUS_PORTAL_LICENSE="$srcdir/xdg-desktop-portal-wlr-0.8.4/LICENSE" \
     AQUEOUS_PORTAL_CHOOSER_BINARY="$srcdir/aqueous-portal-chooser-dist/bin/aqueous-dms-portal-chooser" \
@@ -172,16 +171,9 @@ package_aqueous-core() {
 package_aqueous-session() {
     pkgdesc="Aqueous session"
     depends=("aqueous-core=$pkgver-$pkgrel" "bash" "jq" "coreutils" "uwsm" "dbus" "systemd" "ghostty" "grim" "slurp" "wl-clipboard" "libnotify" "xdg-desktop-portal" "xdg-desktop-portal-gtk")
-    conflicts=('aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-session-bin' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
+    conflicts=('aqueous-welcome' 'aqueous-welcome-bin' 'aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-session-bin' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
     backup=('etc/xdg/aqueous/wm.toml' 'etc/xdg/aqueous/outputs.toml' 'etc/xdg/uwsm/env-aqueous' 'etc/xdg/menus/aqueous-applications.menu' 'etc/xdg/xdg-desktop-portal-aqueous/config')
     _stage_component session
-}
-
-package_aqueous-welcome() {
-    pkgdesc="Aqueous welcome"
-    depends=("aqueous-session=$pkgver-$pkgrel" "gtk4" "shelly" "sudo")
-    conflicts=('aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-welcome-bin' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
-    _stage_component welcome
 }
 
 package_xdg-desktop-portal-aqueous() {
@@ -235,7 +227,7 @@ package_aqueous-shell-pearl() {
 
 package_aqueous() {
     pkgdesc="Aqueous aqueous"
-    depends=("aqueous-core=$pkgver-$pkgrel" "aqueous-session=$pkgver-$pkgrel" "aqueous-welcome=$pkgver-$pkgrel" "xdg-desktop-portal-aqueous=$pkgver-$pkgrel" "aqueous-integration-dms=$pkgver-$pkgrel" "aqueous-integration-noctalia=$pkgver-$pkgrel" "aqueous-integration-pearl=$pkgver-$pkgrel")
+    depends=("aqueous-core=$pkgver-$pkgrel" "aqueous-session=$pkgver-$pkgrel" "xdg-desktop-portal-aqueous=$pkgver-$pkgrel" "aqueous-integration-dms=$pkgver-$pkgrel" "aqueous-integration-noctalia=$pkgver-$pkgrel" "aqueous-integration-pearl=$pkgver-$pkgrel")
     conflicts=('aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-bin')
     install=aqueous.install
     : # Dependency-only preset.

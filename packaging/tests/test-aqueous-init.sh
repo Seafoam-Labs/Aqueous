@@ -5,6 +5,7 @@ unset LD_PRELOAD
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 test_root=$(mktemp -d /tmp/aqueous-init-test.XXXXXX)
 trap 'rm -rf "$test_root"' EXIT
+export AQUEOUS_SESSION_RUNTIME="$test_root/no-session-runtime"
 
 run_init() (
     export HOME="$test_root/home"
@@ -90,6 +91,46 @@ for mode in uwsm dbus systemctl nested; do
     done
 done
 echo "Aqueous IPC session exports and nested isolation tests passed"
+
+# Session preparation must finish before portal identity and service activation.
+cat > "$test_root/session-runtime" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$1" >> "$AQUEOUS_TEST_RUNTIME_CALLS"
+case $1 in
+    prepare-session) exit "${AQUEOUS_TEST_PREPARE_STATUS:-0}";;
+    portal-identity) printf 'Pearl:Aqueous\n';;
+    portal-backend) printf 'xdg-desktop-portal-pearl.service\n';;
+esac
+EOF
+chmod +x "$test_root/session-runtime"
+for mode in normal nested failure; do
+    capture="$test_root/runtime-$mode"
+    : > "$capture"
+    status=0
+    (
+        export HOME="$test_root/home" XDG_CONFIG_HOME="$test_root/config"
+        export AQUEOUS_SHARE_DIR="$repo_root/packaging" PATH=/nonexistent
+        export AQUEOUS_SESSION_RUNTIME="$test_root/session-runtime"
+        export AQUEOUS_TEST_RUNTIME_CALLS="$capture" AQUEOUS_TEST_PREPARE_STATUS=0
+        export WAYLAND_DISPLAY=wayland-test AQUEOUS_NESTED=0
+        unset UWSM_FINALIZE_SOCK
+        case $mode in
+            nested) AQUEOUS_NESTED=1;;
+            failure) AQUEOUS_TEST_PREPARE_STATUS=1;;
+        esac
+        systemctl() { printf 'service:%s\n' "$*" >> "$capture"; }
+        source "$repo_root/packaging/aqueous-init"
+    ) || status=$?
+    case $mode in
+        normal)
+            [[ $status == 0 ]]
+            [[ $(head -3 "$capture") == $'prepare-session\nportal-identity\nportal-backend' ]]
+            grep -q '^service:' "$capture";;
+        nested) [[ $status == 0 && ! -s $capture ]];;
+        failure) [[ $status != 0 && $(cat "$capture") == prepare-session ]];;
+    esac
+done
+echo "Aqueous session preparation ordering and failure isolation tests passed"
 
 # Stale manager values must be overwritten even when a selector is absent.
 for mode in uwsm dbus systemctl; do

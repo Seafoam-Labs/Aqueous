@@ -128,7 +128,7 @@ fedora_build_source() (
     else
         package() {
             local destination=$pkgdir component
-            for component in core session welcome portal integration-dms integration-noctalia integration-pearl; do
+            for component in core session portal integration-dms integration-noctalia integration-pearl; do
                 (
                     pkgdir="$fedora_work/components/$component"
                     _stage_component "$component"

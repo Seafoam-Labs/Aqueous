@@ -13,7 +13,7 @@ repo = Path(__file__).resolve().parents[2]
 with tempfile.TemporaryDirectory(prefix="aqueous-dms-units-") as directory:
     base = Path(directory)
     env = dict(os.environ, AQUEOUS_PORTAL_CHOOSER_BINARY="/usr/bin/true",
-               AQUEOUS_WELCOME_BINARY="/usr/bin/true", AQUEOUS_PICKER_BINARY="/usr/bin/true", PREFIX="/usr", SYSCONFDIR="/etc")
+               AQUEOUS_PICKER_BINARY="/usr/bin/true", PREFIX="/usr", SYSCONFDIR="/etc")
     sources = []
     for channel in ("git", "intel-git"):
         stage = base / channel
@@ -22,7 +22,6 @@ with tempfile.TemporaryDirectory(prefix="aqueous-dms-units-") as directory:
         sources.append((f"aqueous-{channel}-dms", stage / f"usr/lib/systemd/user/aqueous-{channel}-dms.service"))
     for name, installer, args in (
         ("aqueous-dms", "stage-component.sh", ["integration-dms"]),
-        ("aqueous-legacy-dms", "install-welcome.sh", []),
     ):
         stage = base / name
         subprocess.run(["bash", str(repo / "packaging" / installer), *args],

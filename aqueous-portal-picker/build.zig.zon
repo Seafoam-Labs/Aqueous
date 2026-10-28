@@ -1,7 +1,7 @@
 .{
-    .name = .aqueous_welcome,
+    .name = .aqueous_portal_picker,
     .version = "1.0.12",
-    .fingerprint = 0x709f97c586187a8e,
+    .fingerprint = 0xd04e1d50116315c4,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .gobject = .{

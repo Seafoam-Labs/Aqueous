@@ -3,9 +3,8 @@
 This directory contains the source package and NixOS integration for Aqueous.
 The package includes the compositor, `aqueousctl`, the standalone
 `aqueous-config` canonical configuration helper, the session launchers, configuration defaults, and Aqueous's
-private patched wlroots library. The Arch-specific `aqueous-welcome` application
-is intentionally excluded because its Shelly backends install repository and
-AUR packages.
+private patched wlroots library. The portal component includes the standalone
+GTK `aqueous-portal-picker`. Shell selection is configured declaratively.
 
 ## Build the package
 

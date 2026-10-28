@@ -106,7 +106,7 @@ bash packaging/tests/test-git-packages.sh /path/to/compositor-dist /path/to/help
 ```
 
 These checks do not constitute physical display acceptance or a migration of the
-legacy desktop packages. The stable session/welcome/portal packages remain the
+legacy desktop packages. The stable session/portal packages remain the
 installed desktop integration until explicitly changed by the user.
 
 ## Switching the desktop shell

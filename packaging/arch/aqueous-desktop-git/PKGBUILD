@@ -75,7 +75,7 @@ build() {
     # This target builds the screen-sharing picker without the Welcome app.
     ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-picker-zig-global" \
     ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-picker-zig-local" \
-        zig build --build-file "$srcdir/aqueous/welcome/build.zig" picker \
+        zig build --build-file "$srcdir/aqueous/aqueous-portal-picker/build.zig" picker \
         -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-picker-dist"
     sh "$srcdir/aqueous/packaging/portal/build-aqueous-portal.sh" \
         "$srcdir/xdg-desktop-portal-wlr-0.8.4" \

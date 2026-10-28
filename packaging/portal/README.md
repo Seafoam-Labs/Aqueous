@@ -55,11 +55,11 @@ use this backend only for ScreenCast and Screenshot. GTK continues to handle
 the remaining portal interfaces.
 
 Stable Arch packages use `aqueous-shell-action chooser`, which follows the active
-session selected in Welcome to Aqueous. DMS uses the existing Zig bridge and
+session selected in `session.toml`. DMS uses the existing Zig bridge and
 `aqueousPortal` plugin; Noctalia uses `noctalia dmenu`. Pearl uses its bundled `/usr/lib/pearl/pearl-capture-picker` (the Git
 session uses `/usr/lib/pearl-git/pearl-capture-picker`). Nothing uses
 `aqueous-portal-picker`, a standalone GTK picker shipped by the portal package.
-It reads the source list from stdin and has no Welcome/setup dependency. All use `chooser_type=dmenu`
+It reads the source list from stdin and runs independently of the desktop shell. All use `chooser_type=dmenu`
 and return the selected original source line, with no output on cancellation.
 
 Git desktop packages ship the portal backend without Welcome or the standalone
@@ -68,10 +68,9 @@ shell-free sessions return no capture source unless a custom `chooser_cmd` is
 configured in the Git portal config. See the
 [Git desktop guide](../../docs/git-desktop-packages.md#optional-shell-presets).
 
-Installing another shell does not change an active session. Welcome writes the
-next-login selection and preserves custom portal overrides. It updates recognized
-legacy chooser commands while retaining other settings. NixOS retains its
-explicit Noctalia chooser configuration.
+Installing another shell does not change an active session. Update the next-login
+selection in `session.toml` after installing its integration preset. Existing
+custom portal overrides remain in effect. NixOS retains its declarative setup.
 
 DMS screen sharing requires DMS 1.6.1 or newer. Its bridge enables only the
 `aqueousPortal` plugin through DMS IPC on first use; an explicit plugin disable

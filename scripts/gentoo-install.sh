@@ -200,7 +200,7 @@ cmd_build() {
         verify_build
         return
     fi
-    zig build --build-file "$root/welcome/build.zig" -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$dist/aqueous-welcome-dist"
+    zig build --build-file "$root/aqueous-portal-picker/build.zig" -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$dist/aqueous-picker-dist"
     zig build --build-file "$root/packaging/portal/bridge/build.zig" -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$dist/aqueous-portal-chooser-dist"
     local portal_tmp
     portal_tmp=$(mktemp -d "${TMPDIR:-/tmp}/aqueous-portal.XXXXXX")
@@ -309,13 +309,12 @@ install_into() {
     stage=$(mktemp -d "${TMPDIR:-/tmp}/aqueous-components.XXXXXX")
     local parts=(core)
     if [[ $component == desktop ]]; then
-        parts+=(session welcome portal integration-dms integration-noctalia integration-pearl)
+        parts+=(session portal integration-dms integration-noctalia integration-pearl)
     fi
     for part in "${parts[@]}"; do
         AQUEOUS_COMPOSITOR_DIST="$dist/aqueous-dist" \
         AQUEOUS_CONFIG_BINARY="$dist/aqueous-config-dist/bin/aqueous-config" \
-        AQUEOUS_WELCOME_BINARY="$dist/aqueous-welcome-dist/bin/aqueous-welcome" \
-        AQUEOUS_PICKER_BINARY="$dist/aqueous-welcome-dist/bin/aqueous-portal-picker" \
+        AQUEOUS_PICKER_BINARY="$dist/aqueous-picker-dist/bin/aqueous-portal-picker" \
         AQUEOUS_PORTAL_BINARY="$dist/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous" \
         AQUEOUS_PORTAL_LICENSE="$dist/aqueous-portal-dist/usr/share/licenses/aqueous/xdg-desktop-portal-wlr/LICENSE" \
         AQUEOUS_PORTAL_CHOOSER_BINARY="$dist/aqueous-portal-chooser-dist/bin/aqueous-dms-portal-chooser" \

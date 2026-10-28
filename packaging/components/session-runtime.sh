@@ -7,7 +7,6 @@ share=${AQUEOUS_SHARE_DIR:-/usr/share/aqueous}
 units=${AQUEOUS_UNIT_DIR:-/usr/lib/systemd/user}
 snapshot=${XDG_RUNTIME_DIR:-/nonexistent}/aqueous/welcome-session.json
 fail() { printf 'Aqueous session: %s\n' "$*" >&2; return 1; }
-setup_command=aqueous-welcome
 pearl_binary=pearl
 pearl_control=pearlctl
 pearl_capture_picker=/usr/lib/pearl/pearl-capture-picker
@@ -61,9 +60,6 @@ active_selection() {
 }
 recover() {
     printf 'Aqueous session: %s\n' "$1" >&2
-    if [[ -n $setup_command ]] && command -v "$setup_command" >/dev/null; then
-        "$setup_command" --message "$1" </dev/null >/dev/null 2>&1 &
-    fi
     return 0
 }
 atomic() (
@@ -90,7 +86,7 @@ prepare_session() {
     if selected=$(selection); then
         if [[ $selected == none ]] || { command -v "$(shell_command "$selected")" >/dev/null && [[ -f $units/aqueous-$selected.service ]]; }; then
             shell=$selected
-        else recover 'The selected shell or its Aqueous integration is missing. Install its aqueous-shell preset or review setup.'; fi
+        else recover 'The selected shell or its Aqueous integration is missing. Install its aqueous-shell preset or update session.toml.'; fi
     else recover 'Invalid or ambiguous shell selection; review session.toml.'; fi
     [[ -n ${XDG_RUNTIME_DIR:-} ]] || { fail 'XDG_RUNTIME_DIR is required'; return 1; }
     jq -n --arg shell "$shell" --arg display "${WAYLAND_DISPLAY:-}" '{shell:$shell,display:$display}' | atomic "$snapshot"
@@ -123,10 +119,8 @@ action() {
         noctalia:launcher) exec noctalia msg panel-toggle launcher;;
         noctalia:lock) exec noctalia msg lock;;
         none:launcher)
-            if [[ -n $setup_command ]]; then exec "$setup_command"; fi
             exec ghostty;;
         none:lock)
-            if [[ -n $setup_command ]]; then exec "$setup_command" --message 'No screen locker is configured for this shell-free session.'; fi
             fail 'No screen locker is configured for this shell-free session.';;
         *) fail "Unknown action: $1";;
     esac

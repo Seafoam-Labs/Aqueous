@@ -10,7 +10,7 @@ reject() { if "$@" > "$base/rejected.log" 2>&1; then fail "Unexpected success: $
 assert_no() { [[ ! -e $1 && ! -L $1 ]] || fail "Unexpected path: $1"; }
 artifacts=$root/packaging/component-artifacts.sh
 build=$base/build
-for path in bin/aqueous bin/aqueous-activity-launch bin/aqueousctl bin/aqueous-config bin/aqueous-welcome bin/aqueous-portal-picker bin/aqueous-dms-portal-chooser \
+for path in bin/aqueous bin/aqueous-activity-launch bin/aqueousctl bin/aqueous-config bin/aqueous-portal-picker bin/aqueous-dms-portal-chooser \
     lib/aqueous/libwlroots-0.20.so share/man/man1/aqueous.1 share/man/man1/aqueousctl.1 \
     share/aqueous-protocols/experimental/aqueous-capture-color-v1.xml share/pkgconfig/aqueous-protocols.pc; do
     install -d "$build/$(dirname "$path")"
@@ -21,7 +21,7 @@ install -d "$build/share/aqueous"
 printf '%s\n' '{"schema":1,"output_retry_testing":false,"display_preview_acceptance":false}' > "$build/share/aqueous/build-policy.json"
 export AQUEOUS_COMPOSITOR_DIST=$build AQUEOUS_CONFIG_BINARY=$build/bin/aqueous-config
 export AQUEOUS_PICKER_BINARY=$build/bin/aqueous-portal-picker
-export AQUEOUS_WELCOME_BINARY=$build/bin/aqueous-welcome AQUEOUS_PORTAL_BINARY=$build/bin/aqueous
+export AQUEOUS_PORTAL_BINARY=$build/bin/aqueous
 export AQUEOUS_PORTAL_LICENSE=$build/bin/aqueous AQUEOUS_PORTAL_CHOOSER_BINARY=$build/bin/aqueous-dms-portal-chooser
 printf '%s\n' '{"revision":"fixture","version":"test","architecture":"x86_64","variant":"fixture"}' > "$base/cohort.json"
 # No staging operation may invoke a host-management command.
@@ -68,7 +68,8 @@ for component in "${aqueous_components[@]}"; do
 done
 ! grep -q 'python\|welcome-setup' "$base/session/usr/bin/aqueous-init"
 ! grep -Rq 'python' "$base/session/usr/lib/systemd"
-assert_no "$base/welcome/usr/lib/aqueous/welcome-setup.py"
+assert_no "$base/desktop/usr/bin/aqueous-welcome"
+assert_no "$base/desktop/etc/xdg/autostart/org.aqueous.Welcome.desktop"
 # Standalone runtime: there is no welcome payload in this root.
 runtime=$base/session/usr/lib/aqueous/session-runtime.sh
 export HOME=$base/home XDG_CONFIG_HOME=$base/config XDG_STATE_HOME=$base/state XDG_RUNTIME_DIR=$base/run
@@ -127,7 +128,7 @@ reject "$artifacts" extract "$base/bad.tar" "$base/extracted"
 assert_no "$base/archive-escape/escape"
 # Reinstall/removal uses only recorded payload paths and preserves user config.
 dist=$base/dist; mkdir "$dist"
-for name in aqueous-dist aqueous-config-dist aqueous-welcome-dist aqueous-portal-chooser-dist; do ln -s "$build" "$dist/$name"; done
+for name in aqueous-dist aqueous-config-dist aqueous-picker-dist aqueous-portal-chooser-dist; do ln -s "$build" "$dist/$name"; done
 install -Dm755 "$build/bin/aqueous" "$dist/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous"
 install -Dm644 "$build/bin/aqueous" "$dist/aqueous-portal-dist/usr/share/licenses/aqueous/xdg-desktop-portal-wlr/LICENSE"
 export AQUEOUS_DIST=$dist AQUEOUS_PREFIX=$base/gentoo

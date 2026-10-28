@@ -67,19 +67,6 @@
         "core"
       ]
     },
-    "welcome": {
-      "owns": [
-        "usr/bin/aqueous-welcome",
-        "usr/share/applications/org.aqueous.Welcome.desktop",
-        "etc/xdg/autostart/org.aqueous.Welcome.desktop"
-      ],
-      "required": [
-        "usr/bin/aqueous-welcome"
-      ],
-      "depends": [
-        "session"
-      ]
-    },
     "portal": {
       "owns": [
         "usr/bin/aqueous-portal-picker",

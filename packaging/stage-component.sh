@@ -42,16 +42,7 @@ core)
     ;;
 session)
     relocate "$root/packaging/components/session-runtime.sh" | sed "s|AQUEOUS_SYSCONFDIR:-/etc}|AQUEOUS_SYSCONFDIR:-$sysconfdir}|" | write "$prefix/lib/aqueous/session-runtime.sh" 755
-    # Replace only the legacy selection block in the staged copy.
-    relocate "$root/packaging/aqueous-init" | awk -v runtime="$prefix/lib/aqueous/session-runtime.sh" '
-        !done && /^if \[ "\$\{AQUEOUS_NESTED:-0\}/ {
-            print "if [ \"${AQUEOUS_NESTED:-0}\" != 1 ]; then"
-            print "    " runtime " prepare-session || exit 1"
-            print "fi"; skipping=1; done=1; next
-        }
-        skipping { if ($0 == "fi") skipping=0; next }
-        { print }
-    ' | write "$prefix/bin/aqueous-init" 755
+    relocate "$root/packaging/aqueous-init" | write "$prefix/bin/aqueous-init" 755
     relocate "$root/packaging/aqueous-wm.sh" | write "$prefix/bin/aqueous-wm" 755
     printf '#!/bin/sh\nexec "%s/lib/aqueous/session-runtime.sh" action "$@"\n' "$prefix" | write "$prefix/bin/aqueous-shell-action" 755
     relocate "$root/aqueous.desktop" | write "$prefix/share/wayland-sessions/aqueous.desktop"
@@ -88,13 +79,8 @@ Type=oneshot
 ExecStart=$prefix/lib/aqueous/session-runtime.sh recover
 EOF
     ;;
-welcome)
-    copy "${AQUEOUS_WELCOME_BINARY:-$root/welcome/zig-out/bin/aqueous-welcome}" "$prefix/bin/aqueous-welcome" 755
-    relocate "$root/packaging/aqueous-welcome.desktop" | write "$prefix/share/applications/org.aqueous.Welcome.desktop"
-    relocate "$root/packaging/aqueous-welcome-autostart.desktop" | write "$sysconfdir/xdg/autostart/org.aqueous.Welcome.desktop"
-    ;;
 portal)
-    copy "${AQUEOUS_PICKER_BINARY:-$root/welcome/zig-out/bin/aqueous-portal-picker}" "$prefix/bin/aqueous-portal-picker" 755
+    copy "${AQUEOUS_PICKER_BINARY:-$root/aqueous-portal-picker/zig-out/bin/aqueous-portal-picker}" "$prefix/bin/aqueous-portal-picker" 755
     copy "${AQUEOUS_PORTAL_BINARY:-$root/dist/aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous}" "$prefix/lib/aqueous/xdg-desktop-portal-aqueous" 755
     while IFS='|' read -r source path; do relocate "$root/packaging/portal/$source" | write "$prefix/$path"; done <<'EOF'
 aqueous.portal|share/xdg-desktop-portal/portals/aqueous.portal

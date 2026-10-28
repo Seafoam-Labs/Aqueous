@@ -18,7 +18,7 @@ let
     mkdir -p "$out"
     tar --zstd -xf ${gobjectSource} --strip-components=1 -C "$out"
   '';
-  welcomeDeps = linkFarm "aqueous-welcome-dependencies" [
+  pickerDeps = linkFarm "aqueous-picker-dependencies" [
     { name = "gobject-0.3.1-Skun7CCNogB9kSZJzqLTf_TwzMPW3-Rqdw86UgxADV-z"; path = gobject; }
   ];
   # All component staging has a private root. Store references are introduced
@@ -34,10 +34,6 @@ let
     mkdir -p "$out"
     cp -a "$TMPDIR/stage/$out/." "$out/"
     patchShebangs "$out"
-    ${lib.optionalString (component == "welcome") ''
-      wrapProgram "$out/bin/aqueous-welcome" --prefix PATH : '${lib.makeBinPath [ core ]}' \
-        --set AQUEOUS_SESSION_RUNTIME '${sessionBase}/lib/aqueous/session-runtime.sh'
-    ''}
     ${lib.optionalString (component == "session") ''
       wrapProgram "$out/lib/aqueous/session-runtime.sh" --prefix PATH : \
         '${lib.makeBinPath [ bash jq coreutils gawk gnugrep ]}'
@@ -70,8 +66,8 @@ let
     substituteInPlace "$out/bin/.aqueous-wm-wrapped" \
       --replace-fail '${sessionBase}/bin/aqueous-init' "$out/bin/aqueous-init"
   '';
-  welcomeBuild = stdenv.mkDerivation {
-    pname = "aqueous-welcome-build";
+  pickerBuild = stdenv.mkDerivation {
+    pname = "aqueous-portal-picker-build";
     inherit version src;
     nativeBuildInputs = [ zig_0_16 pkg-config ];
     buildInputs = [ gtk4 ];
@@ -81,14 +77,11 @@ let
     dontUseZigInstall = true;
     buildPhase = ''
       export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global"
-      zig build --build-file welcome/build.zig --system ${welcomeDeps} \
+      zig build --build-file aqueous-portal-picker/build.zig --system ${pickerDeps} \
         -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$out"
     '';
     dontInstall = true;
   };
-  welcome = stage "welcome" ''
-    export AQUEOUS_WELCOME_BINARY=${welcomeBuild}/bin/aqueous-welcome
-  '';
   portalBuild = stdenv.mkDerivation {
     pname = "aqueous-portal-build";
     inherit version src;
@@ -105,7 +98,7 @@ let
     dontInstall = true;
   };
   portal = stage "portal" ''
-    export AQUEOUS_PICKER_BINARY=${welcomeBuild}/bin/aqueous-portal-picker
+    export AQUEOUS_PICKER_BINARY=${pickerBuild}/bin/aqueous-portal-picker
     export AQUEOUS_PORTAL_BINARY=${portalBuild}/usr/lib/aqueous/xdg-desktop-portal-aqueous
     export AQUEOUS_PORTAL_LICENSE=${portalBuild}/LICENSE
   '';
@@ -131,7 +124,7 @@ let
   integrations = lib.genAttrs [ "dms" "noctalia" "pearl" ] integration;
   desktop = symlinkJoin {
     name = "aqueous-${version}";
-    paths = [ core session welcome portal ] ++ builtins.attrValues integrations;
-    passthru = { inherit core session welcome portal integrations; providedSessions = [ "aqueous" ]; };
+    paths = [ core session portal ] ++ builtins.attrValues integrations;
+    passthru = { inherit core session portal integrations; providedSessions = [ "aqueous" ]; };
   };
-in { inherit core session welcome portal integrations desktop; }
+in { inherit core session portal integrations desktop; }

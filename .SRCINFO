@@ -122,6 +122,8 @@ pkgname = aqueous-session
 	depends = libnotify
 	depends = xdg-desktop-portal
 	depends = xdg-desktop-portal-gtk
+	conflicts = aqueous-welcome
+	conflicts = aqueous-welcome-bin
 	conflicts = aqueous-git<1.0.2.r6
 	conflicts = aqueous-git-intel
 	conflicts = aqueous-git-dms
@@ -133,19 +135,6 @@ pkgname = aqueous-session
 	backup = etc/xdg/uwsm/env-aqueous
 	backup = etc/xdg/menus/aqueous-applications.menu
 	backup = etc/xdg/xdg-desktop-portal-aqueous/config
-
-pkgname = aqueous-welcome
-	pkgdesc = Aqueous welcome
-	depends = aqueous-session=1.0.12-1
-	depends = gtk4
-	depends = shelly
-	depends = sudo
-	conflicts = aqueous-git<1.0.2.r6
-	conflicts = aqueous-git-intel
-	conflicts = aqueous-git-dms
-	conflicts = aqueous-welcome-bin
-	conflicts = aqueous<0.7.0-2
-	conflicts = aqueous-bin<0.7.0-2
 
 pkgname = xdg-desktop-portal-aqueous
 	pkgdesc = Aqueous portal
@@ -225,7 +214,6 @@ pkgname = aqueous
 	install = aqueous.install
 	depends = aqueous-core=1.0.12-1
 	depends = aqueous-session=1.0.12-1
-	depends = aqueous-welcome=1.0.12-1
 	depends = xdg-desktop-portal-aqueous=1.0.12-1
 	depends = aqueous-integration-dms=1.0.12-1
 	depends = aqueous-integration-noctalia=1.0.12-1

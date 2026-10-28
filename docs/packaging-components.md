@@ -6,10 +6,10 @@ schemas and protocol metadata. Pearl's standalone package should depend on this
 name. It does not provide the `aqueous` desktop role or depend on a shell.
 
 `aqueous` remains the full desktop entry point. It depends on core, session,
-welcome, portal and the three small shell integrations. Installing an integration
+portal and the three small shell integrations. Installing an integration
 does not install its shell. `aqueous-shell-dms`, `aqueous-shell-noctalia` and
 `aqueous-shell-pearl` are explicit dependency presets for the integration plus
-DMS, Noctalia or Pearl. Welcome requests these presets on the component path.
+DMS, Noctalia or Pearl. Install the selected preset before updating `session.toml`.
 
 The maintained Arch recipes are `PKGBUILD` (stable source components),
 `PKGBUILD-bin` (release component archives), and the four core/desktop Git recipes
@@ -25,9 +25,8 @@ that own the same files. Personal configuration is not deleted or migrated.
 ## Ownership and dependencies
 
 Packaging orchestration and the session runtime are shell scripts. They use `jq`
-for JSON and libarchive for secure archive extraction. Welcome's setup worker is
-compiled into its Zig executable. Python is still used by existing test suites
-and build tools such as Meson; welcome and the session runtime do not require it.
+for JSON and libarchive for secure archive extraction. Python is used by test suites
+and build tools such as Meson; the picker and session runtime do not require it.
 
 `packaging/components.json` defines allowed and required component paths. The
 stager accepts an empty private `DESTDIR`, `PREFIX` and `SYSCONFDIR`; it cannot
@@ -39,7 +38,6 @@ symlink targets. Composition rejects overlapping files and mismatched cohorts.
 | --- | --- |
 | Core | Native graphics/input/seat libraries used by the compositor and private wlroots; XWayland; PipeWire; Fontconfig and GLib for helper observations/toolkit support |
 | Session | Bash, jq, coreutils, UWSM, systemd, D-Bus, terminal and screenshot/clipboard commands used by shipped defaults |
-| Welcome | Session runtime, GTK4, Shelly and sudo for explicitly reviewed setup |
 | Portal | GTK4 for its standalone source picker; Wayland, PipeWire, inih, systemd and the portal framework; transitive native GBM/DRM libraries |
 | DMS integration | Session and portal; libc chooser executable, QML bridges and DMS discovery links |
 | Noctalia/Pearl integration | Session; conditional units and shell-specific defaults |
@@ -55,12 +53,12 @@ rules, chooser preferences or shell plugin discovery. The new session path omits
 the broad input `uaccess` rule and uses the compositor's logind/seatd path.
 Legacy seat integration is unchanged. Hardware login acceptance remains separate.
 
-Session owns `session-runtime.sh`; welcome runs setup in a native worker process and delegates selection to the shell runtime when installed. Removing
-welcome leaves selection, conditions and shell actions available. A missing shell
-or adapter causes a shell-free runtime snapshot and a diagnostic without rewriting
-`session.toml` or selecting another installed shell. The optional welcome UI provides setup and recovery. The portal package owns
-the standalone `aqueous-portal-picker`, so Pearl screen-sharing selection works
-without Welcome. DMS and Noctalia retain their own pickers.
+Session owns `session-runtime.sh`, which handles selection, conditions and shell
+actions. A missing shell or adapter causes a shell-free runtime snapshot and a
+diagnostic without rewriting `session.toml` or selecting another installed shell.
+Update `session.toml` after installing the desired shell and integration preset.
+The portal package owns the standalone `aqueous-portal-picker` for shell-free
+sessions. Pearl, DMS and Noctalia retain their own pickers.
 
 ## Staging and verification
 
@@ -97,14 +95,14 @@ separate compatibility artifact and is not the complete core.
 
 ## Nix and other installers
 
-The overlay exports `aqueousCore`, `aqueousSession`, `aqueousWelcome`,
+The overlay exports `aqueousCore`, `aqueousSession`,
 `aqueousPortal`, `aqueousIntegrations` and the compatibility `aqueous` composition.
 Installing `pkgs.aqueousCore` alone does not enable the NixOS module or configure
-host services. Core is a separate derivation with no shell/welcome store references.
+host services. Core is a separate derivation with no shell or picker store references.
 
 For a managed session, enable `programs.aqueous.enable` and explicitly choose
 `programs.aqueous.shell = "noctalia"`, `"dms"`, `"pearl"` or `"none"`.
-DMS/Pearl also require `shellPackage`. `welcome.enable` is optional. Explicit
+DMS/Pearl also require `shellPackage`. Explicit
 legacy `noctalia.enable` values map with a deprecation warning; contradictory
 settings fail. Configurations that previously relied on implicit Noctalia must
 choose before activation. Existing per-user selection takes precedence and is
@@ -118,8 +116,7 @@ hooks. This selector cannot be combined with `--dms-git`.
 Gentoo accepts `--core-only` before its existing command, for example
 `bash scripts/gentoo-install.sh --core-only build`. Both paths use shared staging.
 The installer preserves existing `/etc` files and retains packaged defaults for
-safe removal checks. Desktop welcome requires Shelly to be available separately
-on distributions that do not package it; core does not require it.
+safe removal checks. The desktop no longer includes a package-installation wizard.
 
 ## Release acceptance still required
 

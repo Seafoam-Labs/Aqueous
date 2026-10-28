@@ -54,7 +54,7 @@
       || (
         builtins.elem topLevel [
           "docs"
-          "welcome"
+          "aqueous-portal-picker"
           "README.md"
           "aqueous.desktop"
           "compositor"

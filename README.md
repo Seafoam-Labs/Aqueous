@@ -74,10 +74,9 @@ model; they do not replace it.
   session lock, pointer constraints, color management, and other modern Wayland
   protocols are supported. Optional XWayland is started and managed directly by
   Aqueous—no `xwayland-satellite` process is required.
-- **Choose your desktop.** The GTK [Welcome to Aqueous](welcome/README.md)
-  installs and sets up Pearl (`pearl`), DankMaterialShell, Noctalia, or a
-  shell-free session. Shelly handles package installation and all optional
-  dependencies; the shell stays separate from the compositor.
+- **Desktop integration.** Pearl supplies the desktop shell and settings UI.
+  A standalone GTK [portal picker](aqueous-portal-picker/README.md) provides
+  screen-sharing source selection for shell-free sessions.
 
 ## Performance by design
 
@@ -398,28 +397,23 @@ and workspace-layout client, plus the session launcher, environment hook,
 default TOML configuration, desktop entry, and systemd user units.
 Arch packages also provide `/etc/xdg/menus/aqueous-applications.menu` for
 application menus in sessions using `XDG_MENU_PREFIX=aqueous-`.
-Stable Arch desktop packages and the combined release archive include the GTK welcome app,
-Shelly, and a terminal without requiring a desktop shell. On first login, choose
-Pearl (`pearl`), DMS (`dms-shell`), Noctalia, or Nothing. Welcome answers
-Shelly's password request through a GTK popup and selects all optional dependencies.
-A normal launcher invocation can reopen setup later. Existing completion markers
-are honored; upgrades do not force the wizard onto established users.
+Stable Arch desktop packages select Pearl and include a standalone GTK
+screen-sharing picker. Generic component packages also support explicitly
+configured DMS, Noctalia, or shell-free sessions.
 
-The selection is stored in `~/.config/aqueous/session.toml` and becomes active at
-the next login. Conditional Aqueous user units start exactly the selected shell;
-upstream shell units are suppressed only inside Aqueous. Existing custom startup
-files must be reviewed when they conflict. Shell packages and preferences remain
-installed when switching, including when choosing Nothing.
+The selection is stored in `~/.config/aqueous/session.toml` (`version = 1` and
+`shell = "pearl"`, `"dms"`, `"noctalia"`, or `"none"`) and becomes active at the
+next login. Install the matching shell and Aqueous integration preset before
+selecting it. Conditional user units start the selected shell; upstream shell
+units are suppressed only inside Aqueous. Existing custom startup files must
+be reviewed when they conflict.
 
 Packaged launcher, screenshot and lock actions follow the active session.
-`Super+Return` opens Ghostty. Open `aqueous-welcome` to review setup; legacy packages also retain the `Super+Shift+F1` shortcut. Pearl and Nothing
-use the GTK screen-sharing picker; DMS and Noctalia use their own integration.
-Welcome preserves custom commands and updates recognized legacy shell bindings
-through `aqueous-config`, with a recovery journal and backups. See the
-[welcome documentation](welcome/README.md) for recovery and verification details.
-
-Fedora and NixOS retain their existing installation and declarative shell setup;
-Shelly installation in welcome currently targets Arch-compatible systems.
+`Super+Return` opens Ghostty. Pearl, DMS and Noctalia use their own screen-sharing
+integrations; shell-free sessions use the GTK
+[portal picker](aqueous-portal-picker/README.md). The retired Welcome wizard is
+no longer built or installed. Fedora and NixOS retain their existing installation
+and declarative shell setup.
 
 Aqueous has no
 .NET, `aqueous-wm-client`, `aqueous-outputd`, `wlr-randr`, or

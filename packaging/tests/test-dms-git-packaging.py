@@ -30,8 +30,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         "aqueous-dist/share/aqueous-protocols/stable/aqueous-shell-v1.xml",
         "aqueous-dist/share/pkgconfig/aqueous-protocols.pc",
         "aqueous-config-dist/bin/aqueous-config",
-        "aqueous-welcome-dist/bin/aqueous-welcome",
-        "aqueous-welcome-dist/bin/aqueous-portal-picker",
+        "aqueous-picker-dist/bin/aqueous-portal-picker",
         "aqueous-portal-dist/usr/lib/aqueous/xdg-desktop-portal-aqueous",
         "aqueous-portal-chooser-dist/bin/aqueous-dms-portal-chooser",
         "xdg-desktop-portal-wlr-0.8.4/LICENSE",
@@ -52,7 +51,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
                 "bash", "-euc",
                 'source "$1"\n'
                 'destination=$pkgdir\n'
-                'for component in core session welcome portal integration-dms integration-noctalia integration-pearl; do\n'
+                'for component in core session portal integration-dms integration-noctalia integration-pearl; do\n'
                 '  pkgdir="$destination-$component"\n'
                 '  if [[ "$component" == portal ]]; then package_xdg-desktop-portal-aqueous; else "package_aqueous-$component"; fi\n'
                 '  [[ " ${depends[*]} " != *" dms-shell "* ]]\n'
@@ -79,11 +78,10 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         assert not (stage / "usr/share/aqueous/dms-plugins/aqueousSettings").exists()
         assert not (stage / "usr/bin/aqueous-settings").exists()
         assert not (stage / "usr/share/applications/org.aqueous.Settings.desktop").exists()
-        assert (stage / "usr/bin/aqueous-welcome").exists()
+        assert not (stage / "usr/bin/aqueous-welcome").exists()
         assert (stage / "usr/bin/aqueous-portal-picker").exists()
-        assert not (Path(str(stage) + "-welcome") / "usr/bin/aqueous-portal-picker").exists()
         assert not (stage / "usr/lib/aqueous/welcome-setup.py").exists()
-        assert (stage / "etc/xdg/autostart/org.aqueous.Welcome.desktop").exists()
+        assert not (stage / "etc/xdg/autostart/org.aqueous.Welcome.desktop").exists()
 
         menu_path = stage / "etc/xdg/menus/aqueous-applications.menu"
         assert menu_path.read_bytes() == (repo / "packaging/menus/aqueous-applications.menu").read_bytes()
@@ -103,7 +101,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
                 assert (stage / runtime / component).is_file()
 
         assert "aqueous-shell-action chooser" in (stage / "etc/xdg/xdg-desktop-portal-aqueous/config").read_text()
-        for executable in ("usr/bin/aqueous-config", "usr/bin/aqueous-welcome", "usr/bin/aqueous-shell-action"):
+        for executable in ("usr/bin/aqueous-config", "usr/bin/aqueous-portal-picker", "usr/bin/aqueous-shell-action"):
             assert os.access(stage / executable, os.X_OK)
 
         defaults = stage / "usr/share/aqueous/wm.toml"
@@ -112,7 +110,7 @@ with tempfile.TemporaryDirectory(prefix="aqueous-git-packaging-") as temporary:
         assert config["actions"]["toggle_start_menu"] == "aqueous-shell-action launcher"
         assert config["actions"]["screenshot"] == "aqueous-shell-action screenshot"
         assert config["keybinds"]["custom"]["Super+Shift+S"] == "spawn:aqueous-shell-action screenshot"
-        print(f"{variant}: shell-neutral dependencies, GTK welcome, conditional sessions, portal and bindings passed")
+        print(f"{variant}: shell-neutral dependencies, standalone GTK picker, conditional sessions, portal and bindings passed")
 
     relocated = work / "relocated"
     subprocess.run(

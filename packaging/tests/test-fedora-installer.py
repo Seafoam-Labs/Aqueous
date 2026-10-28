@@ -117,7 +117,7 @@ fedora_output="$TEST_ROOT/output with spaces"
         self.assertEqual((self.base / "events").read_text().splitlines(),
                          ["dependencies", "rpmbuild", "install"])
         self.assertEqual((self.base / "components").read_text().splitlines(),
-                         ["core", "session", "welcome", "portal", "integration-dms", "integration-noctalia", "integration-pearl"])
+                         ["core", "session", "portal", "integration-dms", "integration-noctalia", "integration-pearl"])
         work = self.work()
         self.assertIn("^git1789030000.", (work / "version").read_text())
         self.assertEqual((work / "payload/etc/xdg/aqueous/wm.toml").read_text(),

@@ -45,7 +45,7 @@ for channel in git; do
     bash -n "$runtime"
     test ! -e "$base/$channel-portal/usr/bin/aqueous-portal-picker-$channel"
     ! grep -qE 'aqueous-welcome|Welcome\.desktop|aqueous-portal-picker' "$base/$channel.files" || fail 'Retired UI was staged'
-    grep -qx 'setup_command=' "$runtime"
+    ! grep -q 'setup_command\|aqueous-welcome' "$runtime"
     ! grep -q aqueous-portal-picker "$runtime"
     grep -q "^pearl_capture_picker=/usr/lib/pearl-git/pearl-capture-picker$" "$runtime"
     ! grep -q -- "--choose" "$runtime"

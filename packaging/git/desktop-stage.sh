@@ -43,8 +43,6 @@ session)
             *) transform < "$file" | write "$target" "$(stat -c %a -- "$file")";;
         esac
     done < <(find "$work/session" -type f -print0 | sort -z)
-    # Git sessions have no setup application; preserve stable runtime defaults.
-    sed -i 's/^setup_command=.*/setup_command=/' "$destination$private/session-runtime.sh"
     # No bundled picker for DMS or shell-free sessions. An explicit dmenu
     # command in the portal config can provide one; never select a source here.
     sed -i -E \

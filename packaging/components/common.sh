@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared packaging primitives. Source this file; no host configuration is changed.
-aqueous_components=(core session welcome portal integration-dms integration-noctalia integration-pearl)
+aqueous_components=(core session portal integration-dms integration-noctalia integration-pearl)
 aq_die() { printf 'aqueous packaging: %s\n' "$*" >&2; exit 1; }
 aq_hash() { local hash; hash=$(sha256sum -- "$1") || return; printf '%s\n' "${hash%% *}"; }
 aq_component() { local item; for item in "${aqueous_components[@]}"; do [[ $1 != "$item" ]] || return 0; done; aq_die "Unknown component: $1"; }

@@ -37,7 +37,6 @@ in {
       default = null;
       description = "Deprecated explicit mapping: true selects Noctalia, false selects none. Set shell instead.";
     };
-    welcome.enable = lib.mkEnableOption "the optional GTK welcome application";
     extraPackages = lib.mkOption {
       type = with lib.types; listOf package;
       default = [ ];
@@ -53,8 +52,7 @@ in {
     ];
     warnings = lib.optional (cfg.noctalia.enable != null) "programs.aqueous.noctalia.enable is deprecated; set programs.aqueous.shell explicitly.";
     environment.systemPackages = lib.optionals available ([ components.core session components.portal ]
-      ++ builtins.attrValues components.integrations
-      ++ lib.optional cfg.welcome.enable components.welcome)
+      ++ builtins.attrValues components.integrations)
       ++ lib.optional hasShell shellPackage
       ++ [ pkgs.uwsm pkgs.grim pkgs.slurp pkgs.wl-clipboard pkgs.xdg-desktop-portal-gtk ]
       ++ cfg.extraPackages;
@@ -82,8 +80,6 @@ in {
     } // lib.optionalAttrs (selected == "dms") {
       "xdg/quickshell/dms-plugins/aqueousPortal".source = "${components.integrations.dms}/share/aqueous/dms-plugins/aqueousPortal";
       "xdg/quickshell/dms-plugins/aqueousSettingsAppearance".source = "${components.integrations.dms}/share/aqueous/dms-plugins/aqueousSettingsAppearance";
-    } // lib.optionalAttrs cfg.welcome.enable {
-      "xdg/autostart/org.aqueous.Welcome.desktop".source = "${components.welcome}/etc/xdg/autostart/org.aqueous.Welcome.desktop";
     });
     xdg.portal = {
       enable = true;
