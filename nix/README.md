@@ -22,7 +22,7 @@ With flakes, build it from a configuration repository by importing the overlay:
 }
 ```
 
-The package requires a Nixpkgs revision containing Zig 0.16 and
+The package requires a Nixpkgs revision containing Zig 0.17 and
 `wayland-protocols` 1.49 or newer.
 
 ## Enable the NixOS session

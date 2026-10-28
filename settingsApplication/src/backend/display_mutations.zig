@@ -46,7 +46,7 @@ fn source(value: Json) !schema.FileId {
 }
 
 pub fn identity(a: A, files: *const cfg.ConfigFiles, id: schema.FileId, table: usize) ![]const u8 {
-    const file = &files.items[@intFromEnum(id)];
+    const file = &files.items[@backingInt(id)];
     var hash = std.crypto.hash.sha2.Sha256.init(.{});
     const generation = native.document.generation(files);
     const present = [_]u8{@intFromBool(try source_tx.exists(file.path))};
@@ -98,15 +98,15 @@ pub fn preflight(request: std.json.ObjectMap) !?[schema.file_count]bool {
     if (request.contains("collection_preconditions") or request.contains("collection_preconditions_v2") or request.contains("collection_apply_version")) return error.ConflictingDisplayEdits;
     const operations = try get(changes.object, "operations");
     if (operations != .array or operations.array.items.len == 0 or operations.array.items.len > 256) return error.InvalidDisplayMutation;
-    var touched = [_]bool{false} ** schema.file_count;
+    var touched = @as([schema.file_count]bool, @splat(false));
     for (operations.array.items) |op| {
         if (op != .object) return error.InvalidDisplayMutation;
-        touched[@intFromEnum(try source(try get(op.object, "source")))] = true;
+        touched[@backingInt(try source(try get(op.object, "source")))] = true;
     }
     const sources = try get(changes.object, "sources");
     if (sources != .object) return error.InvalidDisplayMutation;
     var source_count: usize = 0;
-    for ([_]schema.FileId{ .wm, .outputs }) |id| if (touched[@intFromEnum(id)]) {
+    for ([_]schema.FileId{ .wm, .outputs }) |id| if (touched[@backingInt(id)]) {
         source_count += 1;
         _ = try text(try get(sources.object, id.name()));
     };
@@ -114,7 +114,7 @@ pub fn preflight(request: std.json.ObjectMap) !?[schema.file_count]bool {
     if (request.get("raw_files")) |raw| {
         if (raw != .object) return error.InvalidRawFiles;
         for (raw.object.keys()) |name| if (schema.FileId.fromName(name)) |id| {
-            if (touched[@intFromEnum(id)]) return error.ConflictingDisplayEdits;
+            if (touched[@backingInt(id)]) return error.ConflictingDisplayEdits;
         };
     }
     if (request.contains("monitor_changes")) return error.ConflictingDisplayEdits;
@@ -123,7 +123,7 @@ pub fn preflight(request: std.json.ObjectMap) !?[schema.file_count]bool {
         if (changes_list == .array) for (changes_list.array.items) |change| {
             if (change != .object) return error.InvalidChange;
             const field = schema.find(try text(try get(change.object, "id"))) orelse return error.UnknownField;
-            if (touched[@intFromEnum(field.file)]) return error.ConflictingDisplayEdits;
+            if (touched[@backingInt(field.file)]) return error.ConflictingDisplayEdits;
         };
     }
     return touched;
@@ -213,8 +213,8 @@ pub fn apply(a: A, files: *cfg.ConfigFiles, request: std.json.ObjectMap, touched
     const temp = arena.allocator();
     var batch: Batch = .{ .a = temp };
     for ([_]schema.FileId{ .wm, .outputs }) |id| {
-        if (!touched[@intFromEnum(id)]) continue;
-        const file = &files.items[@intFromEnum(id)];
+        if (!touched[@backingInt(id)]) continue;
+        const file = &files.items[@backingInt(id)];
         // Bind creation as well as existing IDs: absent and empty sources share
         // a protocol-1 generation, but must not share mutation authorization.
         const source_id = try identity(temp, files, id, 0);
@@ -296,7 +296,7 @@ pub fn apply(a: A, files: *cfg.ConfigFiles, request: std.json.ObjectMap, touched
         }
     }
     for ([_]schema.FileId{ .wm, .outputs }) |id| {
-        if (!touched[@intFromEnum(id)]) continue;
+        if (!touched[@backingInt(id)]) continue;
         var writer: std.Io.Writer.Allocating = .init(temp);
         for (batch.nodes.items) |node| if (node.source == id) {
             if (writer.written().len > 0 and !std.mem.endsWith(u8, writer.written(), "\n")) try writer.writer.writeByte('\n');
@@ -305,8 +305,8 @@ pub fn apply(a: A, files: *cfg.ConfigFiles, request: std.json.ObjectMap, touched
         var candidate = try cfg.Document.init(a, writer.written());
         errdefer candidate.deinit();
         try validateSource(temp, &candidate);
-        files.items[@intFromEnum(id)].document.deinit();
-        files.items[@intFromEnum(id)].document = candidate;
+        files.items[@backingInt(id)].document.deinit();
+        files.items[@backingInt(id)].document = candidate;
     }
     // A rename/deletion never silently retargets policy by profile name. Clients
     // update that policy explicitly in the same batch when required.

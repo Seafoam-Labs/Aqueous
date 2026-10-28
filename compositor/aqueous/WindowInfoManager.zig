@@ -78,7 +78,7 @@ fn handleManagerRequest(
                 sendActiveWorkspaceLayout(resource, output);
             } else {
                 resource.sendActiveWorkspaceLayout(
-                    @enumFromInt(@intFromEnum(status)),
+                    @fromBackingInt(@intCast(@backingInt(status))),
                     args.output,
                     0,
                     "",
@@ -125,9 +125,9 @@ fn sendOverlayPlaneSnapshot(manager: *aqueous.WindowInfoManagerV1, id: u32) void
         snapshot.sendOutputState(
             wlr_output.name,
             @intFromBool(state.enabled),
-            @enumFromInt(@intFromEnum(state.capability)),
-            @enumFromInt(@intFromEnum(state.phase)),
-            @enumFromInt(@intFromEnum(state.reason)),
+            @fromBackingInt(@intCast(@backingInt(state.capability))),
+            @fromBackingInt(@intCast(@backingInt(state.phase))),
+            @fromBackingInt(@intCast(@backingInt(state.reason))),
             candidate_hi,
             candidate_lo,
             state.destination.x,
@@ -208,7 +208,7 @@ fn sendSceneSnapshot(manager: *aqueous.WindowInfoManagerV1, id: u32) void {
     while (outputs.next()) |output| {
         const state = output.retry;
         var buffer: [512]u8 = undefined;
-        const label = std.fmt.bufPrintZ(&buffer, "output-retry output={s} pending={} failures={} total_failures={} retries={} deadline_ms={} stage={s} recovery_commit={?} presented_commit={?}", .{ output.policyName(), state.pending, state.failures, state.total_failures, state.retries, state.deadline_ms, @tagName(state.last_stage), state.recovery_commit, state.presented_commit }) catch continue;
+        const label = std.mem.printSentinel(&buffer, "output-retry output={s} pending={} failures={} total_failures={} retries={} deadline_ms={} stage={s} recovery_commit={?} presented_commit={?}", .{ output.policyName(), state.pending, state.failures, state.total_failures, state.retries, state.deadline_ms, @tagName(state.last_stage), state.recovery_commit, state.presented_commit }, 0) catch continue;
         // Synthetic diagnostic node; reads never damage or schedule the scene.
         snapshot.sendNode(context.next_id, 0, label.ptr, .tree, 1, 0, 0, 0, 0);
         context.next_id +%= 1;
@@ -312,11 +312,7 @@ fn sceneNodeLabel(node: *wlr.SceneNode, buffer: *[512]u8) [:0]const u8 {
         .lock_surface => |surface| if (node == &surface.tree.node) return "lock surface",
         .layer_surface => |surface| {
             if (node == &surface.scene_layer_surface.tree.node) {
-                return std.fmt.bufPrintZ(
-                    buffer,
-                    "layer surface: {s}",
-                    .{surface.wlr_layer_surface.namespace},
-                ) catch "layer surface";
+                return std.mem.printSentinel(buffer, "layer surface: {s}", .{surface.wlr_layer_surface.namespace}, 0) catch "layer surface";
             }
             if (node == &surface.blur_marker.node) {
                 return "layer backdrop blur marker";
@@ -394,13 +390,9 @@ fn windowNodeLabel(window: *Window, node: *wlr.SceneNode, buffer: *[512]u8) [:0]
         const title = if (window.getTitle()) |title| std.mem.span(title) else "untitled";
         if (windowStateDiagnostics()) {
             const requested = window.rendering_requested;
-            return std.fmt.bufPrintZ(
-                buffer,
-                "window: {s} {{state={s} hidden={} overview={} anim={} snapshot={} pos={d:.1},{d:.1} target={d:.1},{d:.1} clip={d},{d},{d},{d} configure={s}}}",
-                .{ title[0..@min(title.len, 80)], @tagName(window.state), requested.hidden, window.overview_hidden, window.anim_active, window.anim_snapshot, window.anim_x, window.anim_y, window.anim_target_x, window.anim_target_y, requested.clip.x, requested.clip.y, requested.clip.width, requested.clip.height, if (window.impl == .toplevel) @tagName(window.impl.toplevel.configure_state) else "x11" },
-            ) catch "window diagnostics overflow";
+            return std.mem.printSentinel(buffer, "window: {s} {{state={s} hidden={} overview={} anim={} snapshot={} pos={d:.1},{d:.1} target={d:.1},{d:.1} clip={d},{d},{d},{d} configure={s}}}", .{ title[0..@min(title.len, 80)], @tagName(window.state), requested.hidden, window.overview_hidden, window.anim_active, window.anim_snapshot, window.anim_x, window.anim_y, window.anim_target_x, window.anim_target_y, requested.clip.x, requested.clip.y, requested.clip.width, requested.clip.height, if (window.impl == .toplevel) @tagName(window.impl.toplevel.configure_state) else "x11" }, 0) catch "window diagnostics overflow";
         }
-        return std.fmt.bufPrintZ(buffer, "window: {s}", .{title}) catch "window";
+        return std.mem.printSentinel(buffer, "window: {s}", .{title}, 0) catch "window";
     }
     if (node == &window.popup_tree.node) return "window popups";
     if (node == &window.anim_tree.node) return "window animation snapshot";
@@ -418,7 +410,7 @@ fn windowNodeLabel(window: *Window, node: *wlr.SceneNode, buffer: *[512]u8) [:0]
     if (node == &window.decorations_above_tree.node) return "decorations above";
     if (node.type == .buffer and windowStateDiagnostics()) {
         const scene_buffer = wlr.SceneBuffer.fromNode(node);
-        return std.fmt.bufPrintZ(buffer, "window surface buffer {{opacity={d:.3}}}", .{scene_buffer.opacity}) catch "window surface buffer";
+        return std.mem.printSentinel(buffer, "window surface buffer {{opacity={d:.3}}}", .{scene_buffer.opacity}, 0) catch "window surface buffer";
     }
     return switch (node.type) {
         .tree => "window subtree",
@@ -485,7 +477,7 @@ fn sendSnapshot(
     // bind below that and must not receive the new event opcode.
     const supports_content_type = manager.getVersion() >= 4;
     if (supports_content_type and snapshot.content_type != .none) {
-        info.sendContentType(@intCast(@intFromEnum(snapshot.content_type)));
+        info.sendContentType(@intCast(@backingInt(snapshot.content_type)));
     }
     if (manager.getVersion() >= 6) sendDecorationSnapshot(info, window);
 
@@ -549,7 +541,7 @@ fn sendRuleMatcher(
     matcher: aqueous.WindowInfoV1.Matcher,
     pattern: []const u8,
 ) void {
-    const terminated = util.gpa.dupeZ(u8, pattern) catch {
+    const terminated = util.gpa.dupeSentinel(u8, pattern, 0) catch {
         log.err("out of memory while publishing rule matcher", .{});
         return;
     };

@@ -518,8 +518,8 @@ extern fn wlr_xwayland_surface_has_window_type(surface: *const wlr.XwaylandSurfa
 
 fn windowTypes(popup: *const XwaylandOverrideRedirect) u16 {
     var mask: u16 = 0;
-    inline for (std.meta.fields(Rules.X11WindowType)) |field| {
-        if (wlr_xwayland_surface_has_window_type(popup.xsurface, @enumFromInt(field.value))) mask |= @as(u16, 1) << field.value;
+    inline for (@typeInfo(Rules.X11WindowType).@"enum".field_names) |field| {
+        if (wlr_xwayland_surface_has_window_type(popup.xsurface, @fromBackingInt(@intCast(@backingInt(@field(Rules.X11WindowType, field)))))) mask |= @as(u16, 1) << @backingInt(@field(Rules.X11WindowType, field));
     }
     return mask;
 }
@@ -646,8 +646,8 @@ pub fn snapshot(popup: *XwaylandOverrideRedirect, a: std.mem.Allocator) !Snapsho
     const tree = popup.surface_tree.?;
     var types: std.ArrayList([]const u8) = .empty;
     const mask = popup.windowTypes();
-    inline for (std.meta.fields(Rules.X11WindowType)) |field| {
-        if (mask & (@as(u16, 1) << field.value) != 0) try types.append(a, field.name);
+    inline for (@typeInfo(Rules.X11WindowType).@"enum".field_names) |field| {
+        if (mask & (@as(u16, 1) << @backingInt(@field(Rules.X11WindowType, field))) != 0) try types.append(a, field);
     }
     var output_id: ?[]const u8 = null;
     var output_name: ?[]const u8 = null;

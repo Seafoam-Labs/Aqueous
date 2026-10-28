@@ -140,7 +140,7 @@ pub fn main(init: std.process.Init) !void {
     }
     var lines = std.mem.splitScalar(u8, buffer.items, '\n');
     while (lines.next()) |line| if (line.len != 0) {
-        try self.lines.append(a, try a.dupeZ(u8, line));
+        try self.lines.append(a, try a.dupeSentinel(u8, line, 0));
     };
     if (self.lines.items.len == 0) return;
     _ = gio.Application.signals.activate.connect(app.as(gio.Application), *State, activate, &self, .{});

@@ -47,7 +47,7 @@ else
     fi
     if [ "$needs_build" = "1" ]; then
         echo "[launch_aqueous] Building in-tree Aqueous from compositor/..."
-        AQUEOUS_OPTIMIZE="${AQUEOUS_OPTIMIZE:-Debug}" "$HERE/scripts/build-compositor.sh"
+        AQUEOUS_OPTIMIZE="${AQUEOUS_OPTIMIZE:-debug}" "$HERE/scripts/build-compositor.sh"
     fi
     COMPOSITOR_BIN="$LOCAL_COMPOSITOR"
 fi

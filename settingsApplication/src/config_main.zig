@@ -144,8 +144,8 @@ fn writeResult(a: Allocator, writer: *std.Io.Writer, state: *const backend.Contr
 }
 
 fn parseCommand(value: []const u8) ?Command {
-    inline for (std.meta.fields(Command)) |command_field| {
-        if (std.mem.eql(u8, value, command_field.name)) return @enumFromInt(command_field.value);
+    inline for (@typeInfo(Command).@"enum".field_names) |command_field| {
+        if (std.mem.eql(u8, value, command_field)) return @field(Command, command_field);
     }
     return null;
 }

@@ -17,7 +17,7 @@ pub const Error = error{
 /// fixed buffer makes it safe to retain values received through Wayland after
 /// the request resource has gone away.
 pub const Config = struct {
-    theme_buffer: [max_theme_bytes + 1]u8 = [_]u8{0} ** (max_theme_bytes + 1),
+    theme_buffer: [max_theme_bytes + 1]u8 = @as([max_theme_bytes + 1]u8, @splat(0)),
     theme_len: u16 = 0,
     size: u32 = default_size,
 
@@ -103,7 +103,7 @@ test "explicit cursor configuration validates theme and size" {
     try std.testing.expectEqual(@as(u32, 32), config.size);
 
     try std.testing.expectError(error.InvalidTheme, Config.init("", 24));
-    const overlong = [_]u8{'x'} ** (max_theme_bytes + 1);
+    const overlong = @as([max_theme_bytes + 1]u8, @splat('x'));
     try std.testing.expectError(error.InvalidTheme, Config.init(&overlong, 24));
     try std.testing.expectError(error.InvalidSize, Config.init("default", 0));
     try std.testing.expectError(error.InvalidSize, Config.init("default", max_size + 1));

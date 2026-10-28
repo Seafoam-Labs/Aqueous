@@ -10,7 +10,7 @@ The uncached blur mode is the visual oracle for the optimized cache.
 cd compositor
 scripts/build-wlroots-render-hook.sh
 export PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig"
-zig build -Dcpu=baseline -Doptimize=ReleaseSafe -Dexternal-policy=true
+zig build -Dcpu=baseline -Doptimize=safe -Dexternal-policy=true
 ```
 
 The default build enables Vulkan effects. It installs the exact patched

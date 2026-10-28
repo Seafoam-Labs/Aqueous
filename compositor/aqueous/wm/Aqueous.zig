@@ -126,7 +126,7 @@ const SnapTargets = struct {
     zone_indices: [layout_config.max_snap_zones]u8 = undefined,
     count: u8 = 0,
     layout_id: layout_config.SnapId = .{},
-    zone_ids: [layout_config.max_snap_zones]layout_config.SnapId = [_]layout_config.SnapId{.{}} ** layout_config.max_snap_zones,
+    zone_ids: [layout_config.max_snap_zones]layout_config.SnapId = @as([layout_config.max_snap_zones]layout_config.SnapId, @splat(.{})),
 };
 
 const ScrollingClick = struct {
@@ -385,7 +385,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         var output_layout = aqueous.config.layout;
         for (&output_layout.options) |*options| options.new_window_anchor = new_window_anchor;
         if (aqueous.api.pointerPosition()) |pointer| {
-            const floating_options = &output_layout.options[@intFromEnum(layout_config.LayoutId.floating)];
+            const floating_options = &output_layout.options[@backingInt(layout_config.LayoutId.floating)];
             floating_options.pointer_x = pointer.x;
             floating_options.pointer_y = pointer.y;
         }
@@ -3027,7 +3027,7 @@ fn currentOrRestoreGeometry(box: anytype, state: *const PolicyState) layout_type
 
 fn snapState(direction: geometry.SnapDirection) PolicyState.SnapState {
     return switch (direction) {
-        inline else => |value| @enumFromInt(@intFromEnum(value) + 1),
+        inline else => |value| @fromBackingInt(@intCast(@backingInt(value) + 1)),
     };
 }
 
@@ -3223,7 +3223,7 @@ fn wmUnquote(value: []const u8) []const u8 {
 
 fn spawn(_: *Aqueous, command: []const u8) void {
     if (command.len == 0) return;
-    const owned = util.gpa.dupeZ(u8, command) catch return;
+    const owned = util.gpa.dupeSentinel(u8, command, 0) catch return;
     const argv = [_:null]?[*:0]const u8{ "/bin/sh", "-c", owned.ptr, null };
     const rc = server.child_processes.fork() catch |err| {
         util.gpa.free(owned);
@@ -3249,23 +3249,23 @@ fn launchApplication(aqueous: *Aqueous, name: []const u8) void {
 }
 
 fn execApplication(_: *Aqueous, application: *const action_config.Application) !void {
-    const command = try util.gpa.dupeZ(u8, application.command.slice());
+    const command = try util.gpa.dupeSentinel(u8, application.command.slice(), 0);
     defer util.gpa.free(command);
 
     var owned_args: [action_config.max_application_args]?[:0]u8 =
-        [_]?[:0]u8{null} ** action_config.max_application_args;
+        @as([action_config.max_application_args]?[:0]u8, @splat(null));
     defer for (&owned_args) |owned| if (owned) |value| util.gpa.free(value);
 
-    var argv = [_]?[*:0]const u8{null} ** (action_config.max_application_args + 2);
+    var argv = @as([action_config.max_application_args + 2]?[*:0]const u8, @splat(null));
     argv[0] = command.ptr;
     for (application.args[0..application.arg_count], 0..) |arg, index| {
-        const owned = try util.gpa.dupeZ(u8, arg.slice());
+        const owned = try util.gpa.dupeSentinel(u8, arg.slice(), 0);
         owned_args[index] = owned;
         argv[index + 1] = owned.ptr;
     }
 
     var owned_env: [action_config.max_application_env]?[:0]u8 =
-        [_]?[:0]u8{null} ** action_config.max_application_env;
+        @as([action_config.max_application_env]?[:0]u8, @splat(null));
     defer for (&owned_env) |owned| if (owned) |value| util.gpa.free(value);
 
     var env_list: std.ArrayList(?[*:0]const u8) = .empty;
@@ -3378,7 +3378,7 @@ fn effectiveStackLayer(
     var remaining = windows.len;
     while (parent != null and remaining > 0) : (remaining -= 1) {
         const state = aqueous.window_states.get(parent.?) orelse break;
-        if (@intFromEnum(state.stack_layer) > @intFromEnum(result)) result = state.stack_layer;
+        if (@backingInt(state.stack_layer) > @backingInt(result)) result = state.stack_layer;
         const ancestor = findLayoutWindow(windows, parent.?) orelse break;
         parent = ancestor.parent;
     }
@@ -3512,7 +3512,7 @@ fn reconcileWindowRule(
     state.fixed_position = matched.fixed_position;
     state.skip_switcher = matched.skip_switcher;
     state.skip_taskbar = matched.skip_taskbar;
-    const requested_stack_layer: ?layout_types.StackLayer = if (matched.stack_layer) |layer| @enumFromInt(@intFromEnum(layer)) else null;
+    const requested_stack_layer: ?layout_types.StackLayer = if (matched.stack_layer) |layer| @fromBackingInt(@intCast(@backingInt(layer))) else null;
     if (requested_stack_layer != state.rule_stack_layer_requested) {
         if (requested_stack_layer) |requested| {
             if (!state.rule_stack_layer_overridden) {
@@ -3564,7 +3564,7 @@ fn reconcileWindowRule(
             if (!state.rule_floating_overridden) {
                 const area = if (matched.ignore_struts) output_area else usable_area;
                 var options = aqueous.config.layout.layoutOptions(.floating);
-                if (matched.placement_policy) |policy| options.floating_placement = @enumFromInt(@intFromEnum(policy));
+                if (matched.placement_policy) |policy| options.floating_placement = @fromBackingInt(@intCast(@backingInt(policy)));
                 var preferred = window;
                 var rule_placement = matched.placement;
                 switch (matched.size) {

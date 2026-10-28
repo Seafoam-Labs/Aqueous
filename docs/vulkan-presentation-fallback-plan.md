@@ -427,12 +427,12 @@ journalctl --user -b --since "5 minutes ago" -o short-precise --no-pager \
 To observe actual Vulkan device creation, build the opt-in diagnostic library:
 
 ```sh
-zig build-lib compositor/scripts/fixtures/gpu-observer.zig -dynamic -lc -ldl \
-  -O ReleaseSafe -femit-bin=/tmp/libaqueous-gpu-observer.so
+zig build --build-file compositor/scripts/fixtures/build.zig gpu-observer \
+  -Doptimize=safe --prefix /tmp/aqueous-gpu-observer
 ```
 
 Launch each process in the controlled test with
-`LD_PRELOAD=/tmp/libaqueous-gpu-observer.so` (Aqueous, Pearl and the Shelly GTK UI).
+`LD_PRELOAD=/tmp/aqueous-gpu-observer/lib/libgpu-observer.so` (Aqueous, Pearl and the Shelly GTK UI).
 For service-launched clients, supply it to that test's service environment as
 well; inheritance from Aqueous alone does not affect an existing user manager.
 Do not import it into the normal desktop environment. The library is a test

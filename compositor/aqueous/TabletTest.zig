@@ -63,7 +63,7 @@ pub fn request(obj: std.json.ObjectMap, writer: *std.Io.Writer) !void {
         if (name != .string or name.string.len == 0 or name.string.len > 256 or std.mem.indexOfScalar(u8, name.string, 0) != null) return error.Invalid;
         const s = try util.gpa.create(Slot);
         errdefer util.gpa.destroy(s);
-        s.name = try util.gpa.dupeZ(u8, name.string);
+        s.name = try util.gpa.dupeSentinel(u8, name.string, 0);
         wlr_tablet_init(&s.native, &impl, s.name);
         s.tool = std.mem.zeroes(wlr.TabletTool);
         s.tool.type = .pen;

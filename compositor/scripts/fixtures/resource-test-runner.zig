@@ -23,7 +23,10 @@ export fn aqueous_heap_live_bytes() usize {
 pub fn main(init: std.process.Init.Minimal) !void {
     var failed = false;
     for (builtin.test_functions) |entry| {
-        std.testing.allocator_instance = .init;
+        std.testing.allocator_instance = .init(std.heap.page_allocator, .{
+            .canary = 0xc3a701ba,
+            .check_write_after_free = true,
+        });
         allocations = .init(std.testing.allocator, .{});
         std.testing.io_instance = .init(std.testing.allocator, .{ .argv0 = .init(init.args), .environ = init.environ });
         std.testing.environ = init.environ;
@@ -33,7 +36,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
             failed = true;
         };
         std.testing.io_instance.deinit();
-        if (std.testing.allocator_instance.deinit() == .leak) failed = true;
+        if (std.testing.allocator_instance.deinit() != 0) failed = true;
         // Stop on failure so leaked mock handles cannot contaminate later tests.
         if (failed) return error.ResourceTestFailed;
     }

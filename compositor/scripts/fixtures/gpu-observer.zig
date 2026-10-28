@@ -2,11 +2,7 @@
 //! Observes the device each process actually creates, including GTK's private
 //! Vulkan device. A separate enumeration probe cannot establish that identity.
 const std = @import("std");
-const c = @cImport({
-    @cInclude("vulkan/vulkan.h");
-    @cInclude("dlfcn.h");
-    @cInclude("unistd.h");
-});
+const c = @import("c");
 
 fn next(comptime T: type, name: [:0]const u8) T {
     return @ptrCast(c.dlsym(c.RTLD_NEXT, name));

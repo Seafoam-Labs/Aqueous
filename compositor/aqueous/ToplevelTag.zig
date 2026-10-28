@@ -9,7 +9,7 @@ description: ?[:0]u8 = null,
 pub fn set(state: *State, allocator: std.mem.Allocator, comptime field: enum { tag, description }, value: []const u8) !bool {
     const slot = &@field(state, @tagName(field));
     if (slot.*) |old| if (std.mem.eql(u8, old, value)) return false;
-    const owned = try allocator.dupeZ(u8, value);
+    const owned = try allocator.dupeSentinel(u8, value, 0);
     if (slot.*) |old| allocator.free(old);
     slot.* = owned;
     return true;

@@ -33,14 +33,14 @@ pub const FileId = enum(u8) {
     }
 
     pub fn fromName(value: []const u8) ?FileId {
-        inline for (std.meta.fields(FileId)) |field| {
-            if (std.mem.eql(u8, value, field.name)) return @enumFromInt(field.value);
+        inline for (@typeInfo(FileId).@"enum".field_names) |field| {
+            if (std.mem.eql(u8, value, field)) return @field(FileId, field);
         }
         return null;
     }
 };
 
-pub const file_count = std.meta.fields(FileId).len;
+pub const file_count = @typeInfo(FileId).@"enum".field_names.len;
 
 pub const Category = enum {
     appearance,

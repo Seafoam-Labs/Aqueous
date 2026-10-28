@@ -93,7 +93,7 @@ jobs:
         shell: bash
         run: git config --global --add safe.directory '*'
 
-      - name: Setup patched Zig 0.16.0
+      - name: Setup Zig 0.17.0
         uses: ./.github/actions/setup-zig
 
       - name: Build pinned wlroots render hook
@@ -123,7 +123,7 @@ jobs:
               -Dxwayland=true \
               -Dexternal-policy=true \
               -Dcpu=baseline \
-              -Doptimize=ReleaseSafe
+              -Doptimize=safe
 
       - name: Audit linked seam
         shell: bash
@@ -195,7 +195,7 @@ jobs:
           cd compositor
           PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
             zig build -Dxwayland=true -Doutput-retry-testing=true -Dllvm=true -Dcpu=baseline \
-              -Doptimize=ReleaseSafe --prefix "$RUNNER_TEMP/aqueous-presentation-test"
+              -Doptimize=safe --prefix "$RUNNER_TEMP/aqueous-presentation-test"
           python3 scripts/test-presentation-policy.py \
             "$RUNNER_TEMP/aqueous-presentation-test/bin/aqueous"
           mapfile -t icds < <(compgen -G '/usr/share/vulkan/icd.d/lvp_icd*.json')

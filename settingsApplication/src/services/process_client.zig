@@ -28,7 +28,7 @@ pub fn runLimited(a: std.mem.Allocator, args: []const []const u8, input: []const
     defer for (argv[0..count]) |p| a.free(std.mem.span(p.?));
     for (args, 0..) |arg, i| {
         if (std.mem.indexOfScalar(u8, arg, 0) != null) return error.InvalidArgument;
-        argv[i] = try a.dupeZ(u8, arg);
+        argv[i] = try a.dupeSentinel(u8, arg, 0);
         count += 1;
     }
     var result: Result = .{};

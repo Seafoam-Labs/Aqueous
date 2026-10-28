@@ -93,8 +93,8 @@ pub const Client = struct {
                     if (obj.get("error")) |remote| if (remote == .object) {
                         const code = remote.object.get("code") orelse return error.CompositorRejected;
                         if (code != .string) return error.CompositorRejected;
-                        inline for (std.meta.fields(@import("display_preview_policy.zig").Reason)) |field| {
-                            if (std.mem.eql(u8, code.string, field.name)) return @field(anyerror, field.name);
+                        inline for (@typeInfo(@import("display_preview_policy.zig").Reason).@"enum".field_names) |field| {
+                            if (std.mem.eql(u8, code.string, field)) return @field(anyerror, field);
                         }
                     };
                     return error.CompositorRejected;

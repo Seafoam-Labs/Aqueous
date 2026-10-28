@@ -55,13 +55,13 @@ pub fn create(output: *Output, name: []const u8) error{OutOfMemory}!*Workspace {
     const workspace = try util.gpa.create(Workspace);
     errdefer util.gpa.destroy(workspace);
 
-    const owned_name = try util.gpa.dupeZ(u8, name);
+    const owned_name = try util.gpa.dupeSentinel(u8, name, 0);
     errdefer util.gpa.free(owned_name);
 
     const home_name = if (output.wlr_output) |wlr_output|
-        try util.gpa.dupeZ(u8, std.mem.span(wlr_output.name))
+        try util.gpa.dupeSentinel(u8, std.mem.span(wlr_output.name), 0)
     else
-        try util.gpa.dupeZ(u8, "");
+        try util.gpa.dupeSentinel(u8, "", 0);
     errdefer comptime unreachable;
 
     const id = next_id;

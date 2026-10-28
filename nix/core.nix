@@ -39,7 +39,7 @@
   wayland-scanner,
   wlroots_0_20,
   xwayland,
-  zig_0_16,
+  zig_0_17,
   aqueousSource ? lib.cleanSourceWith {
     src = ../.;
     filter = path: _type:
@@ -188,7 +188,7 @@ stdenv.mkDerivation (finalAttrs: {
     scdoc
     wayland-scanner
     xwayland
-    zig_0_16
+    zig_0_17
   ];
 
   buildInputs = [
@@ -241,7 +241,7 @@ stdenv.mkDerivation (finalAttrs: {
     zig build \
       --system "${zigDeps}" \
       -Dcpu=baseline \
-      -Doptimize=ReleaseSafe \
+      -Doptimize=safe \
       -Dxwayland \
       -Dllvm \
       -Dman-pages=true \
@@ -253,7 +253,7 @@ stdenv.mkDerivation (finalAttrs: {
 
     pushd settingsApplication
     export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-config-cache"
-    zig build --system "${zigDeps}" -Dcpu=baseline -Doptimize=ReleaseSafe \
+    zig build --system "${zigDeps}" -Dcpu=baseline -Doptimize=safe \
       --prefix "$TMPDIR/aqueous-config-dist"
     popd
 

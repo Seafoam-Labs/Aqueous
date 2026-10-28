@@ -125,7 +125,7 @@ Build and test the DMS bridge:
 ZIG_GLOBAL_CACHE_DIR=/tmp/aqueous-portal-global \
 ZIG_LOCAL_CACHE_DIR=/tmp/aqueous-portal-local \
 zig build --build-file packaging/portal/bridge/build.zig \
-  -Dcpu=baseline -Doptimize=ReleaseSafe --prefix /tmp/aqueous-portal-dist
+  -Dcpu=baseline -Doptimize=safe --prefix /tmp/aqueous-portal-dist
 packaging/tests/test-portal-chooser.sh \
   /tmp/aqueous-portal-dist/bin/aqueous-dms-portal-chooser
 DMS_SOURCE=/path/to/DankMaterialShell \

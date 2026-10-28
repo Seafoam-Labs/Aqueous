@@ -1,8 +1,6 @@
 //! Exercise both Vulkan dispatch paths against a real loader/software ICD.
 const std = @import("std");
-const c = @cImport({
-    @cInclude("vulkan/vulkan.h");
-});
+const c = @import("c");
 pub fn main() !void {
     var instance: c.VkInstance = null;
     var app = std.mem.zeroes(c.VkApplicationInfo);

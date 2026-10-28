@@ -46,7 +46,7 @@ else
         PKG_CONFIG_PATH="$patched_prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" \
         LD_LIBRARY_PATH="$patched_prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
         ZIG_GLOBAL_CACHE_DIR="$cache_dir" \
-            zig build --prefix "$install_dir" -Dcpu=baseline -Doptimize=ReleaseSafe \
+            zig build --prefix "$install_dir" -Dcpu=baseline -Doptimize=safe \
                 -Dvulkan-effects=false -Danimations=false
     )
     compositor_bin="$install_dir/bin/aqueous"

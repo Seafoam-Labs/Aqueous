@@ -13,7 +13,7 @@ license=('GPL-3.0-only' 'MIT')
 # Keep sibling dependencies and runtime-only tools in package_*() below.
 makedepends=('patchelf' 'git' 'curl' 'patch' 'scdoc' 'jq' 'python' 'shaderc' 'clang' 'lld' 'llvm'
              'wayland-protocols>=1.49' 'pkgconf' 'meson' 'ninja' 'glslang'
-             'vulkan-headers' 'hwdata' 'zig=0.16.0'
+             'vulkan-headers' 'hwdata' 'zig=0.17.0'
              'freetype2' 'wayland' 'libxkbcommon' 'libinput' 'pixman' 'libpng' 'libdrm'
              'libevdev' 'libdecor' 'xorg-xwayland' 'pipewire' 'glib2' 'fontconfig' 'mesa'
              'systemd-libs' 'seatd' 'libdisplay-info' 'libliftoff' 'lcms2'
@@ -50,22 +50,21 @@ build() {
     ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-config-zig-global" \
     ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-config-zig-local" \
         zig build --build-file "$srcdir/aqueous/settingsApplication/build.zig" \
-        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-config-dist"
+        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=safe --prefix "$srcdir/aqueous-config-dist"
 
     # Build the Aqueous compositor/policy executable and inspection client.
     msg2 "Building Aqueous compositor..."
     cd "$srcdir/aqueous/compositor"
     # Recreate generated protocol metadata so incremental builds cannot ship retired names.
     rm -rf -- "$srcdir/aqueous-dist/share/aqueous-protocols"
-    # -Dllvm forces the LLVM backend + LLD linker. Zig 0.16.0's self-hosted
-    # ELF linker can't handle R_X86_64_PC64 in .sframe emitted by gcc >= 16.
+    # Keep the validated LLVM backend and LLD linker for release builds.
     # Keep the manuals deterministic in clean chroots. In-tree builds make
     # them optional when scdoc is absent, but packages must always document
     # both installed executables, including aqueousctl.
     AQUEOUS_WLROOTS_CACHE_DIR="$srcdir" \
         scripts/build-wlroots-render-hook.sh
     PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig" \
-    zig build -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe -Dxwayland -Dllvm \
+    zig build -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=safe -Dxwayland -Dllvm \
         -Dman-pages=true -Dversion-string="$pkgver" \
         --prefix "$srcdir/aqueous-dist" install
 
@@ -74,7 +73,7 @@ build() {
     ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-picker-zig-global" \
     ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-picker-zig-local" \
         zig build --build-file "$srcdir/aqueous/aqueous-portal-picker/build.zig" picker \
-        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-picker-dist"
+        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=safe --prefix "$srcdir/aqueous-picker-dist"
     sh "$srcdir/aqueous/packaging/portal/build-aqueous-portal.sh" \
         "$srcdir/xdg-desktop-portal-wlr-0.8.4" \
         "$srcdir/aqueous-portal-build" "$srcdir/aqueous-portal-dist"

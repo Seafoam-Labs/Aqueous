@@ -112,7 +112,7 @@ fn bind(client: *wl.Client, manager: *ShellManager, version: u32, id: u32) void 
         client.postNoMemory();
         return;
     };
-    const z = arena.allocator().dupeZ(u8, json) catch {
+    const z = arena.allocator().dupeSentinel(u8, json, 0) catch {
         client.postNoMemory();
         return;
     };
@@ -284,7 +284,7 @@ fn refresh(manager: *ShellManager) !void {
             const names = try a.alloc([]const u8, keymap.numLayouts());
             for (names, 0..) |*name_ptr, i| name_ptr.* = span(keymap.layoutGetName(@intCast(i))) orelse "";
             const id = try idString(a, group.shell_id);
-            try add(&next, &total, "keyboard", id, .{ .kind = "keyboard", .id = id, .seat = name, .layouts = names, .index = if (group.state.xkb_state) |state| state.serializeLayout(@enumFromInt(1 << 7)) else 0 });
+            try add(&next, &total, "keyboard", id, .{ .kind = "keyboard", .id = id, .seat = name, .layouts = names, .index = if (group.state.xkb_state) |state| state.serializeLayout(@fromBackingInt(@intCast(1 << 7))) else 0 });
         }
         try add(&next, &total, "seat", name, .{ .kind = "seat", .id = name, .output = try optionalId(a, if (seat.selected_output) |o| o.shell_id else null), .window = if (seat.focused == .window) windowId(seat.focused.window) else null, .focus_kind = @tagName(seat.focused), .keyboard = try optionalId(a, active_group) });
     }
@@ -392,10 +392,10 @@ fn sendBatch(manager: *ShellManager, client: *Client) !void {
 
 fn result(client: *Client, id: u32, status: Status) void {
     var buf: [32]u8 = undefined;
-    const sequence = std.fmt.bufPrintZ(&buf, "{d}", .{server.shell_manager.sequence}) catch unreachable;
+    const sequence = std.mem.printSentinel(&buf, "{d}", .{server.shell_manager.sequence}, 0) catch unreachable;
     if (client.socket) |socket| {
         socket.commandResult(status, sequence) catch socket.fail();
-    } else client.resource.?.sendResult(id, @enumFromInt(@intFromEnum(status)), sequence);
+    } else client.resource.?.sendResult(id, @fromBackingInt(@intCast(@backingInt(status))), sequence);
 }
 
 fn request(resource: *protocol, req: protocol.Request, client: *Client) void {
@@ -421,7 +421,7 @@ fn request(resource: *protocol, req: protocol.Request, client: *Client) void {
         .identify_workspace => |args| {
             var buf: [32]u8 = undefined;
             const ws = @import("WorkspaceManager.zig").workspaceForResource(args.workspace);
-            const id = if (ws) |value| std.fmt.bufPrintZ(&buf, "{d}", .{value.id}) catch unreachable else "";
+            const id = if (ws) |value| std.mem.printSentinel(&buf, "{d}", .{value.id}, 0) catch unreachable else "";
             resource.sendWorkspaceId(args.request_id, id);
         },
         .command => |args| {
@@ -446,11 +446,11 @@ fn request(resource: *protocol, req: protocol.Request, client: *Client) void {
                 result(client, args.request_id, .invalid);
                 return;
             }
-            if (@intFromEnum(args.action) >= std.meta.fields(Types.Action).len) {
+            if (@backingInt(args.action) >= @typeInfo(Types.Action).@"enum".field_names.len) {
                 result(client, args.request_id, .invalid);
                 return;
             }
-            const action: Types.Action = @enumFromInt(@intFromEnum(args.action));
+            const action: Types.Action = @fromBackingInt(@intCast(@backingInt(args.action)));
             if (action == .session_reload and resource.getVersion() < 2) {
                 result(client, args.request_id, .unsupported);
                 return;

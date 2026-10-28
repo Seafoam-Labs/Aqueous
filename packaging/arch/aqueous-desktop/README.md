@@ -38,7 +38,7 @@ shelly build --isolated --sync-deps --check --json PKGBUILD > build-result.json
 ```
 
 Publish the release tag `v${pkgver}` before building. The build requires Zig
-0.16.0 and targets x86-64-v3 on x86_64 and baseline on aarch64. It includes the
+0.17.0 and targets x86-64-v3 on x86_64 and baseline on aarch64. It includes the
 private wlroots library and Aqueous portal backend, with the standalone picker.
 Publish all six archives together, including the `any` packages. Component
 dependencies use exact versions; the desktop preset accepts its component

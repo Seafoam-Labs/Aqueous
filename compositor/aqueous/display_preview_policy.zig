@@ -14,8 +14,8 @@ pub const State = struct {
     auto_hdr_boost: f64 = 0.5,
 };
 pub const Requirements = struct {
-    preserve: Features = .initEmpty(),
-    transition: Features = .initEmpty(),
+    preserve: Features = .empty,
+    transition: Features = .empty,
 
     pub fn include(self: *Requirements, before: State, after: State) void {
         self.preserve.insert(.sdr);
@@ -154,8 +154,8 @@ pub fn rejection(ctx: Context, requirements: Requirements) ?Reason {
     return null;
 }
 pub fn failure(why: Reason) anyerror {
-    inline for (std.meta.fields(Reason)) |field| {
-        if (why == @field(Reason, field.name)) return @field(anyerror, field.name);
+    inline for (@typeInfo(Reason).@"enum".field_names) |field| {
+        if (why == @field(Reason, field)) return @field(anyerror, field);
     }
     unreachable;
 }

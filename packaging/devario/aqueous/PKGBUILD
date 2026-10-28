@@ -14,7 +14,7 @@ depends=('wayland' 'libxkbcommon' 'libinput' 'pixman' 'libdrm' 'libevdev'
          'brightnessctl' 'playerctl')
 makedepends=('patchelf' 'git' 'curl' 'patch' 'scdoc' 'python' 'shaderc' 'clang' 'lld' 'llvm'
              'wayland-protocols>=1.49' 'pkgconf' 'meson' 'ninja' 'glslang'
-             'vulkan-headers' 'hwdata' 'zig=0.16.0')
+             'vulkan-headers' 'hwdata' 'zig=0.17.0')
 provides=("aqueous=$pkgver")
 # These packages own the same unsuffixed binary/private library.
 # Devario aqueous-core-git also uses these paths and declares its conflict.
@@ -39,7 +39,7 @@ build() {
     cd "$srcdir/aqueous/compositor"
     AQUEOUS_WLROOTS_CACHE_DIR="$srcdir" bash scripts/build-wlroots-render-hook.sh
     PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig" \
-        zig build -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe -Dxwayland -Dllvm \
+        zig build -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=safe -Dxwayland -Dllvm \
         -Dman-pages=true -Dversion-string="$pkgver" --prefix "$srcdir/aqueous-dist"
 }
 

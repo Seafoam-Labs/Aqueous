@@ -134,7 +134,7 @@ pub fn execute(cmd: Types.Command) Types.Status {
         .workspace_rename => {
             const ws = findWorkspace(target) orelse return .not_found;
             if (!std.unicode.utf8ValidateSlice(value) or std.mem.indexOfScalar(u8, value, '\n') != null) return .invalid;
-            const name = util.gpa.dupeZ(u8, value) catch return .unavailable;
+            const name = util.gpa.dupeSentinel(u8, value, 0) catch return .unavailable;
             util.gpa.free(ws.name);
             ws.name = name;
             server.workspace_manager.dirty();
@@ -154,7 +154,7 @@ pub fn execute(cmd: Types.Command) Types.Status {
             const keymap = group.state.keymap orelse return .unavailable;
             const count = keymap.numLayouts();
             if (count == 0) return .unavailable;
-            const current = if (group.state.xkb_state) |state| state.serializeLayout(@enumFromInt(1 << 7)) else 0;
+            const current = if (group.state.xkb_state) |state| state.serializeLayout(@fromBackingInt(@intCast(1 << 7))) else 0;
             const index = if (action == .keyboard_next) (current + 1) % count else std.fmt.parseInt(u32, value, 10) catch return .invalid;
             if (index >= count) return .invalid;
             var modifiers = group.state.modifiers;

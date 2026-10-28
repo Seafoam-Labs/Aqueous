@@ -227,7 +227,7 @@ remain a separate follow-on. Existing aqueousctl commands remain supported.
 
 ## Build
 
-Building requires Zig 0.16 or newer, Wayland, wayland-protocols 1.49 or newer, libxkbcommon,
+Building requires Zig 0.17 or newer, Wayland, wayland-protocols 1.49 or newer, libxkbcommon,
 libinput, libevdev, pixman, Vulkan headers and loader, pkg-config, Meson, Ninja,
 glslang, and the dependencies listed by wlroots 0.20. `-Dxwayland` builds
 additionally require the `Xwayland` server executable (`xorg-xwayland` on Arch
@@ -246,7 +246,7 @@ export PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig"
 zig build test
 scripts/test-color-management-luminance.sh
 scripts/test-proton-hdr-color-management.sh
-zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm
+zig build -Doptimize=safe -Dxwayland -Dllvm
 ```
 
 The default build uses the pinned Aqueous wlroots render hook, requires

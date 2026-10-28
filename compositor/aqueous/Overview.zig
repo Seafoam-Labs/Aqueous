@@ -488,7 +488,7 @@ pub fn nodeLabel(
     }
     for (overview.entries.items) |entry| {
         if (node == &entry.tree.node) {
-            return std.fmt.bufPrintZ(buffer, "overview card: {}", .{entry.handle}) catch
+            return std.mem.printSentinel(buffer, "overview card: {}", .{entry.handle}, 0) catch
                 "overview card";
         }
         for (entry.buffers.items) |record| {

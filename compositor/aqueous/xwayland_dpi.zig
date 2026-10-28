@@ -1,18 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 const std = @import("std");
 const allocator = std.heap.c_allocator;
-pub const c = @cImport({
-    @cDefine("_GNU_SOURCE", "1");
-    @cInclude("xcb/xcb.h");
-    @cInclude("errno.h");
-    @cInclude("signal.h");
-    @cInclude("spawn.h");
-    @cInclude("sys/socket.h");
-    @cInclude("sys/wait.h");
-    @cInclude("time.h");
-    @cInclude("unistd.h");
-    @cInclude("stdlib.h");
-});
+pub const c = @import("xwayland_c");
 const resource_limit = 256 * 1024;
 const base_dpi = @import("xwayland_dpi_policy.zig").base_dpi;
 pub const State = enum(u32) { starting, applied, external, failed };
@@ -47,7 +36,7 @@ pub const Supervisor = struct {
     pub fn create(display: [*:0]const u8) !*Supervisor {
         const self = try allocator.create(Supervisor);
         errdefer allocator.destroy(self);
-        self.* = .{ .display = try allocator.dupeZ(u8, std.mem.span(display)) };
+        self.* = .{ .display = try allocator.dupeSentinel(u8, std.mem.span(display), 0) };
         return self;
     }
 
@@ -109,8 +98,8 @@ pub const Supervisor = struct {
         if (self.fd < 0) return self.status;
         var reply: Reply = undefined;
         const n = c.recv(self.fd, &reply, @sizeOf(Reply), c.MSG_DONTWAIT);
-        if (n == @sizeOf(Reply) and reply.state <= @intFromEnum(State.failed)) {
-            self.status.state = @enumFromInt(reply.state);
+        if (n == @sizeOf(Reply) and reply.state <= @backingInt(State.failed)) {
+            self.status.state = @fromBackingInt(@intCast(reply.state));
             self.status.dpi = reply.dpi;
             self.pending = false;
             self.next_send = now + 500;
@@ -258,7 +247,7 @@ pub const Worker = struct {
         }
         try self.put(self.root, self.last, c.XCB_ATOM_STRING, text);
         try self.put(self.root, self.resource, c.XCB_ATOM_STRING, updated);
-        var data = [_]u8{0} ** 160; // XSettings LSBFirst
+        var data = @as([160]u8, @splat(0)); // XSettings LSBFirst
         self.serial +%= 1;
         std.mem.writeInt(u32, data[4..8], self.serial, .little);
         std.mem.writeInt(u32, data[8..12], 3, .little);
@@ -389,7 +378,7 @@ pub fn run(display: [*:0]const u8) u8 {
         if (n != @sizeOf(u32) or dpi < 24 * 1024 or dpi > 1536 * 1024) break;
         _ = c.alarm(2);
         const state = w.update(dpi) catch State.failed;
-        const reply: Reply = .{ .state = @intFromEnum(state), .dpi = if (state == .applied) w.dpi else 0 };
+        const reply: Reply = .{ .state = @backingInt(state), .dpi = if (state == .applied) w.dpi else 0 };
         _ = c.alarm(0);
         if (c.send(c.STDIN_FILENO, &reply, @sizeOf(Reply), c.MSG_NOSIGNAL) != @sizeOf(Reply)) break;
         if (state == .failed or c.xcb_connection_has_error(connection) != 0) break;

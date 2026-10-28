@@ -14,10 +14,10 @@ The [T11 additions and remaining work](docs/T11.md) are unchanged by GUI retirem
 
 ## Build and package
 
-From this directory in a full Aqueous checkout, using Zig 0.16.0:
+From this directory in a full Aqueous checkout, using Zig 0.17.0:
 
 ```sh
-zig build -Doptimize=ReleaseSafe
+zig build -Doptimize=safe
 zig build test test-driver
 DESTDIR=/tmp/aqueous-config-stage PREFIX=/usr \
   AQUEOUSCTL_BINARY=/path/to/matching/aqueousctl packaging/install.sh
