@@ -1,6 +1,6 @@
 .{
     .name = .aqueous_portal_picker,
-    .version = "1.0.12",
+    .version = "1.0.13",
     .fingerprint = 0xd04e1d50116315c4,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{

@@ -2,7 +2,7 @@
 pkgbase=aqueous-desktop-git
 pkgname=(aqueous-core-git aqueous-session-git xdg-desktop-portal-aqueous-git
          aqueous-integration-pearl-git aqueous-shell-pearl-git aqueous-desktop-git)
-pkgver=1.0.12
+pkgver=1.0.13
 pkgrel=1
 pkgdesc='Pearl desktop with Aqueous Git (replaces stable)'
 arch=('x86_64' 'aarch64')
@@ -28,7 +28,7 @@ pkgver() {
     cd "$srcdir/aqueous"
     local version
     version=$(git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g')
-    if [[ -z $version ]]; then version="1.0.12.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"; fi
+    if [[ -z $version ]]; then version="1.0.13.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"; fi
     printf '%s\n' "$version"
 }
 
