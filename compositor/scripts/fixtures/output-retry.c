@@ -26,6 +26,10 @@ static bool timing_fifo = true;
 #include <wayland-client.h>
 #include "xdg-shell-client-protocol.h"
 #include "presentation-time-client-protocol.h"
+#ifdef TEST_OUTPUT_TEARDOWN
+#include "layer-shell-client-protocol.h"
+static struct zwlr_layer_shell_v1 *layer_shell;
+#endif
 #ifdef TEST_FIFO_V1
 #include "fifo-v1-client-protocol.h"
 static struct wp_fifo_manager_v1 *fifo_manager;
@@ -101,7 +105,13 @@ static void draw(void) {
     wp_presentation_feedback_add_listener(feedback, &feedback_listener, (void *)(uintptr_t)frame);
     struct wl_callback *cb = wl_surface_frame(surface);
     wl_callback_add_listener(cb, &frame_listener, NULL);
-    xdg_surface_set_window_geometry(xdg, 0, 0, width, height);
+    if (xdg) xdg_surface_set_window_geometry(xdg, 0, 0, width, height);
+#ifdef TEST_OUTPUT_TEARDOWN
+    struct wl_region *opaque = wl_compositor_create_region(compositor);
+    wl_region_add(opaque, 0, 0, width, height);
+    wl_surface_set_opaque_region(surface, opaque);
+    wl_region_destroy(opaque);
+#endif
     wl_surface_attach(surface, buffer, 0, 0);
     wl_surface_damage_buffer(surface, 0, 0, width, height);
     #ifdef TEST_FIFO_V1
@@ -170,8 +180,41 @@ static void description(void *d, struct wl_output *o, const char *s) { (void)d; 
 static const struct wl_output_listener output_listener = {
     .geometry = geometry, .mode = mode, .done = done, .scale = scale, .name = name, .description = description,
 };
+#ifdef TEST_OUTPUT_TEARDOWN
+static void layer_configure(void *data, struct zwlr_layer_surface_v1 *layer,
+        uint32_t serial, uint32_t w, uint32_t h) {
+    (void)data;
+    zwlr_layer_surface_v1_ack_configure(layer, serial);
+    width = w;
+    height = h;
+    configured = true;
+    draw();
+}
+static void layer_closed(void *data, struct zwlr_layer_surface_v1 *layer) {
+    (void)data; (void)layer;
+    puts("{\"event\":\"closed\"}");
+}
+static const struct zwlr_layer_surface_v1_listener layer_listener = {
+    .configure = layer_configure, .closed = layer_closed,
+};
+static void surface_enter(void *data, struct wl_surface *s, struct wl_output *o) {
+    (void)data; (void)s; (void)o;
+    puts("{\"event\":\"enter\"}");
+}
+static void surface_leave(void *data, struct wl_surface *s, struct wl_output *o) {
+    (void)data; (void)s; (void)o;
+    puts("{\"event\":\"leave\"}");
+}
+static const struct wl_surface_listener surface_listener = {
+    .enter = surface_enter, .leave = surface_leave,
+};
+#endif
 static void global(void *data, struct wl_registry *registry, uint32_t id, const char *interface, uint32_t version) {
     (void)data;
+#ifdef TEST_OUTPUT_TEARDOWN
+    if (!strcmp(interface, "zwlr_layer_shell_v1"))
+        layer_shell = wl_registry_bind(registry, id, &zwlr_layer_shell_v1_interface, 1);
+#endif
     if (!strcmp(interface, "wl_compositor")) compositor = wl_registry_bind(registry, id, &wl_compositor_interface, 4);
     #ifdef TEST_FIFO_V1
     if (!strcmp(interface, "wp_fifo_manager_v1")) {
@@ -220,6 +263,21 @@ int main(int argc, char **argv) {
     for (unsigned i = 0; i < output_count; i++) if (!strcmp(outputs[i].name, argv[2])) target = outputs[i].object;
     assert(target);
     surface = wl_compositor_create_surface(compositor);
+#ifdef TEST_OUTPUT_TEARDOWN
+    wl_surface_add_listener(surface, &surface_listener, NULL);
+    if (!strcmp(argv[1], "cover")) {
+        assert(layer_shell);
+        struct zwlr_layer_surface_v1 *layer = zwlr_layer_shell_v1_get_layer_surface(
+            layer_shell, surface, target, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "teardown-cover");
+        zwlr_layer_surface_v1_add_listener(layer, &layer_listener, NULL);
+        zwlr_layer_surface_v1_set_anchor(layer, ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP |
+            ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM | ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
+            ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+        zwlr_layer_surface_v1_set_size(layer, 0, 0);
+        zwlr_layer_surface_v1_set_exclusive_zone(layer, -1);
+        wl_surface_commit(surface);
+    } else {
+#endif
     #ifdef TEST_FIFO_V1
     assert(fifo_manager);
     fifo = wp_fifo_manager_v1_get_fifo(fifo_manager, surface);
@@ -234,6 +292,9 @@ int main(int argc, char **argv) {
     xdg_toplevel_add_listener(top, &top_listener, NULL);
     xdg_toplevel_set_title(top, argv[1]); xdg_toplevel_set_app_id(top, argv[1]);
     xdg_toplevel_set_fullscreen(top, target); wl_surface_commit(surface);
+#ifdef TEST_OUTPUT_TEARDOWN
+    }
+#endif
     double report = 0;
     for (;;) {
         if (animated && configured && now_ms() >= next_draw) draw();

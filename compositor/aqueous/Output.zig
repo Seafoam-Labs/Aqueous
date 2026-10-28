@@ -1846,6 +1846,16 @@ fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) v
     const output: *Output = @fieldParentPtr("destroy", listener);
     server.om.warming.remove(wlr_output);
     output.discardOverlayCandidate();
+    // Teardown can reveal occluded surfaces (for example when closing a layer
+    // surface or overview). Stop scene enter events before those changes: a
+    // listener added during wl_signal_emit_mutable(destroy) misses that signal,
+    // and wlroots keeps surface output associations when they become hidden.
+    // Waiting for the scene output addon to be destroyed would leave those new
+    // bind listeners attached when wlr_output_finish checks its listener lists.
+    if (output.scene_output) |scene_output| {
+        output.scene_output = null;
+        scene_output.destroy();
+    }
     server.om.display_revision += 1;
     @import("DisplayPreview.zig").removed(output.display_instance);
     server.system_bell.outputRemoved(output.policyId());
@@ -1897,7 +1907,6 @@ fn handleDestroy(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) v
     wlr_output.data = null;
 
     output.wlr_output = null;
-    output.scene_output = null;
     if (output.mirror_scene) |scene| scene.tree.node.destroy();
     output.mirror_scene = null;
     output.scheduled.mode = .none;
