@@ -11,13 +11,13 @@ bytes.
 
 ## Build
 
-Requires Zig 0.16, GTK4 development packages, and pkg-config. GTK/GLib/GIO
+Requires Zig 0.17, GTK4 development packages, and pkg-config. GTK/GLib/GIO
 bindings are pinned in `build.zig.zon`.
 
 ```sh
-zig build -Doptimize=ReleaseSafe
+zig build -Doptimize=safe
 # From the repository root:
-zig build --build-file aqueous-portal-picker/build.zig -Doptimize=ReleaseSafe
+zig build --build-file aqueous-portal-picker/build.zig -Doptimize=safe
 ```
 
 The default build installs only `aqueous-portal-picker`. The `picker` step is an
@@ -32,7 +32,7 @@ check selection, cancellation, exact source output, and input limits. It
 requires Python 3, `gtk4-broadwayd`, and `dbus-daemon`.
 
 ```sh
-zig build -Doptimize=ReleaseSafe -Dtest-hooks=true --prefix /tmp/aqueous-picker-test
+zig build -Doptimize=safe -Dtest-hooks=true --prefix /tmp/aqueous-picker-test
 python3 tests/test-picker.py /tmp/aqueous-picker-test/bin/aqueous-portal-picker
 ```
 

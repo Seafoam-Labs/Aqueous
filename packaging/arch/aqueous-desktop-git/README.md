@@ -42,6 +42,6 @@ shelly build --isolated --sync-deps --check --json PKGBUILD > build-result.json
 
 Metadata generation refreshes Git sources and requires source access.
 `pkgver()` derives the version from Git tags and commits. The build requires
-Zig 0.16.0, targets x86-64-v3 on x86_64 and baseline on aarch64, and includes
+Zig 0.17.0, targets x86-64-v3 on x86_64 and baseline on aarch64, and includes
 the private wlroots library and Aqueous portal backend. It builds the
 standalone picker without the Welcome app; Pearl supplies the settings UI.

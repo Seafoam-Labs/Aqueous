@@ -14,7 +14,7 @@ url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL-3.0-only' 'MIT')
 makedepends=('jq' 'gtk4' 'freetype2' 'wayland' 'libxkbcommon' 'libinput' 'pixman' 'libpng' 'libdrm' 'libevdev' 'libdecor' 'libinih' 'pipewire' 'mesa' 'systemd-libs' 'seatd' 'libdisplay-info' 'libliftoff' 'lcms2' 'vulkan-icd-loader' 'vulkan-mesa-layers' 'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil' 'python' 'shaderc' 'clang' 'lld' 'llvm'
              'git' 'curl' 'patch' 'scdoc' 'wayland-protocols>=1.49' 'pkgconf' 'xorg-xwayland'
-             'meson' 'ninja' 'glslang' 'vulkan-headers' 'hwdata' 'zig=0.16.0')
+             'meson' 'ninja' 'glslang' 'vulkan-headers' 'hwdata' 'zig=0.17.0')
 # Helper integration checks exercise org.gnome.desktop.interface via gsettings.
 checkdepends=('libarchive' 'jq' 'python' 'ripgrep' 'qt6-declarative' 'gsettings-desktop-schemas')
 source=(
@@ -37,8 +37,8 @@ build() {
     # Check the compiler before building any component, including helpers.
     local zig_ver
     zig_ver=$(zig version) || return 1
-    if [[ $zig_ver != 0.16.0 ]]; then
-        error "Zig 0.16.0 required, found $zig_ver. Install the pinned zig package."
+    if [[ $zig_ver != 0.17.0 ]]; then
+        error "Zig 0.17.0 required, found $zig_ver. Install the pinned zig package."
         return 1
     fi
     msg2 "Using zig $zig_ver"
@@ -56,13 +56,13 @@ build() {
     ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-picker-zig-global" \
     ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-picker-zig-local" \
         zig build --build-file "$srcdir/aqueous/aqueous-portal-picker/build.zig" \
-        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-picker-dist"
+        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=safe --prefix "$srcdir/aqueous-picker-dist"
 
     # Canonical configuration helper; Pearl supplies the settings UI.
     ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-config-zig-global" \
     ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-config-zig-local" \
         zig build --build-file "$srcdir/aqueous/settingsApplication/build.zig" \
-        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-config-dist"
+        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=safe --prefix "$srcdir/aqueous-config-dist"
 
     cd "$srcdir/aqueous"
 
@@ -71,15 +71,14 @@ build() {
     cd "$srcdir/aqueous/compositor"
     # Recreate generated protocol metadata so incremental builds cannot ship retired names.
     rm -rf -- "$srcdir/aqueous-dist/share/aqueous-protocols"
-    # -Dllvm forces the LLVM backend + LLD linker. Zig 0.16.0's self-hosted
-    # ELF linker can't handle R_X86_64_PC64 in .sframe emitted by gcc >= 16.
+    # Keep the validated LLVM backend and LLD linker for release builds.
     # Keep the manuals deterministic in clean chroots. In-tree builds make
     # them optional when scdoc is absent, but packages must always document
     # both installed executables, including aqueousctl.
     AQUEOUS_WLROOTS_CACHE_DIR="$srcdir" \
         scripts/build-wlroots-render-hook.sh
     PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig" \
-    zig build -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe -Dxwayland -Dllvm \
+    zig build -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=safe -Dxwayland -Dllvm \
         -Dman-pages=true -Dversion-string="$pkgver" \
         --prefix "$srcdir/aqueous-dist" install
 
@@ -92,7 +91,7 @@ build() {
     ZIG_GLOBAL_CACHE_DIR="$srcdir/aqueous-plugin-zig-global" \
     ZIG_LOCAL_CACHE_DIR="$srcdir/aqueous-portal-chooser-cache" \
         zig build --build-file "$srcdir/aqueous/packaging/portal/bridge/build.zig" \
-        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe --prefix "$srcdir/aqueous-portal-chooser-dist"
+        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=safe --prefix "$srcdir/aqueous-portal-chooser-dist"
 
 }
 

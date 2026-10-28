@@ -55,7 +55,7 @@ pub fn arrange(
     }
     if (!state.enabled[state.active]) state.active = firstEnabled(state);
 
-    var child_windows = [_]std.ArrayListUnmanaged(types.Window){.empty} ** config.max_composable_regions;
+    var child_windows = @as([config.max_composable_regions]std.ArrayListUnmanaged(types.Window), @splat(.empty));
     defer for (&child_windows) |*items| items.deinit(allocator);
     state.first_member = .{ null, null, null, null };
 
@@ -343,8 +343,8 @@ test "composable partitions windows and follows member focus" {
         \\p3 = [1.0, 1.0]
         \\p4 = [0.5, 1.0]
     );
-    snapshot.options[@intFromEnum(config.LayoutId.rows)].gaps_outer = 0;
-    snapshot.options[@intFromEnum(config.LayoutId.tile)].gaps_outer = 0;
+    snapshot.options[@backingInt(config.LayoutId.rows)].gaps_outer = 0;
+    snapshot.options[@backingInt(config.LayoutId.tile)].gaps_outer = 0;
     var state: State = .{};
     defer state.deinit(std.testing.allocator);
 

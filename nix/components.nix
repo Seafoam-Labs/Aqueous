@@ -1,7 +1,7 @@
 { lib, callPackage, stdenv, runCommand, symlinkJoin, python3, makeWrapper,
-  coreutils, bash, jq, gawk, gnused, gnugrep, findutils, dbus, systemd, uwsm, grim, slurp, wl-clipboard, gtk4, zig_0_16,
+  coreutils, bash, jq, gawk, gnused, gnugrep, findutils, dbus, systemd, uwsm, grim, slurp, wl-clipboard, gtk4, zig_0_17,
   fetchurl, gnutar, meson, ninja, pkg-config, wayland, wayland-protocols,
-  wayland-scanner, pipewire, inih, scdoc, zstd, linkFarm, libdrm, mesa }:
+  wayland-scanner, pipewire, inih, scdoc, linkFarm, libdrm, mesa }:
 let
   core = callPackage ./core.nix { };
   inherit (core) version;
@@ -11,15 +11,15 @@ let
     hash = "sha256-MSKWbUarEI9QVSW8skmPkSG0Ru6EOPv863Onofoa1AA=";
   };
   gobjectSource = fetchurl {
-    url = "https://github.com/ghostty-org/zig-gobject/releases/download/0.9.0-2026-05-22-28-1/ghostty-gobject-0.9.0-2026-05-22-28-1.tar.zst";
-    sha256 = "ac9bbfc49c6f1683ecbed8323157637935427bd75797ad516913fde4add506ca";
+    url = "https://github.com/ghostty-org/zig-gobject/releases/download/0.11.0-zig-0.17.0-2026-10-02-38-1/ghostty-gobject-0.11.0-zig-0.17.0-2026-10-02-38-1.tar.gz";
+    hash = "sha256-niWxO3WcUGrKjAlkAUbJBEmbU82hgdsSDS+Tv9Igmvw=";
   };
-  gobject = runCommand "aqueous-gobject-source" { nativeBuildInputs = [ zstd gnutar ]; } ''
+  gobject = runCommand "aqueous-gobject-source" { nativeBuildInputs = [ gnutar ]; } ''
     mkdir -p "$out"
-    tar --zstd -xf ${gobjectSource} --strip-components=1 -C "$out"
+    tar -xzf ${gobjectSource} --strip-components=1 -C "$out"
   '';
   pickerDeps = linkFarm "aqueous-picker-dependencies" [
-    { name = "gobject-0.3.1-Skun7CCNogB9kSZJzqLTf_TwzMPW3-Rqdw86UgxADV-z"; path = gobject; }
+    { name = "gobject-0.3.2-Skun7LuIogBbEh-6WrLeEzMaRCnOMB3eOf__RaPYSMCZ"; path = gobject; }
   ];
   # All component staging has a private root. Store references are introduced
   # only by the component that consumes them; core cannot refer to this set.
@@ -69,7 +69,7 @@ let
   pickerBuild = stdenv.mkDerivation {
     pname = "aqueous-portal-picker-build";
     inherit version src;
-    nativeBuildInputs = [ zig_0_16 pkg-config ];
+    nativeBuildInputs = [ zig_0_17 pkg-config ];
     buildInputs = [ gtk4 ];
     dontUseZigConfigure = true;
     dontUseZigBuild = true;
@@ -78,7 +78,7 @@ let
     buildPhase = ''
       export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global"
       zig build --build-file aqueous-portal-picker/build.zig --system ${pickerDeps} \
-        -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$out"
+        -Dcpu=baseline -Doptimize=safe --prefix "$out"
     '';
     dontInstall = true;
   };
@@ -105,7 +105,7 @@ let
   chooser = stdenv.mkDerivation {
     pname = "aqueous-dms-chooser";
     inherit version src;
-    nativeBuildInputs = [ zig_0_16 pkg-config ];
+    nativeBuildInputs = [ zig_0_17 pkg-config ];
     buildInputs = [ ];
     dontUseZigConfigure = true;
     dontUseZigBuild = true;
@@ -114,7 +114,7 @@ let
     buildPhase = ''
       export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global"
       zig build --build-file packaging/portal/bridge/build.zig --system ${core.zigDeps} \
-        -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$out"
+        -Dcpu=baseline -Doptimize=safe --prefix "$out"
     '';
     dontInstall = true;
   };

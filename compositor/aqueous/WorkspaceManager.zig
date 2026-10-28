@@ -117,7 +117,7 @@ const Manager = struct {
                 const effective_name: [:0]const u8 = if (workspace.name.len > 0)
                     workspace.name
                 else
-                    std.fmt.bufPrintZ(&name_buf, "{d}", .{coordinate + 1}) catch "1";
+                    std.mem.printSentinel(&name_buf, "{d}", .{coordinate + 1}, 0) catch "1";
 
                 if (handle.sent_name == null or !std.mem.eql(u8, handle.sent_name.?, effective_name)) {
                     if (handle.sent_name) |old| util.gpa.free(old);
@@ -482,7 +482,7 @@ fn handleGroupRequest(
             const manager = group.manager;
             if (manager.stopped) return;
             const output = group.output orelse return;
-            const name = util.gpa.dupeZ(u8, std.mem.span(args.workspace)) catch {
+            const name = util.gpa.dupeSentinel(u8, std.mem.span(args.workspace), 0) catch {
                 log.err("out of memory", .{});
                 return;
             };

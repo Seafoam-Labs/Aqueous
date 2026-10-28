@@ -31,8 +31,8 @@ pub fn build(b: *Build) !void {
     const use_llvm = b.option(bool, "llvm", "Force use of Zig's LLVM backend and the lld linker") orelse false;
 
     const omit_frame_pointer = switch (optimize) {
-        .Debug, .ReleaseSafe => false,
-        .ReleaseFast, .ReleaseSmall => true,
+        .debug, .safe => false,
+        .fast, .small => true,
     };
 
     const man_pages = b.option(
@@ -40,9 +40,7 @@ pub fn build(b: *Build) !void {
         "man-pages",
         "Set to true to build man pages. Requires scdoc. Defaults to true if scdoc is found.",
     ) orelse scdoc_found: {
-        _ = b.findProgram(&.{"scdoc"}, &.{}) catch |err| switch (err) {
-            error.FileNotFound => break :scdoc_found false,
-        };
+        if (b.findProgram(.{ .names = &.{"scdoc"} }) == null) break :scdoc_found false;
         break :scdoc_found true;
     };
 
@@ -66,7 +64,7 @@ pub fn build(b: *Build) !void {
             var ret: u8 = undefined;
 
             const git_describe_long = b.runAllowFail(
-                &.{ "git", "-C", b.build_root.path orelse ".", "describe", "--long" },
+                &.{ "git", "-C", try b.root.toString(b.allocator), "describe", "--long" },
                 &ret,
                 .ignore,
             ) catch break :blk version;
@@ -217,16 +215,30 @@ pub fn build(b: *Build) !void {
     const xkbcommon = b.dependency("xkbcommon", .{}).module("xkbcommon");
     const pixman = b.dependency("pixman", .{}).module("pixman");
 
-    const wlroots = b.dependency("wlroots", .{}).module("wlroots");
+    const wlroots_dep = b.dependency("wlroots", .{});
+    // Upstream v0.20.2 still uses @cImport for these two header-only modules.
+    // Keep the upstream package pinned; generate adapters in the build cache.
+    const wlroots_sources = b.addWriteFiles();
+    const wlroots_source_dir = wlroots_sources.addCopyDirectory(wlroots_dep.path("src"), "wlroots", .{
+        .exclude_extensions = &.{ "config.zig", "version.zig" },
+    });
+    _ = wlroots_sources.add("wlroots/config.zig", @embedFile("build/wlroots-config.zig"));
+    _ = wlroots_sources.add("wlroots/version.zig", @embedFile("build/wlroots-version.zig"));
+    const wlroots = b.createModule(.{
+        .root_source_file = wlroots_source_dir.path(b, "wlroots.zig"),
+        .target = target,
+    });
+    const wlroots_headers: Translator = .init(b.dependency("translate_c", .{}), .{
+        .name = "wlroots_headers",
+        .c_source_file = b.path("build/wlroots.h"),
+        .target = target,
+        .optimize = optimize,
+        .link_system_libs = &.{.{ .name = wlroots_pkgconf }},
+    });
+    wlroots.addImport("wlroots_headers", wlroots_headers.mod);
     wlroots.addImport("wayland", wayland);
     wlroots.addImport("xkbcommon", xkbcommon);
     wlroots.addImport("pixman", pixman);
-
-    // We need to ensure the wlroots include path obtained from pkg-config is
-    // exposed to the wlroots module for @cImport() to work. This seems to be
-    // the best way to do so with the current std.Build API.
-    wlroots.resolved_target = target;
-    wlroots.linkSystemLibrary(wlroots_pkgconf, .{});
 
     const tablet = b.createModule(.{ .root_source_file = b.path("common/tablet.zig"), .target = target, .optimize = optimize });
     const flags = b.createModule(.{ .root_source_file = b.path("common/flags.zig") });
@@ -242,15 +254,23 @@ pub fn build(b: *Build) !void {
         .c_source_file = b.path("aqueous/c.h"),
         .target = target,
         .optimize = optimize,
+        .link_system_libs = if (vulkan_effects)
+            &.{ .{ .name = "libevdev" }, .{ .name = "libinput" }, .{ .name = wlroots_pkgconf }, .{ .name = "vulkan" } }
+        else
+            &.{ .{ .name = "libevdev" }, .{ .name = "libinput" }, .{ .name = wlroots_pkgconf } },
     });
-    translate_c.linkSystemLibrary("libevdev", .{});
-    translate_c.linkSystemLibrary("libinput", .{});
-    translate_c.linkSystemLibrary(wlroots_pkgconf, .{});
     translate_c.defineCMacro("WLR_USE_UNSTABLE", null);
     if (vulkan_effects) {
-        translate_c.linkSystemLibrary("vulkan", .{});
         translate_c.defineCMacro("RIVER_VULKAN_EFFECTS", null);
     }
+
+    const xwayland_c: Translator = .init(b.dependency("translate_c", .{}), .{
+        .name = "xwayland_c",
+        .c_source_file = b.path("aqueous/xwayland_dpi.h"),
+        .target = target,
+        .optimize = optimize,
+        .link_system_libs = &.{.{ .name = "xcb" }},
+    });
 
     const unmanaged_tests: [3]*Build.Step.Run = blk: {
         const step = b.step("test-unmanaged-xwayland", "Headless popup discovery/rules regression (requires -Dxwayland -Dvulkan-effects=false)");
@@ -312,6 +332,7 @@ pub fn build(b: *Build) !void {
         river.root_module.addImport("scaling", scaling);
         river.root_module.addImport("tablet", tablet);
         river.root_module.addImport("c", translate_c.mod);
+        river.root_module.addImport("xwayland_c", xwayland_c.mod);
 
         river.root_module.addCSourceFile(.{
             .file = b.path("aqueous/wlroots_log_wrapper.c"),
@@ -373,7 +394,7 @@ pub fn build(b: *Build) !void {
     {
         const wf = Build.Step.WriteFile.create(b);
         const pc_file = wf.add("aqueous-protocols.pc", b.fmt(
-            \\prefix={s}
+            \\prefix=${{pcfiledir}}/../..
             \\datarootdir=${{prefix}}/share
             \\pkgdatadir=${{pc_sysrootdir}}${{datarootdir}}/aqueous-protocols
             \\
@@ -381,7 +402,7 @@ pub fn build(b: *Build) !void {
             \\URL: https://github.com/Seafoam-Labs/Aqueous
             \\Description: Wayland protocol files provided by Aqueous
             \\Version: {s}
-        , .{ b.install_prefix, full_version }));
+        , .{full_version}));
         b.getInstallStep().dependOn(&b.addInstallFile(pc_file, "share/pkgconfig/aqueous-protocols.pc").step);
         inline for (&.{
             "aqueous-window-management-v1.xml",
@@ -457,6 +478,7 @@ pub fn build(b: *Build) !void {
         output_hdr_test.root_module.addOptions("build_options", options);
         output_hdr_test.root_module.addImport("wlroots", wlroots);
         output_hdr_test.root_module.addImport("c", translate_c.mod);
+        output_hdr_test.root_module.addImport("xwayland_c", xwayland_c.mod);
         output_hdr_test.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
         const run_output_hdr_test = b.addRunArtifact(output_hdr_test);
 
@@ -557,7 +579,7 @@ pub fn build(b: *Build) !void {
                 .use_llvm = use_llvm,
                 .use_lld = use_llvm,
             });
-            dpi_worker_test.root_module.linkSystemLibrary("xcb", .{});
+            dpi_worker_test.root_module.addImport("xwayland_c", xwayland_c.mod);
             break :blk b.addRunArtifact(dpi_worker_test);
         } else null;
 
@@ -715,6 +737,7 @@ pub fn build(b: *Build) !void {
         keyboard_test.root_module.addImport("scaling", scaling);
         keyboard_test.root_module.addImport("tablet", tablet);
         keyboard_test.root_module.addImport("c", translate_c.mod);
+        keyboard_test.root_module.addImport("xwayland_c", xwayland_c.mod);
         keyboard_test.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
         keyboard_test.root_module.linkSystemLibrary("xkbcommon", .{});
         keyboard_test.root_module.linkSystemLibrary("wayland-server", .{});
@@ -765,6 +788,7 @@ pub fn build(b: *Build) !void {
                 .use_lld = use_llvm,
             });
             tests.root_module.addImport("c", translate_c.mod);
+            tests.root_module.addImport("xwayland_c", xwayland_c.mod);
             tests.root_module.addImport("wayland", wayland);
             tests.root_module.addImport("wlroots", wlroots);
             tests.root_module.addImport("slotmap", slotmap);
@@ -907,7 +931,7 @@ pub fn build(b: *Build) !void {
             .root_module = b.createModule(.{
                 .root_source_file = b.path("aqueous/OutputWarming.zig"),
                 .target = target,
-                .optimize = .Debug,
+                .optimize = .debug,
                 .link_libc = true,
             }),
             .use_llvm = use_llvm,
@@ -916,6 +940,7 @@ pub fn build(b: *Build) !void {
         warming_test.root_module.addImport("wayland", wayland);
         warming_test.root_module.addImport("wlroots", wlroots);
         warming_test.root_module.addImport("c", translate_c.mod);
+        warming_test.root_module.addImport("xwayland_c", xwayland_c.mod);
         warming_test.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
         warming_test.root_module.linkSystemLibrary("wayland-server", .{});
         warming_test.root_module.linkSystemLibrary("pixman-1", .{});
@@ -948,6 +973,7 @@ pub fn build(b: *Build) !void {
             }),
         });
         icon_state_test.root_module.addImport("c", translate_c.mod);
+        icon_state_test.root_module.addImport("xwayland_c", xwayland_c.mod);
         icon_state_test.root_module.addImport("wlroots", wlroots);
         icon_state_test.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
         test_step.dependOn(&b.addRunArtifact(icon_state_test).step);
@@ -993,6 +1019,7 @@ pub fn build(b: *Build) !void {
         drm_lease_test.root_module.addImport("wayland", wayland);
         drm_lease_test.root_module.addImport("wlroots", wlroots);
         drm_lease_test.root_module.addImport("c", translate_c.mod);
+        drm_lease_test.root_module.addImport("xwayland_c", xwayland_c.mod);
         drm_lease_test.root_module.linkSystemLibrary(wlroots_pkgconf, .{});
         drm_lease_test.root_module.linkSystemLibrary("wayland-server", .{});
         drm_lease_test.root_module.addCSourceFile(.{

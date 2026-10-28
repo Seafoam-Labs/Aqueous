@@ -301,7 +301,7 @@ fn openSocket(service: *Service) !void {
     if (linux.errno(socket_rc) != .SUCCESS) return error.SocketFailed;
     const fd: i32 = @intCast(socket_rc);
     errdefer _ = linux.close(fd);
-    var address: linux.sockaddr.un = .{ .path = [_]u8{0} ** 108 };
+    var address: linux.sockaddr.un = .{ .path = @as([108]u8, @splat(0)) };
     if (path.len >= address.path.len) return error.NameTooLong;
     @memcpy(address.path[0..path.len], path);
     const bind_rc = linux.bind(fd, @ptrCast(&address), @sizeOf(linux.sockaddr.un));
@@ -930,7 +930,7 @@ fn writeOutputs(_: *Service, json: *std.json.Stringify) !void {
         try field(json, "actual_vrr", output.actualAdaptiveSync());
         try field(json, "adaptive_sync_error", output.adaptiveSyncError());
         try field(json, "hdr", state.hdr_enabled);
-        try field(json, "hdr_level", @as(u16, @intFromEnum(state.hdr_level)));
+        try field(json, "hdr_level", @as(u16, @backingInt(state.hdr_level)));
         try field(json, "sdr_white_level", state.sdr_white_level);
         try field(json, "auto_hdr", state.auto_hdr);
         try field(json, "auto_hdr_boost", state.auto_hdr_boost);
@@ -993,8 +993,8 @@ fn optionalField(json: *std.json.Stringify, name: []const u8, value: ?[*:0]u8) !
 
 fn writeSupportedPrimaries(json: *std.json.Stringify, mask: u32) !void {
     try json.beginArray();
-    if (mask & @as(u32, @intCast(@intFromEnum(wlr.color.NamedPrimaries.srgb))) != 0) try json.write("srgb");
-    if (mask & @as(u32, @intCast(@intFromEnum(wlr.color.NamedPrimaries.bt2020))) != 0) try json.write("bt2020");
+    if (mask & @as(u32, @intCast(@backingInt(wlr.color.NamedPrimaries.srgb))) != 0) try json.write("srgb");
+    if (mask & @as(u32, @intCast(@backingInt(wlr.color.NamedPrimaries.bt2020))) != 0) try json.write("bt2020");
     try json.endArray();
 }
 
@@ -1008,7 +1008,7 @@ fn writeSupportedTransferFunctions(json: *std.json.Stringify, mask: u32) !void {
         .{ wlr.color.TransferFunction.bt1886, "bt1886" },
     };
     inline for (entries) |entry| {
-        if (mask & @as(u32, @intCast(@intFromEnum(entry[0]))) != 0) try json.write(entry[1]);
+        if (mask & @as(u32, @intCast(@backingInt(entry[0]))) != 0) try json.write(entry[1]);
     }
     try json.endArray();
 }
@@ -1147,7 +1147,7 @@ fn outputFingerprint() u64 {
         hash.update(std.mem.asBytes(&state.x));
         hash.update(std.mem.asBytes(&state.y));
         hash.update(std.mem.asBytes(&state.scale));
-        const transform: c_int = @intFromEnum(state.transform);
+        const transform: c_int = @backingInt(state.transform);
         hash.update(std.mem.asBytes(&transform));
         hash.update(std.mem.asBytes(&state.adaptive_sync));
         hash.update(std.mem.asBytes(&state.fullscreen_only_adaptive_sync));
@@ -1157,7 +1157,7 @@ fn outputFingerprint() u64 {
         hash.update(std.mem.asBytes(&actual_vrr));
         if (output.adaptiveSyncError()) |reason| hash.update(reason);
         hash.update(std.mem.asBytes(&state.hdr_enabled));
-        const hdr_level: u16 = @intFromEnum(state.hdr_level);
+        const hdr_level: u16 = @backingInt(state.hdr_level);
         hash.update(std.mem.asBytes(&hdr_level));
         hash.update(std.mem.asBytes(&state.sdr_white_level));
         hash.update(std.mem.asBytes(&state.auto_hdr));

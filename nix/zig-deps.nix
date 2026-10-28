@@ -31,35 +31,34 @@ let
 
   packages = [
     {
-      name = "pixman-0.3.0-LClMnz2VAAAs7QSCGwLimV5VUYx0JFnX5xWU6HwtMuDX";
-      url = "https://codeberg.org/ifreund/zig-pixman/archive/v0.3.0.tar.gz";
-      hash = "sha256-SwtXzjf3uzosL8du7JPQYIMNLJIVW/KmuqQ9Ya0FSZ4=";
+      name = "pixman-0.4.0-LClMn_eWAAAa2zACATDpPwjuI5fWlO5cBp_F_M33hnNZ";
+      url = "https://codeberg.org/ifreund/zig-pixman/archive/v0.4.0.tar.gz";
+      hash = "sha256-zTDg7gqmWM9e5458+6EU1pHY7DYq6TLY8Yl3IdGewHQ=";
     }
     {
-      name = "wayland-0.6.0-lQa1kqz8AQADQmdNJsNhLoNHcnEGEUjrOaPV-dtEnEmX";
-      url = "https://codeberg.org/ifreund/zig-wayland/archive/v0.6.0.tar.gz";
-      hash = "sha256-dZpjLjapSODkEtLXSkOmnS805l1AKJoWr3qjclhS7yU=";
+      name = "wayland-0.7.0-lQa1kuP8AQD5dW7_o-VKLVD_QbqXe7Zob78r2su7Pyex";
+      url = "https://codeberg.org/ifreund/zig-wayland/archive/v0.7.0.tar.gz";
+      hash = "sha256-brMxhLUvS4+DTJD1Od+y/A7HzlkxiW+ttMPqtyC4ybg=";
     }
     {
-      name = "wlroots-0.20.1-jmOlcqNVBAB3uB5oqBTzpRlwu-FmMyyZMVAWCe5kmcSt";
-      url = "https://codeberg.org/ifreund/zig-wlroots/archive/v0.20.1.tar.gz";
-      hash = "sha256-1PXRYozSqB6ol+omOIcgZKuIAHxXEako4LN5wnBDoXU=";
+      name = "wlroots-0.20.2-jmOlcnNzBABWqu98eO4JyEcBzw0ktfhwn-G7hNuWS91i";
+      url = "https://codeberg.org/ifreund/zig-wlroots/archive/v0.20.2.tar.gz";
+      hash = "sha256-CzMSrWDr78x7g3M2KdmFLSx6H9cD6pTzl40/FKo1ltM=";
     }
     {
-      name = "xkbcommon-0.4.0-VDqIe0i2AgDRsok2GpMFYJ8SVhQS10_PI2M_CnHXsJJZ";
-      url = "https://codeberg.org/ifreund/zig-xkbcommon/archive/v0.4.0.tar.gz";
-      hash = "sha256-zB+INa1uUNXNTagqXRdBID89e0fHREGBZ7pgLnW4tcc=";
+      name = "xkbcommon-0.5.0-VDqIe8y3AgDU-cGL02xZplwABH3WbpTimrrgbgTgD_3g";
+      url = "https://codeberg.org/ifreund/zig-xkbcommon/archive/v0.5.0.tar.gz";
+      hash = "sha256-yP6Y7XfZLW6oqlYBfuHam7UEpOFBm8OC0Pn7C8w5Ih8=";
     }
     {
-      name = "translate_c-0.0.0-Q_BUWlX1BgCD1wo6uo97prlp9VJ4gxAjwN_vZ7nsSjGN";
-      url = "https://codeberg.org/ziglang/translate-c/archive/57c559cf581b1fcad90494eda219f98abeb155ce.tar.gz";
-      hash = "sha256-uapd8zFqR2RbMCfEqnwQqyqJUZ9pQjUhACjLYM2dxl4=";
+      name = "translate_c-2.0.2-Q_BUWvBNBwBgPKQJPblip6M7AHNK_IPNPmyv4rSIQMQc";
+      url = "https://codeberg.org/ziglang/translate-c/archive/2.0.2.tar.gz";
+      hash = "sha256-AFW/jpYInsyyvSMXmNJlJrjJm7D4w4coL3EVB7ZIE8g=";
     }
     {
-      # Transitive dependency of translate-c.
-      name = "aro-0.0.0-JSD1Qi7QNgDnfcrdEJf82v3o6MhZySjYVrtdfEf3E4Se";
-      url = "https://github.com/Vexu/arocc/archive/5f5a050569a95ecc40a426f0c3666ae7ef987ede.tar.gz";
-      hash = "sha256-4gtJoTBJ6O9aodeYpw2PwCtpH+RMfHiSiq49Njod634=";
+      name = "aro-0.0.0-JSD1QvCRNwC2O1Jkop9TO6sXb1U1vhrH8FnYK1VdEMKn";
+      url = "https://codeberg.org/ziglang/arocc/archive/630d99ed60fe61ccabe721f1af60881f8b2adde3.tar.gz";
+      hash = "sha256-BAXVntWJTLVJvCbqSE+ifEjfNNcDslo8uHilDCmbJgk=";
     }
   ];
 in

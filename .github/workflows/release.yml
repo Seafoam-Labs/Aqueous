@@ -58,7 +58,7 @@ jobs:
         shell: bash
         run: git config --global --add safe.directory '*'
 
-      - name: Setup patched Zig 0.16.0
+      - name: Setup Zig 0.17.0
         uses: ./.github/actions/setup-zig
 
       - name: Verify wayland-protocols carries wp_color_manager_v1 v3
@@ -91,7 +91,7 @@ jobs:
           rm -rf -- "$GITHUB_WORKSPACE/publish/aqueous-compositor/share/aqueous-protocols"
           tag="${{ github.event.inputs.tag || github.ref_name }}"
           PKG_CONFIG_PATH="$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/pkgconfig" \
-          zig build -Dcpu=x86_64_v3 -Doptimize=ReleaseSafe -Dxwayland -Dllvm -Dman-pages=true -Dversion-string="${tag#v}" \
+          zig build -Dcpu=x86_64_v3 -Doptimize=safe -Dxwayland -Dllvm -Dman-pages=true -Dversion-string="${tag#v}" \
             --prefix "$GITHUB_WORKSPACE/publish/aqueous-compositor" install
           cmp "$GITHUB_WORKSPACE/.deps/wlroots-render-hook/lib/libwlroots-0.20.so" \
             "$GITHUB_WORKSPACE/publish/aqueous-compositor/lib/aqueous/libwlroots-0.20.so"
@@ -126,22 +126,22 @@ jobs:
         run: |
           set -euxo pipefail
           zig build --build-file aqueous-portal-picker/build.zig \
-            -Dcpu=x86_64_v3 -Doptimize=ReleaseSafe -Dtest-hooks=true \
+            -Dcpu=x86_64_v3 -Doptimize=safe -Dtest-hooks=true \
             --prefix "$RUNNER_TEMP/aqueous-picker-test"
           python3 aqueous-portal-picker/tests/test-picker.py \
             "$RUNNER_TEMP/aqueous-picker-test/bin/aqueous-portal-picker"
           zig build --build-file aqueous-portal-picker/build.zig \
-            -Dcpu=x86_64_v3 -Doptimize=ReleaseSafe \
+            -Dcpu=x86_64_v3 -Doptimize=safe \
             --prefix "$GITHUB_WORKSPACE/publish/aqueous-picker" install
 
       - name: Build canonical configuration helper
         shell: bash
         run: |
           zig build --build-file settingsApplication/build.zig test test-driver \
-            -Dmodel-only=true -Dcpu=x86_64_v3 -Doptimize=ReleaseSafe
+            -Dmodel-only=true -Dcpu=x86_64_v3 -Doptimize=safe
           settingsApplication/tests/test-backend.sh
           zig build --build-file settingsApplication/build.zig \
-            -Dcpu=x86_64_v3 -Doptimize=ReleaseSafe \
+            -Dcpu=x86_64_v3 -Doptimize=safe \
             --prefix "$GITHUB_WORKSPACE/publish/aqueous-config"
           AQUEOUS_CONFIG_BINARY="$GITHUB_WORKSPACE/publish/aqueous-config/bin/aqueous-config" \
             AQUEOUSCTL_BINARY="$GITHUB_WORKSPACE/publish/aqueous-compositor/bin/aqueousctl" \
@@ -152,7 +152,7 @@ jobs:
         run: |
           set -euo pipefail
           zig build --build-file packaging/portal/bridge/build.zig \
-            -Dcpu=x86_64_v3 -Doptimize=ReleaseSafe --prefix "$GITHUB_WORKSPACE/publish/aqueous-chooser"
+            -Dcpu=x86_64_v3 -Doptimize=safe --prefix "$GITHUB_WORKSPACE/publish/aqueous-chooser"
           export AQUEOUS_COMPOSITOR_DIST="$GITHUB_WORKSPACE/publish/aqueous-compositor"
           export AQUEOUS_CONFIG_BINARY="$GITHUB_WORKSPACE/publish/aqueous-config/bin/aqueous-config"
           export AQUEOUS_PICKER_BINARY="$GITHUB_WORKSPACE/publish/aqueous-picker/bin/aqueous-portal-picker"

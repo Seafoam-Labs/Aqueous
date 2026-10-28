@@ -15,7 +15,7 @@ last_warning: ?u64 = null,
 pub fn play(audio: *Audio, config: *const bell.Config, now: u64) void {
     if (audio.pid != null or !config.sound()) return;
     var volume: [32]u8 = undefined;
-    const value = std.fmt.bufPrintZ(&volume, "{d:.4}", .{config.volume}) catch return;
+    const value = std.mem.printSentinel(&volume, "{d:.4}", .{config.volume}, 0) catch return;
     const pid = aqueous_bell_spawn(config.path().ptr, value.ptr);
     if (pid < 0) {
         audio.warn(now);

@@ -28,7 +28,7 @@ pkgbase = aqueous-desktop-git
 	makedepends = glslang
 	makedepends = vulkan-headers
 	makedepends = hwdata
-	makedepends = zig=0.16.0
+	makedepends = zig=0.17.0
 	makedepends = libinih
 	makedepends = freetype2
 	makedepends = wayland

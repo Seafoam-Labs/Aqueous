@@ -228,9 +228,9 @@ def main():
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='aqueous-dpi-') as temp:
         work = Path(temp)
-        fixture = work / 'xwayland-dpi-test'
-        subprocess.run(['zig', 'build-exe', str(ROOT / 'aqueous/xwayland_dpi_test.zig'),
-                        '-lc', '-lxcb', '-fllvm', '-femit-bin=' + str(fixture)], check=True)
+        subprocess.run(['zig', 'build', '--build-file', str(ROOT / 'scripts/fixtures/build.zig'),
+                        'dpi', '-Doptimize=safe', '--prefix', str(work)], check=True)
+        fixture = work / 'bin/xwayland-dpi-test'
         worker_test(work, fixture)
         if args.compositor:
             probe = compile_fixture(work, 'xwayland-dpi-probe', ['x11'])

@@ -17,14 +17,14 @@ pub const LayoutId = enum {
     composable,
 };
 
-pub const layout_count = std.meta.fields(LayoutId).len;
+pub const layout_count = @typeInfo(LayoutId).@"enum".field_names.len;
 pub const max_composable_regions = 4;
 pub const max_legacy_snap_zones = 4;
 pub const max_snap_layouts = 8;
 pub const max_snap_zones = 16;
 
 pub const SnapId = struct {
-    bytes: [32]u8 = [_]u8{0} ** 32,
+    bytes: [32]u8 = @as([32]u8, @splat(0)),
     len: u8 = 0,
 
     pub fn set(id: *SnapId, value: []const u8) bool {
@@ -44,7 +44,7 @@ pub const SnapId = struct {
 };
 
 pub const SnapName = struct {
-    bytes: [64]u8 = [_]u8{0} ** 64,
+    bytes: [64]u8 = @as([64]u8, @splat(0)),
     len: u8 = 0,
 
     pub fn set(name: *SnapName, value: []const u8) bool {
@@ -116,7 +116,7 @@ pub const SnapLayout = struct {
     name: SnapName = .{},
     /// Explicit legacy per-zone inset; null inherits shared layout gaps.
     padding: ?i32 = null,
-    zones: [max_snap_zones]SnapZone = [_]SnapZone{.{}} ** max_snap_zones,
+    zones: [max_snap_zones]SnapZone = @as([max_snap_zones]SnapZone, @splat(.{})),
     zone_count: u8 = 0,
 
     pub fn configured(snap_layout: *const SnapLayout) bool {
@@ -134,16 +134,16 @@ pub const SnapLayout = struct {
 pub const Snapshot = struct {
     default: LayoutId = .tile,
     slots: [4]LayoutId = .{ .tile, .scrolling, .monocle, .grid },
-    options: [layout_count]types.Options = [_]types.Options{.{ .border = .{
+    options: [layout_count]types.Options = @splat(.{ .border = .{
         .width = 2,
         .focused = 0xFF88C0D0,
         .normal = 0xFF3B4252,
         .urgent = 0xFFBF616A,
-    } }} ** layout_count,
+    } }),
     composable: [max_composable_regions]CompositeRegion = .{ .{}, .{}, .{}, .{} },
     /// Compatibility storage for `[layout.snap-zone.a]` through `.d`.
     snap_zones: [max_legacy_snap_zones]SnapZone = .{ .{}, .{}, .{}, .{} },
-    snap_layouts: [max_snap_layouts]SnapLayout = [_]SnapLayout{.{}} ** max_snap_layouts,
+    snap_layouts: [max_snap_layouts]SnapLayout = @as([max_snap_layouts]SnapLayout, @splat(.{})),
     snap_layout_count: u8 = 0,
     default_snap_layout: SnapId = .{},
     scrolling_column_fraction: f64 = 0.5,
@@ -164,7 +164,7 @@ pub const Snapshot = struct {
     monocle_show_borders: bool = false,
 
     pub fn layoutOptions(snapshot: *const Snapshot, id: LayoutId) types.Options {
-        return snapshot.options[@intFromEnum(id)];
+        return snapshot.options[@backingInt(id)];
     }
 
     pub fn composableValid(snapshot: *const Snapshot) bool {
@@ -385,7 +385,7 @@ fn applyLayout(snapshot: *Snapshot, key: []const u8, value: []const u8) void {
 }
 
 fn applyOptions(snapshot: *Snapshot, id: LayoutId, key: []const u8, value: []const u8) void {
-    applyCommon(&snapshot.options[@intFromEnum(id)], key, value);
+    applyCommon(&snapshot.options[@backingInt(id)], key, value);
     const plain = unquote(value);
     switch (id) {
         .scrolling => {
@@ -420,18 +420,18 @@ fn applyOptions(snapshot: *Snapshot, id: LayoutId, key: []const u8, value: []con
         },
         .floating => {
             if (std.mem.eql(u8, key, "placement")) {
-                if (parseFloatingPlacement(plain)) |placement| snapshot.options[@intFromEnum(id)].floating_placement = placement;
+                if (parseFloatingPlacement(plain)) |placement| snapshot.options[@backingInt(id)].floating_placement = placement;
             }
-            if (std.mem.eql(u8, key, "cascade_step")) snapshot.options[@intFromEnum(id)].floating_cascade_step = parseNonNegative(plain) orelse snapshot.options[@intFromEnum(id)].floating_cascade_step;
-            if (std.mem.eql(u8, key, "move_step")) snapshot.options[@intFromEnum(id)].floating_move_step = parsePositive(plain) orelse snapshot.options[@intFromEnum(id)].floating_move_step;
-            if (std.mem.eql(u8, key, "move_step_coarse")) snapshot.options[@intFromEnum(id)].floating_move_step_coarse = parsePositive(plain) orelse snapshot.options[@intFromEnum(id)].floating_move_step_coarse;
-            if (std.mem.eql(u8, key, "resize_step")) snapshot.options[@intFromEnum(id)].floating_resize_step = parsePositive(plain) orelse snapshot.options[@intFromEnum(id)].floating_resize_step;
+            if (std.mem.eql(u8, key, "cascade_step")) snapshot.options[@backingInt(id)].floating_cascade_step = parseNonNegative(plain) orelse snapshot.options[@backingInt(id)].floating_cascade_step;
+            if (std.mem.eql(u8, key, "move_step")) snapshot.options[@backingInt(id)].floating_move_step = parsePositive(plain) orelse snapshot.options[@backingInt(id)].floating_move_step;
+            if (std.mem.eql(u8, key, "move_step_coarse")) snapshot.options[@backingInt(id)].floating_move_step_coarse = parsePositive(plain) orelse snapshot.options[@backingInt(id)].floating_move_step_coarse;
+            if (std.mem.eql(u8, key, "resize_step")) snapshot.options[@backingInt(id)].floating_resize_step = parsePositive(plain) orelse snapshot.options[@backingInt(id)].floating_resize_step;
             if (std.mem.eql(u8, key, "snap_gap")) {
-                if (parseNonNegative(plain)) |gap| snapshot.options[@intFromEnum(id)].floating_snap_gap = gap;
+                if (parseNonNegative(plain)) |gap| snapshot.options[@backingInt(id)].floating_snap_gap = gap;
             }
-            if (std.mem.eql(u8, key, "snap_threshold")) snapshot.options[@intFromEnum(id)].floating_snap_threshold = parseNonNegative(plain) orelse snapshot.options[@intFromEnum(id)].floating_snap_threshold;
-            if (std.mem.eql(u8, key, "resistance")) snapshot.options[@intFromEnum(id)].floating_resistance = parseNonNegative(plain) orelse snapshot.options[@intFromEnum(id)].floating_resistance;
-            if (std.mem.eql(u8, key, "top_edge_maximize")) snapshot.options[@intFromEnum(id)].floating_top_edge_maximize = parseBool(plain) orelse snapshot.options[@intFromEnum(id)].floating_top_edge_maximize;
+            if (std.mem.eql(u8, key, "snap_threshold")) snapshot.options[@backingInt(id)].floating_snap_threshold = parseNonNegative(plain) orelse snapshot.options[@backingInt(id)].floating_snap_threshold;
+            if (std.mem.eql(u8, key, "resistance")) snapshot.options[@backingInt(id)].floating_resistance = parseNonNegative(plain) orelse snapshot.options[@backingInt(id)].floating_resistance;
+            if (std.mem.eql(u8, key, "top_edge_maximize")) snapshot.options[@backingInt(id)].floating_top_edge_maximize = parseBool(plain) orelse snapshot.options[@backingInt(id)].floating_top_edge_maximize;
         },
         else => {},
     }

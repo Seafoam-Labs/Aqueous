@@ -144,7 +144,7 @@ pub fn setCursorConfig(input_manager: *InputManager, theme: []const u8, size: u3
     input_manager.cursor_config = replacement;
 
     var size_buffer: [16]u8 = undefined;
-    const size_z = std.fmt.bufPrintZ(&size_buffer, "{d}", .{replacement.size}) catch unreachable;
+    const size_z = std.mem.printSentinel(&size_buffer, "{d}", .{replacement.size}, 0) catch unreachable;
     if (setenv("XCURSOR_THEME", replacement.themeZ().ptr, 1) != 0 or
         setenv("XCURSOR_SIZE", size_z.ptr, 1) != 0)
     {

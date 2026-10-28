@@ -13,7 +13,7 @@ pub fn read(allocator: std.mem.Allocator) ?std.json.Parsed(std.json.Value) {
 
 pub fn readRequest(allocator: std.mem.Allocator, request: []const u8) ?std.json.Parsed(std.json.Value) {
     const runtime = getenv("XDG_RUNTIME_DIR") orelse return null;
-    var address: linux.sockaddr.un = .{ .path = [_]u8{0} ** 108 };
+    var address: linux.sockaddr.un = .{ .path = @as([108]u8, @splat(0)) };
     const path = std.fmt.bufPrint(address.path[0 .. address.path.len - 1], "{s}/" ++ instance_name ++ "/outputd.sock", .{std.mem.span(runtime)}) catch return null;
     address.path[path.len] = 0;
     const rc = linux.socket(linux.AF.UNIX, linux.SOCK.STREAM | linux.SOCK.NONBLOCK | linux.SOCK.CLOEXEC, 0);

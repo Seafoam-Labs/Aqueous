@@ -65,7 +65,7 @@ fedora_dependencies() {
         git curl patch tar gzip xz gcc gcc-c++ clang llvm lld binutils \
         rpm-build redhat-rpm-config meson ninja-build pkgconf-pkg-config \
         scdoc glslang glslc hwdata python3 jq ripgrep desktop-file-utils \
-        'zig >= 0.16.0' 'pkgconfig(wayland-protocols) >= 1.49' \
+        'zig >= 0.17.0' 'pkgconfig(wayland-protocols) >= 1.49' \
         'pkgconfig(wayland-server)' 'pkgconfig(wayland-client)' \
         'pkgconfig(wayland-scanner)' 'pkgconfig(xkbcommon)' \
         'pkgconfig(libinput)' 'pkgconfig(libevdev)' 'pkgconfig(pixman-1)' \
@@ -96,8 +96,8 @@ fedora_tools_check() {
     done
     local version
     version=$(zig version)
-    printf '0.16.0\n%s\n' "${version%%-*}" | sort -V -C ||
-        fedora_die "Zig >= 0.16.0 is required; found $version."
+    printf '0.17.0\n%s\n' "${version%%-*}" | sort -V -C ||
+        fedora_die "Zig >= 0.17.0 is required; found $version."
     pkg-config --atleast-version=1.49 wayland-protocols ||
         fedora_die 'wayland-protocols >= 1.49 is required. Update Fedora packages before retrying.'
     [[ $fedora_component == core ]] && return 0

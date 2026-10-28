@@ -23,7 +23,7 @@ state: enum { unavailable, unsupported, ambiguous, requested, inherited } = .una
 values: [keys.len]?[:0]u8 = @splat(null),
 
 pub fn deinit(self: *Pin, allocator: mem.Allocator) void {
-    if (self.identity) |id| inline for (std.meta.fields(Identity)) |field| allocator.free(@field(id, field.name));
+    if (self.identity) |id| inline for (@typeInfo(Identity).@"struct".field_names) |field| allocator.free(@field(id, field));
     for (self.values) |value| if (value) |v| allocator.free(v);
     self.* = .{};
 }
@@ -59,9 +59,9 @@ pub fn build(allocator: mem.Allocator, id: Identity, matches: usize, inherit: bo
     var result: Pin = .{};
     errdefer result.deinit(allocator);
     var owned: Identity = undefined;
-    inline for (std.meta.fields(Identity), 0..) |field, index| {
-        @field(owned, field.name) = allocator.dupe(u8, @field(id, field.name)) catch |err| {
-            inline for (std.meta.fields(Identity)[0..index]) |previous| allocator.free(@field(owned, previous.name));
+    inline for (@typeInfo(Identity).@"struct".field_names, 0..) |field, index| {
+        @field(owned, field) = allocator.dupe(u8, @field(id, field)) catch |err| {
+            inline for (@typeInfo(Identity).@"struct".field_names[0..index]) |previous| allocator.free(@field(owned, previous));
             return err;
         };
     }
@@ -81,10 +81,10 @@ pub fn build(allocator: mem.Allocator, id: Identity, matches: usize, inherit: bo
     const nvidia = mem.eql(u8, id.driver, "nvidia") or mem.eql(u8, id.driver, "nvidia-drm");
     if (nvidia) {
         // GLX vendor selection is not proof of Wayland EGL device selection.
-        result.values[3] = try allocator.dupeZ(u8, "nvidia");
+        result.values[3] = try allocator.dupeSentinel(u8, "nvidia", 0);
         if (offload) {
-            result.values[4] = try allocator.dupeZ(u8, "1");
-            result.values[5] = try allocator.dupeZ(u8, "NVIDIA_only");
+            result.values[4] = try allocator.dupeSentinel(u8, "1", 0);
+            result.values[5] = try allocator.dupeSentinel(u8, "NVIDIA_only", 0);
         }
         // NVIDIA_only selects a vendor, not a particular PCI device. The
         // Mesa selector remains necessary and actual creation must be checked.
@@ -114,7 +114,7 @@ fn link(path: [:0]const u8, out: []u8) ?[]const u8 {
 
 fn attribute(node: []const u8, name: []const u8, out: []u8) ?[]const u8 {
     var path: [512]u8 = undefined;
-    const value = read(std.fmt.bufPrintZ(&path, "/sys/class/drm/{s}/device/{s}", .{ node, name }) catch return null, out) orelse return null;
+    const value = read(std.mem.printSentinel(&path, "/sys/class/drm/{s}/device/{s}", .{ node, name }, 0) catch return null, out) orelse return null;
     return if (mem.startsWith(u8, value, "0x")) value[2..] else value;
 }
 
@@ -148,12 +148,12 @@ pub fn resolve(allocator: mem.Allocator, drm_fd: c_int, inherit: bool) Pin {
     if (drm_fd < 0) return unavailable;
     var path: [512]u8 = undefined;
     var node: [256]u8 = undefined;
-    const node_path = link(std.fmt.bufPrintZ(&path, "/proc/self/fd/{d}", .{drm_fd}) catch return unavailable, &node) orelse return unavailable;
+    const node_path = link(std.mem.printSentinel(&path, "/proc/self/fd/{d}", .{drm_fd}, 0) catch return unavailable, &node) orelse return unavailable;
     const name = std.fs.path.basename(node_path);
     var pci: [512]u8 = undefined;
-    const pci_path = link(std.fmt.bufPrintZ(&path, "/sys/class/drm/{s}/device", .{name}) catch return unavailable, &pci) orelse return unavailable;
+    const pci_path = link(std.mem.printSentinel(&path, "/sys/class/drm/{s}/device", .{name}, 0) catch return unavailable, &pci) orelse return unavailable;
     var driver: [512]u8 = undefined;
-    const driver_path = link(std.fmt.bufPrintZ(&path, "/sys/class/drm/{s}/device/driver", .{name}) catch return unavailable, &driver) orelse "";
+    const driver_path = link(std.mem.printSentinel(&path, "/sys/class/drm/{s}/device/driver", .{name}, 0) catch return unavailable, &driver) orelse "";
     var vendor: [32]u8 = undefined;
     var device: [32]u8 = undefined;
     const id: Identity = .{
@@ -201,7 +201,7 @@ test "NVIDIA to Mesa to unavailable clears incompatible inherited selectors" {
     const a = std.testing.allocator;
     var saved: [keys.len]?[:0]u8 = @splat(null);
     for (keys, 0..) |key, i| if (std.c.getenv(key)) |value| {
-        saved[i] = try a.dupeZ(u8, mem.span(value));
+        saved[i] = try a.dupeSentinel(u8, mem.span(value), 0);
     };
     defer for (keys, saved) |key, value| {
         if (value) |v| {

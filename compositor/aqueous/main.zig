@@ -94,7 +94,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     }
     if (result.flags.@"xwayland-dpi-worker") |display| {
         if (comptime build_options.xwayland) {
-            const display_z = try arena.dupeZ(u8, display);
+            const display_z = try arena.dupeSentinel(u8, display, 0);
             exit(@import("xwayland_dpi.zig").run(display_z));
         } else exit(2);
     }
@@ -127,11 +127,11 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
         // Examples:
         // -log-scopes input,wm     (only default, input, and wm scopes)
         // -log-scopes all,~wlroots (all scopes except wlroots)
-        log_scopes = std.EnumSet(LogScope).initEmpty();
+        log_scopes = .empty;
         var it = mem.splitScalar(u8, scopes, ',');
         while (it.next()) |raw| {
             if (mem.eql(u8, raw, "all")) {
-                log_scopes = std.EnumSet(LogScope).initFull();
+                log_scopes = .full;
             } else if (raw.len > 0 and raw[0] == '~') {
                 // I'd rather use an exclamation mark than a tilde but the
                 // former requires quoting in most shells.
@@ -197,7 +197,7 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     }
     const startup_command = blk: {
         if (result.flags.c) |command| {
-            break :blk try util.gpa.dupeZ(u8, command);
+            break :blk try util.gpa.dupeSentinel(u8, command, 0);
         } else {
             break :blk try defaultInitPath(init.environ);
         }
@@ -497,12 +497,12 @@ const LogScope = enum {
     xwayland,
 };
 
-var log_scopes: std.EnumSet(LogScope) = std.EnumSet(LogScope).initFull();
+var log_scopes: std.EnumSet(LogScope) = .full;
 
 /// Set the default log level based on the build mode.
-var runtime_log_level: log.Level = switch (builtin.mode) {
-    .Debug => .debug,
-    .ReleaseSafe, .ReleaseFast, .ReleaseSmall => .info,
+var runtime_log_level: log.Level = switch (builtin.optimize) {
+    .debug => .debug,
+    .safe, .fast, .small => .info,
 };
 
 pub const std_options: std.Options = .{
@@ -517,7 +517,7 @@ pub fn logFn(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    if (@intFromEnum(level) > @intFromEnum(runtime_log_level)) return;
+    if (@backingInt(level) > @backingInt(runtime_log_level)) return;
 
     if (scope != .default and !log_scopes.contains(scope)) return;
 

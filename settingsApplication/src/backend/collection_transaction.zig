@@ -24,8 +24,8 @@ pub const Contract = struct {
     pub fn check(self: Contract, a: A, files: *const config.ConfigFiles) !void {
         const sources = self.preconditions.object.get("sources").?.object;
         for (source_ids) |id| {
-            if (!self.touched[@intFromEnum(id)]) continue;
-            const file = &files.items[@intFromEnum(id)];
+            if (!self.touched[@backingInt(id)]) continue;
+            const file = &files.items[@backingInt(id)];
             const supplied = sources.get(id.name()).?.object;
             const present = try exists(file.path);
             const actual = try sourceDigest(a, file, present);
@@ -47,10 +47,10 @@ pub fn parse(request: std.json.ObjectMap) !?Contract {
     if (protected != .bool or !protected.bool) return error.InvalidCollectionContract;
     const generation = request.get("expected_generation") orelse return error.MissingGeneration;
     if (generation != .string or !hex(generation.string, 16)) return error.InvalidGeneration;
-    var touched = [_]bool{false} ** schema.file_count;
+    var touched = @as([schema.file_count]bool, @splat(false));
     for (request.keys()) |key| {
         if (mutationSource(key)) |id| {
-            touched[@intFromEnum(id)] = true;
+            touched[@backingInt(id)] = true;
             const value = request.get(key).?;
             if (std.mem.eql(u8, key, "default_snap_layout")) {
                 // This field belongs to replacement; legacy standalone use was
@@ -81,7 +81,7 @@ pub fn parse(request: std.json.ObjectMap) !?Contract {
     const sources = preconditions.object.get("sources") orelse return error.InvalidCollectionPreconditions;
     if (sources != .object) return error.InvalidCollectionPreconditions;
     var count: usize = 0;
-    for (source_ids) |id| if (touched[@intFromEnum(id)]) {
+    for (source_ids) |id| if (touched[@backingInt(id)]) {
         count += 1;
         const source = sources.object.get(id.name()) orelse return error.InvalidCollectionPreconditions;
         if (source != .object or source.object.count() != 3) return error.InvalidCollectionPreconditions;
@@ -127,7 +127,7 @@ pub fn writePreconditions(json: *std.json.Stringify, files: *const config.Config
     try json.objectField("sources");
     try json.beginObject();
     for (source_ids) |id| {
-        const file = &files.items[@intFromEnum(id)];
+        const file = &files.items[@backingInt(id)];
         const present = try exists(file.path);
         const digest = try sourceDigest(files.allocator, file, present);
         try json.objectField(id.name());

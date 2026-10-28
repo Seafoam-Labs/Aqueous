@@ -1,7 +1,7 @@
 # Devario packages
 
 This directory follows the three-recipe layout in `packaging/arch`, with
-Devario maintainers, Shelly builds, Zig `0.16.0` and Pearl desktop defaults.
+Devario maintainers, Shelly builds, Zig `0.17.0` and Pearl desktop defaults.
 Each recipe has its own `PKGBUILD` and `.SRCINFO`.
 
 Release `1.0.12` retains both wlroots patch 0020 components for synchronization

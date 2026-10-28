@@ -12,6 +12,7 @@ compositor/zig-out/
 compositor/.zig-cache/
 compositor/baselines/
 .zig-cache/
+zig-pkg/
 
 # Aggregated native binaries
 /bin/aqueous

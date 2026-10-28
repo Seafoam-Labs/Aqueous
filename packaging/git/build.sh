@@ -12,15 +12,15 @@ source "$root/packaging/cpu-target.sh"
 case ${1:-} in
 build)
     zig build --build-file "$root/settingsApplication/build.zig" \
-        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe -Dinstance-name="$instance" --prefix "$helper"
+        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=safe -Dinstance-name="$instance" --prefix "$helper"
     AQUEOUS_WLROOTS_CACHE_DIR="$srcdir" "$root/compositor/scripts/build-wlroots-render-hook.sh"
     export PKG_CONFIG_PATH="$root/compositor/.deps/wlroots-render-hook/lib/pkgconfig"
     zig build --build-file "$root/compositor/build.zig" \
-        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe -Dxwayland -Dllvm -Dman-pages=true \
+        -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=safe -Dxwayland -Dllvm -Dman-pages=true \
         -Dinstance-name="$instance" -Dversion-string="$pkgver ($instance)" --prefix "$compositor"
     ;;
 check)
-    zig build --build-file "$root/settingsApplication/build.zig" test -Dmodel-only=true -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=ReleaseSafe
+    zig build --build-file "$root/settingsApplication/build.zig" test -Dmodel-only=true -Dcpu="$AQUEOUS_ZIG_CPU" -Doptimize=safe
     bash "$root/packaging/tests/test-git-packages.sh" "$compositor" "$helper" "$channel"
     ;;
 package)

@@ -20,7 +20,7 @@ the maintained source-package recipe without running pacman or Arch install hook
 compositor, private patched wlroots, canonical configuration helper, DMS integration,
 screen-sharing backend, session entry, and configuration defaults.
 
-Fedora must provide Zig 0.16.0 or newer and wayland-protocols 1.49 or newer.
+Fedora must provide Zig 0.17.0 or newer and wayland-protocols 1.49 or newer.
 Update your Fedora packages if dependency resolution cannot satisfy these
 versions. Both x86_64 and aarch64 are accepted. Atomic desktops such as
 Silverblue and Kinoite, and bootc installations, require a separate image or

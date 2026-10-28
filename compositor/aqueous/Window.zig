@@ -3442,8 +3442,8 @@ fn handleFtmRequestFullscreen(
 ) void {
     const window: *Window = @fieldParentPtr("ftm_request_fullscreen", listener);
     if (window.state != .mapped and window.state != .initialized) return;
-    const output_hint: ?*Output = if (@intFromPtr(event.output) != 0)
-        @ptrCast(@alignCast(event.output.data))
+    const output_hint: ?*Output = if (event.output) |output|
+        @ptrCast(@alignCast(output.data))
     else
         null;
     window.requestFullscreen(event.fullscreen, output_hint);

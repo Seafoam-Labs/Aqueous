@@ -43,10 +43,10 @@ cd compositor
 scripts/build-wlroots-render-hook.sh .deps/wlroots-render-hook
 export PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig"
 zig build test
-zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm
+zig build -Doptimize=safe -Dxwayland -Dllvm
 ```
 
-Aqueous requires Zig 0.16 or newer. The default build enables both
+Aqueous requires Zig 0.17 or newer. The default build enables both
 `-Danimations=true` and `-Dvulkan-effects=true`.
 
 Before editing, read these paths:
@@ -608,8 +608,8 @@ Run unit and build checks:
 ```sh
 cd compositor
 zig build test
-zig build -Doptimize=ReleaseSafe -Dxwayland -Dllvm
-zig build -Doptimize=ReleaseSafe -Dvulkan-effects=false -Dllvm
+zig build -Doptimize=safe -Dxwayland -Dllvm
+zig build -Doptimize=safe -Dvulkan-effects=false -Dllvm
 ```
 
 Then run a nested session:

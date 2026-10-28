@@ -104,7 +104,7 @@ fn writeSnapshot(
     try json.objectField("display_observation");
     try json.write(parsed_observation.value);
     try json.objectField("display_configuration");
-    try @import("display_config").write(&json, files.items[@intFromEnum(schema.FileId.wm)].document.source, files.items[@intFromEnum(schema.FileId.outputs)].document.source);
+    try @import("display_config").write(&json, files.items[@backingInt(schema.FileId.wm)].document.source, files.items[@backingInt(schema.FileId.outputs)].document.source);
     try json.objectField("display_declarations");
     try writeDisplayDeclarations(&json, files);
     try field(&json, "display_declaration_mutations", .{ .version = 1, .request = "display_declaration_changes", .identity_scope = "generation_source_occurrence", .protected_apply_required = true, .operations = .{ "add", "update", "delete", "move" }, .sources = .{ "wm", "outputs" }, .schema = "aqueous-config-additions-v1.schema.json#/$defs/display_declaration_changes" });
@@ -128,7 +128,7 @@ fn writeSnapshot(
     try json.objectField("collection_preconditions");
     try json.beginObject();
     for ([_]schema.FileId{ .wm, .rules, .layout }) |id| {
-        const digest = try collectionDigest(files.allocator, &files.items[@intFromEnum(id)]);
+        const digest = try collectionDigest(files.allocator, &files.items[@backingInt(id)]);
         try field(&json, id.name(), digest);
     }
     try json.endObject();
@@ -140,13 +140,13 @@ fn writeSnapshot(
     try field(
         &json,
         "stacking_alias_count",
-        files.items[@intFromEnum(schema.FileId.layout)].document.countSections(stacking_schema.section, stacking_schema.section_aliases),
+        files.items[@backingInt(schema.FileId.layout)].document.countSections(stacking_schema.section, stacking_schema.section_aliases),
     );
 
     try json.objectField("files");
     try json.beginObject();
     for (files.items, 0..) |file_item, index| {
-        const file_id: schema.FileId = @enumFromInt(index);
+        const file_id: schema.FileId = @fromBackingInt(@intCast(index));
         try json.objectField(file_id.name());
         try json.beginObject();
         try field(&json, "path", file_item.path);
@@ -159,7 +159,7 @@ fn writeSnapshot(
 
     try json.objectField("categories");
     try json.beginArray();
-    inline for (std.meta.fields(schema.Category)) |category| try json.write(category.name);
+    inline for (@typeInfo(schema.Category).@"enum".field_names) |category| try json.write(category);
     try json.endArray();
 
     try json.objectField("fields");
@@ -170,42 +170,42 @@ fn writeSnapshot(
     try json.objectField("monitors");
     try writeConfiguredMonitors(
         &json,
-        &files.items[@intFromEnum(schema.FileId.outputs)].document,
-        &files.items[@intFromEnum(schema.FileId.wm)].document,
+        &files.items[@backingInt(schema.FileId.outputs)].document,
+        &files.items[@backingInt(schema.FileId.wm)].document,
     );
 
     try json.objectField("live_outputs");
     try writeLiveOutputs(io, &json, files.allocator);
 
     try json.objectField("custom_keybinds");
-    try writeCustomKeybinds(&json, &files.items[@intFromEnum(schema.FileId.wm)].document);
+    try writeCustomKeybinds(&json, &files.items[@backingInt(schema.FileId.wm)].document);
 
     try json.objectField("snap_zones");
-    try writeSnapZones(&json, &files.items[@intFromEnum(schema.FileId.layout)].document);
+    try writeSnapZones(&json, &files.items[@backingInt(schema.FileId.layout)].document);
 
     try json.objectField("snap_layouts");
-    try writeSnapLayouts(&json, &files.items[@intFromEnum(schema.FileId.layout)].document);
+    try writeSnapLayouts(&json, &files.items[@backingInt(schema.FileId.layout)].document);
     try field(&json, "default_snap_layout", unquoteToml(
-        files.items[@intFromEnum(schema.FileId.layout)].document.getRaw("layout", "snap_layout") orelse "",
+        files.items[@backingInt(schema.FileId.layout)].document.getRaw("layout", "snap_layout") orelse "",
     ));
 
     try json.objectField("window_rules");
-    try writeWindowRules(&json, &files.items[@intFromEnum(schema.FileId.rules)].document);
+    try writeWindowRules(&json, &files.items[@backingInt(schema.FileId.rules)].document);
 
     try json.objectField("raw_files");
     try json.beginObject();
     for (files.items, 0..) |file_item, index| {
-        const file_id: schema.FileId = @enumFromInt(index);
+        const file_id: schema.FileId = @fromBackingInt(@intCast(index));
         try field(&json, file_id.name(), file_item.document.source);
     }
     try json.endObject();
 
     try json.objectField("warnings");
     try json.beginArray();
-    if (hasLegacyDisplayPolicy(&files.items[@intFromEnum(schema.FileId.wm)].document)) {
+    if (hasLegacyDisplayPolicy(&files.items[@backingInt(schema.FileId.wm)].document)) {
         try json.write("Display policy inherited from wm.toml remains active until the corresponding setting is written to outputs.toml.");
     }
-    const layout_document = &files.items[@intFromEnum(schema.FileId.layout)].document;
+    const layout_document = &files.items[@backingInt(schema.FileId.layout)].document;
     const stacking_field = schema.find("layout.options.float.placement").?;
     if (layout_document.countSections(stacking_field.section, stacking_field.section_aliases) > 1) {
         try json.write("Multiple stacking option aliases are configured; the last assignment for each key is effective and typed edits update that section.");
@@ -264,7 +264,7 @@ fn writeSnapshot(
 const DesktopTypography = toolkit_sync.FontSpec;
 
 fn desktopTypography(files: *const config.ConfigFiles) DesktopTypography {
-    return desktopTypographyFromDocument(&files.items[@intFromEnum(schema.FileId.appearance)].document);
+    return desktopTypographyFromDocument(&files.items[@backingInt(schema.FileId.appearance)].document);
 }
 
 fn desktopTypographyFromSource(allocator: Allocator, source: []const u8) !DesktopTypography {
@@ -311,7 +311,7 @@ fn typographySpecsEqual(a: *const DesktopTypography, b: *const DesktopTypography
 }
 
 fn desktopCursor(files: *const config.ConfigFiles) cursor_sync.CursorSpec {
-    return desktopCursorFromDocument(&files.items[@intFromEnum(schema.FileId.appearance)].document);
+    return desktopCursorFromDocument(&files.items[@backingInt(schema.FileId.appearance)].document);
 }
 
 fn desktopCursorFromSource(allocator: Allocator, source: []const u8) !cursor_sync.CursorSpec {
@@ -386,7 +386,7 @@ fn writeDesktopCursor(
 }
 
 fn writeRaw(writer: *std.Io.Writer, files: *const config.ConfigFiles, file_id: schema.FileId) !void {
-    const file_item = files.items[@intFromEnum(file_id)];
+    const file_item = files.items[@backingInt(file_id)];
     var generation_buffer: [16]u8 = undefined;
     var json: std.json.Stringify = .{ .writer = writer };
     try json.beginObject();
@@ -400,7 +400,7 @@ fn writeRaw(writer: *std.Io.Writer, files: *const config.ConfigFiles, file_id: s
 }
 
 fn writeSchemaField(json: *std.json.Stringify, files: *const config.ConfigFiles, schema_field: *const schema.Field) !void {
-    const file_item = files.items[@intFromEnum(schema_field.file)];
+    const file_item = files.items[@backingInt(schema_field.file)];
     var resolved = resolveFieldRaw(&file_item.document, schema_field);
     var configured_raw = if (resolved) |item| item.value else null;
     var inherited = false;
@@ -409,7 +409,7 @@ fn writeSchemaField(json: *std.json.Stringify, files: *const config.ConfigFiles,
         // including globals encountered after a per-layout assignment.
         resolved = null;
         for ([_]schema.FileId{ .wm, .layout }) |file_id| {
-            const document = &files.items[@intFromEnum(file_id)].document;
+            const document = &files.items[@backingInt(file_id)].document;
             const aliases: []const []const u8 = if (std.mem.eql(u8, schema_field.section, "layout.options.reverse-dwindle"))
                 &.{ "layout", "layout.options.reverse_dwindle" }
             else
@@ -422,7 +422,7 @@ fn writeSchemaField(json: *std.json.Stringify, files: *const config.ConfigFiles,
         configured_raw = if (resolved) |item| item.value else null;
     }
     if (configured_raw == null and schema_field.file == .outputs) {
-        resolved = resolveFieldRaw(&files.items[@intFromEnum(schema.FileId.wm)].document, schema_field);
+        resolved = resolveFieldRaw(&files.items[@backingInt(schema.FileId.wm)].document, schema_field);
         configured_raw = if (resolved) |item| item.value else null;
         inherited = configured_raw != null;
     }
@@ -542,7 +542,7 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
     for (files.items, 0..) |file, index| original_paths[index] = try allocator.dupe(u8, file.path);
     defer for (original_paths) |path| allocator.free(path);
 
-    var dirty = [_]bool{false} ** schema.file_count;
+    var dirty = @as([schema.file_count]bool, @splat(false));
     if (display_contract) |touched| {
         try display_mutations.apply(allocator, &files, request, touched);
         for (touched, 0..) |value, i| if (value) {
@@ -555,7 +555,7 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
         while (iterator.next()) |entry| {
             const file_id = schema.FileId.fromName(entry.key_ptr.*) orelse return error.UnknownFile;
             if (entry.value_ptr.* != .string) return error.InvalidRawFile;
-            const file_index = @intFromEnum(file_id);
+            const file_index = @backingInt(file_id);
             try validateBasicToml(entry.value_ptr.string);
             try replaceDocumentSource(&files.items[file_index].document, entry.value_ptr.string);
             dirty[file_index] = true;
@@ -569,9 +569,9 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
         }
         try normalizeStackingSections(
             allocator,
-            &files.items[@intFromEnum(schema.FileId.layout)].document,
+            &files.items[@backingInt(schema.FileId.layout)].document,
         );
-        dirty[@intFromEnum(schema.FileId.layout)] = true;
+        dirty[@backingInt(schema.FileId.layout)] = true;
     }
 
     // Custom binding IDs are document entry indices. Apply them before ordinary
@@ -591,10 +591,10 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
             }
             try applyCustomKeybindChanges(
                 allocator,
-                &files.items[@intFromEnum(schema.FileId.wm)].document,
+                &files.items[@backingInt(schema.FileId.wm)].document,
                 custom_changes.array.items,
             );
-            dirty[@intFromEnum(schema.FileId.wm)] = true;
+            dirty[@backingInt(schema.FileId.wm)] = true;
         }
     }
 
@@ -609,10 +609,10 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
             }
             try applySnapZoneChanges(
                 allocator,
-                &files.items[@intFromEnum(schema.FileId.layout)].document,
+                &files.items[@backingInt(schema.FileId.layout)].document,
                 zone_changes.array.items,
             );
-            dirty[@intFromEnum(schema.FileId.layout)] = true;
+            dirty[@backingInt(schema.FileId.layout)] = true;
         }
     }
 
@@ -624,11 +624,11 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
         const default_id = jsonString(request.get("default_snap_layout")) orelse "";
         try replaceSnapLayouts(
             allocator,
-            &files.items[@intFromEnum(schema.FileId.layout)].document,
+            &files.items[@backingInt(schema.FileId.layout)].document,
             snap_layouts.array.items,
             default_id,
         );
-        dirty[@intFromEnum(schema.FileId.layout)] = true;
+        dirty[@backingInt(schema.FileId.layout)] = true;
     }
 
     if (request.get("window_rule_changes")) |rule_changes| {
@@ -642,10 +642,10 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
             }
             try applyWindowRuleChanges(
                 allocator,
-                &files.items[@intFromEnum(schema.FileId.rules)].document,
+                &files.items[@backingInt(schema.FileId.rules)].document,
                 rule_changes.array.items,
             );
-            dirty[@intFromEnum(schema.FileId.rules)] = true;
+            dirty[@backingInt(schema.FileId.rules)] = true;
         }
     }
 
@@ -661,8 +661,8 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
                 const schema_field = schema.find(id) orelse return error.UnknownField;
                 const value = change.object.get("value") orelse return error.MissingValue;
                 const encoded = try encodeTomlValue(allocator, schema_field, value);
-                try setFieldRaw(&files.items[@intFromEnum(schema_field.file)].document, schema_field, encoded);
-                dirty[@intFromEnum(schema_field.file)] = true;
+                try setFieldRaw(&files.items[@backingInt(schema_field.file)].document, schema_field, encoded);
+                dirty[@backingInt(schema_field.file)] = true;
             }
         }
     }
@@ -678,11 +678,11 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
             }
             try applyMonitorChanges(
                 allocator,
-                &files.items[@intFromEnum(schema.FileId.outputs)].document,
-                &files.items[@intFromEnum(schema.FileId.wm)].document,
+                &files.items[@backingInt(schema.FileId.outputs)].document,
+                &files.items[@backingInt(schema.FileId.wm)].document,
                 monitor_changes.array.items,
             );
-            dirty[@intFromEnum(schema.FileId.outputs)] = true;
+            dirty[@backingInt(schema.FileId.outputs)] = true;
         }
     }
 
@@ -693,17 +693,17 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
         if (std.mem.startsWith(u8, files.items[index].path, "/etc/xdg/")) {
             const create_override = request.get("create_user_override") orelse return error.SystemConfigReadOnly;
             if (jsonBool(create_override) != true) return error.SystemConfigReadOnly;
-            try retargetUserOverride(allocator, &files.items[index], @enumFromInt(index));
+            try retargetUserOverride(allocator, &files.items[index], @fromBackingInt(@intCast(index)));
         }
         try validateBasicToml(files.items[index].document.source);
     }
     try validateKnownFields(&files);
-    try validateConfiguredSnapZones(&files.items[@intFromEnum(schema.FileId.layout)].document);
-    try validateWindowRules(&files.items[@intFromEnum(schema.FileId.rules)].document);
+    try validateConfiguredSnapZones(&files.items[@backingInt(schema.FileId.layout)].document);
+    try validateWindowRules(&files.items[@backingInt(schema.FileId.rules)].document);
     const typography = desktopTypography(&files);
-    const original_typography = try desktopTypographyFromSource(allocator, originals[@intFromEnum(schema.FileId.appearance)]);
+    const original_typography = try desktopTypographyFromSource(allocator, originals[@backingInt(schema.FileId.appearance)]);
     const typography_changed = !typographySpecsEqual(&original_typography, &typography);
-    const original_cursor = try desktopCursorFromSource(allocator, originals[@intFromEnum(schema.FileId.appearance)]);
+    const original_cursor = try desktopCursorFromSource(allocator, originals[@backingInt(schema.FileId.appearance)]);
     const cursor = desktopCursor(&files);
     const cursor_changed = !cursorSpecsEqual(&original_cursor, &cursor);
     try toolkit_sync.validateFamily(typography.family);
@@ -878,7 +878,7 @@ fn handleRequest(allocator: Allocator, io: std.Io, writer: *std.Io.Writer, sourc
 fn writeDisplayDeclarations(json: *std.json.Stringify, files: *const config.ConfigFiles) !void {
     try json.beginArray();
     for ([_]schema.FileId{ .wm, .outputs }) |id| {
-        const file = &files.items[@intFromEnum(id)];
+        const file = &files.items[@backingInt(id)];
         const tables = try file.document.tables(files.allocator);
         defer files.allocator.free(tables);
         const entries = try file.document.entries(files.allocator);
@@ -2035,7 +2035,7 @@ fn validateRange(schema_field: *const schema.Field, value: f64) !void {
 
 fn validateKnownFields(files: *const config.ConfigFiles) !void {
     for (&schema.fields) |*schema_field| {
-        const raw = (resolveFieldRaw(&files.items[@intFromEnum(schema_field.file)].document, schema_field) orelse continue).value;
+        const raw = (resolveFieldRaw(&files.items[@backingInt(schema_field.file)].document, schema_field) orelse continue).value;
         switch (schema_field.kind) {
             .boolean => if (!std.mem.eql(u8, raw, "true") and !std.mem.eql(u8, raw, "false")) return error.InvalidBoolean,
             .integer => {
@@ -2137,7 +2137,7 @@ fn backupOriginals(
 ) !void {
     for (dirty, 0..) |is_dirty, index| {
         if (!is_dirty) continue;
-        const backup_path = try std.fmt.allocPrint(allocator, "{s}/{s}/{s}.toml", .{ backup_dir, generation, @as(schema.FileId, @enumFromInt(index)).name() });
+        const backup_path = try std.fmt.allocPrint(allocator, "{s}/{s}/{s}.toml", .{ backup_dir, generation, @as(schema.FileId, @fromBackingInt(@intCast(index))).name() });
         var document = try config.Document.init(allocator, originals[index]);
         defer document.deinit();
         try document.write(backup_path);
@@ -2409,7 +2409,7 @@ test "corner radius schema validates typed and raw values and projects saved val
     var files: config.ConfigFiles = .{ .allocator = a, .items = undefined };
     for (&files.items) |*item| item.* = .{ .name = "", .path = try a.dupe(u8, ""), .document = try config.Document.init(a, "") };
     const spec = schema.find("decoration.corner_radius").?;
-    const document = &files.items[@intFromEnum(spec.file)].document;
+    const document = &files.items[@backingInt(spec.file)].document;
     try std.testing.expectEqual(schema.Category.appearance, spec.category);
     const defaults = try singleWindowTestField(a, &files, spec);
     try std.testing.expectEqual(@as(i64, 15), defaults.object.get("value").?.integer);
@@ -2620,7 +2620,7 @@ fn checkCollectionPreconditions(a: Allocator, request: std.json.ObjectMap, files
         const id: schema.FileId = if (std.mem.eql(u8, key, "window_rule_changes")) .rules else if (std.mem.eql(u8, key, "custom_keybind_changes")) .wm else if (std.mem.eql(u8, key, "snap_layouts") or std.mem.eql(u8, key, "snap_zone_changes")) .layout else return error.InvalidCollectionPreconditions;
         touched = true;
         const expected = jsonString(preconditions.object.get(id.name())) orelse return error.InvalidCollectionPreconditions;
-        const actual = try collectionDigest(a, &files.items[@intFromEnum(id)]);
+        const actual = try collectionDigest(a, &files.items[@backingInt(id)]);
         if (!std.mem.eql(u8, expected, &actual)) return error.ExternalChange;
     }
     if (!touched) return error.InvalidCollectionPreconditions;
@@ -2640,8 +2640,8 @@ test "single window schema projects inheritance and validates positive aspect ra
     const allocator = arena.allocator();
     var files: config.ConfigFiles = .{ .allocator = allocator, .items = undefined };
     for (&files.items) |*item| item.* = .{ .name = "", .path = try allocator.dupe(u8, ""), .document = try config.Document.init(allocator, "") };
-    const wm = &files.items[@intFromEnum(schema.FileId.wm)].document;
-    const layout = &files.items[@intFromEnum(schema.FileId.layout)].document;
+    const wm = &files.items[@backingInt(schema.FileId.wm)].document;
+    const layout = &files.items[@backingInt(schema.FileId.layout)].document;
     try wm.setRaw("layout", "center_single_window", "true");
     try wm.setRaw("layout", "single_window_aspect_ratio", "2.0");
     try layout.setRaw("layout", "single_window_aspect_ratio", "2.5");

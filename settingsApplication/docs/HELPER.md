@@ -1,10 +1,10 @@
 # Canonical Aqueous configuration helper
 
-Build with Zig 0.16.0 from `settingsApplication/` in a full Aqueous checkout
+Build with Zig 0.17.0 from `settingsApplication/` in a full Aqueous checkout
 (the helper imports the sibling compositor's canonical configuration sources):
 
 ```sh
-zig build config -Dhelper-only=true -Doptimize=ReleaseSafe
+zig build config -Dhelper-only=true -Doptimize=safe
 ```
 
 Every build is helper-only; the GUI build and Quark dependency are removed.

@@ -47,7 +47,7 @@ pub const State = struct {
         if (!self.available()) return;
         if (self.pending != 0 and now - self.pending_at > interval_ms) self.pending = 0;
         if (self.pending == 0) self.pending_at = now;
-        self.pending |= @intFromEnum(category);
+        self.pending |= @backingInt(category);
     }
     pub fn tick(self: *State, now: i64) ?u32 {
         if (!self.available()) return null;
@@ -79,7 +79,7 @@ pub const State = struct {
 /// Per-device ingress state; never crosses the compositor boundary. Tracking
 /// all Linux key/button codes avoids losing held-key state on bounded overflow.
 pub const Presses = struct {
-    down: std.StaticBitSet(768) = .initEmpty(),
+    down: std.StaticBitSet(768) = .empty,
     pub fn update(self: *Presses, value: u32, pressed: bool) bool {
         if (value >= 768) return false;
         const was_down = self.down.isSet(value);

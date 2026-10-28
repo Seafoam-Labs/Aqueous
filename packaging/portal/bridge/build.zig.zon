@@ -1,0 +1,13 @@
+.{
+    .name = .aqueous_portal_bridge,
+    .fingerprint = 0x5c64584f854fa088,
+    .version = "1.0.12",
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .translate_c = .{
+            .url = "https://codeberg.org/ziglang/translate-c/archive/2.0.2.tar.gz",
+            .hash = "translate_c-2.0.2-Q_BUWvBNBwBgPKQJPblip6M7AHNK_IPNPmyv4rSIQMQc",
+        },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "main.zig", "main.h" },
+}

@@ -380,7 +380,7 @@ pub fn main(init: std.process.Init) !void {
                 try stderr.flush();
                 std.process.exit(2);
             };
-            const theme_z = try allocator.dupeZ(u8, theme);
+            const theme_z = try allocator.dupeSentinel(u8, theme, 0);
             defer allocator.free(theme_z);
             state.info_manager.?.setCursorTheme(theme_z.ptr, size);
         } else {
@@ -437,10 +437,10 @@ pub fn main(init: std.process.Init) !void {
         }
         state.info_manager.?.setListener(*State, managerListener, &state);
         const output = layoutOutput(args) orelse unreachable;
-        const output_z = try allocator.dupeZ(u8, output);
+        const output_z = try allocator.dupeSentinel(u8, output, 0);
         if (mode == .layout_set) {
             const layout = layoutValue(args) orelse unreachable;
-            const layout_z = try allocator.dupeZ(u8, layout);
+            const layout_z = try allocator.dupeSentinel(u8, layout, 0);
             state.info_manager.?.setActiveWorkspaceLayout(output_z.ptr, layout_z.ptr);
         } else {
             state.info_manager.?.getActiveWorkspaceLayout(output_z.ptr);
@@ -1480,14 +1480,14 @@ test "outputs render advertised refresh rates and mode flags" {
         &mode_two,
         &mode_three,
     };
-    first.modes = .{ .items = &first_modes, .capacity = first_modes.len };
+    first.modes = .{ .items = &first_modes, .capacity = first_modes.len, .pointer_stability = .{} };
     first.current_mode = &mode_one;
     var second: DisplayOutput = .{
         .handle = undefined,
         .name = @constCast("HEADLESS-1"),
     };
     var outputs = [_]*DisplayOutput{ &first, &second };
-    state.outputs = .{ .items = &outputs, .capacity = outputs.len };
+    state.outputs = .{ .items = &outputs, .capacity = outputs.len, .pointer_stability = .{} };
 
     var buffer: [2048]u8 = undefined;
     var writer = Io.Writer.fixed(&buffer);
@@ -1536,7 +1536,7 @@ test "pending waits for the list and every live window snapshot" {
         .handle = undefined,
     };
     var windows = [_]*Window{&window};
-    state.windows = .{ .items = &windows, .capacity = windows.len };
+    state.windows = .{ .items = &windows, .capacity = windows.len, .pointer_stability = .{} };
 
     try std.testing.expect(state.pending());
     state.list_finished = true;
@@ -1566,7 +1566,7 @@ test "human output selects identity fallback and ordered states" {
         .states = .{ .focused = true, .fullscreen = true, .visible = true },
     };
     var windows = [_]*Window{&window};
-    state.windows = .{ .items = &windows, .capacity = windows.len };
+    state.windows = .{ .items = &windows, .capacity = windows.len, .pointer_stability = .{} };
 
     var buffer: [1024]u8 = undefined;
     var writer = Io.Writer.fixed(&buffer);
@@ -1606,7 +1606,7 @@ test "json output escapes values, emits nulls, and filters unusable windows" {
         .identifier = @constCast("incomplete"),
     };
     var windows = [_]*Window{ &included, &closed, &incomplete };
-    state.windows = .{ .items = &windows, .capacity = windows.len };
+    state.windows = .{ .items = &windows, .capacity = windows.len, .pointer_stability = .{} };
 
     var buffer: [2048]u8 = undefined;
     var writer = Io.Writer.fixed(&buffer);
@@ -1642,7 +1642,7 @@ test "rule suggestions use backend identity and sanitize titles" {
         .title = @constCast("Quoted \"title\""),
     };
     var windows = [_]*Window{ &xdg, &xwayland };
-    state.windows = .{ .items = &windows, .capacity = windows.len };
+    state.windows = .{ .items = &windows, .capacity = windows.len, .pointer_stability = .{} };
 
     var buffer: [2048]u8 = undefined;
     var writer = Io.Writer.fixed(&buffer);
@@ -1665,7 +1665,7 @@ test "scene tree renders hierarchy, status, geometry, and single-line labels" {
         .{ .id = 3, .parent = 2, .label = @constCast("leaf\nname"), .node_type = .buffer, .enabled = false, .geometry = .{ .x = 1, .y = 2, .width = 3, .height = 4 } },
         .{ .id = 4, .parent = 1, .label = @constCast("beta"), .node_type = .rect, .enabled = true, .geometry = .{} },
     };
-    state.scene_nodes = .{ .items = &nodes, .capacity = nodes.len };
+    state.scene_nodes = .{ .items = &nodes, .capacity = nodes.len, .pointer_stability = .{} };
 
     var buffer: [1024]u8 = undefined;
     var writer = Io.Writer.fixed(&buffer);
@@ -1686,7 +1686,7 @@ test "scene dot escapes labels and styles node types" {
         .{ .id = 1, .parent = 0, .label = @constCast("root\"\\\n"), .node_type = .tree, .enabled = true, .geometry = .{} },
         .{ .id = 2, .parent = 1, .label = @constCast("leaf"), .node_type = .buffer, .enabled = false, .geometry = .{ .width = 10, .height = 20 } },
     };
-    state.scene_nodes = .{ .items = &nodes, .capacity = nodes.len };
+    state.scene_nodes = .{ .items = &nodes, .capacity = nodes.len, .pointer_stability = .{} };
 
     var buffer: [2048]u8 = undefined;
     var writer = Io.Writer.fixed(&buffer);

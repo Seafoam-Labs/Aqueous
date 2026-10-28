@@ -3,6 +3,6 @@ set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 export ZIG_GLOBAL_CACHE_DIR=${AQUEOUS_CONFIG_CACHE:-/tmp/aqueous-config-build}/global
 export ZIG_LOCAL_CACHE_DIR=${AQUEOUS_CONFIG_CACHE:-/tmp/aqueous-config-build}/local
-zig build --build-file "$root/build.zig" -Doptimize=ReleaseSafe
+zig build --build-file "$root/build.zig" -Doptimize=safe
 # A user install never writes /etc or changes shell plugin enablement.
 PREFIX="${HOME}/.local" "$root/packaging/install.sh"

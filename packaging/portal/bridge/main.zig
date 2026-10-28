@@ -1,24 +1,7 @@
 //! Portal dmenu adapter. stdout is exclusively the selected original label.
 //! The DMS UI receives JSON over a private socket and returns an index.
 const std = @import("std");
-const c = @cImport({
-    @cUndef("_FORTIFY_SOURCE");
-    @cDefine("_FORTIFY_SOURCE", "0");
-    @cDefine("_GNU_SOURCE", "1");
-    @cInclude("unistd.h");
-    @cInclude("stdlib.h");
-    @cInclude("fcntl.h");
-    @cInclude("poll.h");
-    @cInclude("signal.h");
-    @cInclude("errno.h");
-    @cInclude("time.h");
-    @cInclude("sys/file.h");
-    @cInclude("sys/stat.h");
-    @cInclude("sys/socket.h");
-    @cInclude("sys/un.h");
-    @cInclude("sys/random.h");
-    @cInclude("sys/wait.h");
-});
+const c = @import("c");
 
 const allocator = std.heap.page_allocator;
 const max_input = 1024 * 1024;

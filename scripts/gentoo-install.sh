@@ -12,7 +12,7 @@
 #   AQUEOUS_PREFIX       install/uninstall under this prefix instead of /
 #                        (dry run without root: AQUEOUS_PREFIX=/tmp/aq $0 install)
 #   AQUEOUS_DIST         build output dir (default: <repo>/dist)
-#   AQUEOUS_ZIG_VERSION  zig to fetch when PATH has none >= required (0.16.0)
+#   AQUEOUS_ZIG_VERSION  zig to fetch when PATH has none >= required (0.17.0)
 #
 # /etc config files (wm.toml, outputs.toml, uwsm/env-aqueous) are never
 # clobbered: an existing file is kept and the shipped default is dropped
@@ -25,8 +25,8 @@ dist="${AQUEOUS_DIST:-$root/dist}"
 destdir="${AQUEOUS_PREFIX:-}"
 component=desktop
 if [[ ${1:-} == --core-only ]]; then component=core; shift; fi
-zig_required=0.16.0
-zig_fetch_version="${AQUEOUS_ZIG_VERSION:-0.16.0}"
+zig_required=0.17.0
+zig_fetch_version="${AQUEOUS_ZIG_VERSION:-0.17.0}"
 xdpw_version=0.8.4
 xdpw_sha256=3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400
 xdpw_url="https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v$xdpw_version.tar.gz"
@@ -184,7 +184,7 @@ cmd_build() {
     (
         cd "$root/compositor"
         PKG_CONFIG_PATH="$PWD/.deps/wlroots-render-hook/lib/pkgconfig" \
-            zig build -Dcpu=baseline -Doptimize=ReleaseSafe -Dxwayland -Dllvm \
+            zig build -Dcpu=baseline -Doptimize=safe -Dxwayland -Dllvm \
                 -Dman-pages=true \
                 --prefix "$dist/aqueous-dist" install
     )
@@ -192,7 +192,7 @@ cmd_build() {
     say "building aqueous-config..."
     (
         cd "$root/settingsApplication"
-        zig build -Dcpu=baseline -Doptimize=ReleaseSafe \
+        zig build -Dcpu=baseline -Doptimize=safe \
             --prefix "$dist/aqueous-config-dist" install
     )
 
@@ -200,8 +200,8 @@ cmd_build() {
         verify_build
         return
     fi
-    zig build --build-file "$root/aqueous-portal-picker/build.zig" -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$dist/aqueous-picker-dist"
-    zig build --build-file "$root/packaging/portal/bridge/build.zig" -Dcpu=baseline -Doptimize=ReleaseSafe --prefix "$dist/aqueous-portal-chooser-dist"
+    zig build --build-file "$root/aqueous-portal-picker/build.zig" -Dcpu=baseline -Doptimize=safe --prefix "$dist/aqueous-picker-dist"
+    zig build --build-file "$root/packaging/portal/bridge/build.zig" -Dcpu=baseline -Doptimize=safe --prefix "$dist/aqueous-portal-chooser-dist"
     local portal_tmp
     portal_tmp=$(mktemp -d "${TMPDIR:-/tmp}/aqueous-portal.XXXXXX")
     say "building bundled Aqueous portal backend $xdpw_version..."
