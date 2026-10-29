@@ -76,7 +76,7 @@
         ])
       );
   },
-  version ? "1.0.13",
+  version ? "1.0.14",
 }:
 
 assert lib.assertMsg (lib.versionAtLeast wayland-protocols.version "1.49")

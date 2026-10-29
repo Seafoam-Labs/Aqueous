@@ -1,7 +1,7 @@
 .{
     .name = .aqueous_test_fixtures,
     .fingerprint = 0xe26fa6f37b3bea9a,
-    .version = "1.0.13",
+    .version = "1.0.14",
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .translate_c = .{
