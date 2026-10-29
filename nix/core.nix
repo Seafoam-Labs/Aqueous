@@ -142,6 +142,7 @@ let
       "${src}/compositor/patches/wlroots/0035-drm-prepare-resource-ownership.patch"
       "${src}/compositor/patches/wlroots/0036-syncobj-waiter-allocation-cleanup.patch"
       "${src}/compositor/patches/wlroots/0037-syncobj-merger-error-handling.patch"
+      "${src}/compositor/patches/wlroots/0038-ext-capture-cursor-no-buffer.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending

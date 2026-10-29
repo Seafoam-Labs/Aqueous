@@ -1,0 +1,26 @@
+--- a/types/ext_image_capture_source_v1/output.c
++++ b/types/ext_image_capture_source_v1/output.c
+@@ -375,7 +375,22 @@ static void output_cursor_source_handle_output_commit(struct wl_listener *listen
+ 	output_cursor_source_update(cursor_source);
+ 
+ 	struct wlr_buffer *buffer = cursor_source->output->cursor_front_buffer;
+-	if (buffer != NULL && (buffer != cursor_source->prev_buffer || cursor_source->needs_frame)) {
++	if (buffer == NULL && cursor_source->needs_frame) {
++		// No hardware cursor, let copy_frame() fail the frame
++		pixman_region32_t full_damage;
++		pixman_region32_init_rect(&full_damage, 0, 0,
++			cursor_source->base.base.width, cursor_source->base.base.height);
++
++		struct wlr_ext_output_image_capture_source_v1_frame_event frame_event = {
++			.base = {
++				.damage = &full_damage,
++			},
++			.when = event->when,
++		};
++		wl_signal_emit_mutable(&cursor_source->base.base.events.frame, &frame_event);
++
++		pixman_region32_fini(&full_damage);
++	} else if (buffer != NULL && (buffer != cursor_source->prev_buffer || cursor_source->needs_frame)) {
+ 		pixman_region32_t full_damage;
+ 		pixman_region32_init_rect(&full_damage, 0, 0, buffer->width, buffer->height);
+ 
