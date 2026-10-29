@@ -41,6 +41,7 @@ pub fn checkActive(inhibit_manager: *IdleInhibitManager) void {
     while (it.next()) |inhibitor| {
         const node_data = SceneNodeData.fromSurface(inhibitor.wlr_inhibitor.surface) orelse continue;
         switch (node_data.data) {
+            .drag_icon => {},
             // TODO be stricter here so that clients don't abuse the protocol
             .window, .shell_surface, .lock_surface, .layer_surface, .override_redirect => {
                 inhibited = true;

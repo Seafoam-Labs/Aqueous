@@ -3,6 +3,7 @@
 
 const SceneNodeData = @This();
 
+const assert = @import("std").debug.assert;
 const build_options = @import("build_options");
 const wlr = @import("wlroots");
 const wl = @import("wayland").server.wl;
@@ -11,12 +12,13 @@ const util = @import("util.zig");
 
 const LockSurface = @import("LockSurface.zig");
 const LayerSurface = @import("LayerSurface.zig");
-const InputPopup = @import("InputPopup.zig");
+const DragIcon = @import("DragIcon.zig");
 const Window = @import("Window.zig");
 const ShellSurface = @import("ShellSurface.zig");
 const XwaylandOverrideRedirect = @import("XwaylandOverrideRedirect.zig");
 
 pub const Data = union(enum) {
+    drag_icon: *DragIcon,
     window: *Window,
     shell_surface: *ShellSurface,
     lock_surface: *LockSurface,
@@ -28,7 +30,10 @@ node: *wlr.SceneNode,
 data: Data,
 destroy: wl.Listener(void) = .init(handleDestroy),
 
+/// Non-null compositor scene-node data must always point to this wrapper,
+/// including nodes outside the interactive tree: render hooks visit them too.
 pub fn attach(node: *wlr.SceneNode, data: Data) error{OutOfMemory}!void {
+    assert(node.data == null);
     const scene_node_data = try util.gpa.create(SceneNodeData);
 
     scene_node_data.* = .{

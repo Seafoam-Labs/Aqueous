@@ -43,6 +43,12 @@ struct window {
     uint32_t serial, states;
 };
 static struct window windows[16], drag_icon;
+static void icon_frame(void *data, struct wl_callback *callback, uint32_t time) {
+    (void)data; (void)time;
+    wl_callback_destroy(callback);
+    puts("{\"event\":\"icon-frame\"}");
+}
+static const struct wl_callback_listener icon_frame_listener = { .done=icon_frame };
 static void release(void *data, struct wl_buffer *buffer) { (void)data; wl_buffer_destroy(buffer); }
 static const struct wl_buffer_listener buffer_listener = {.release = release};
 static void draw(struct window *w) {
@@ -175,11 +181,17 @@ static bool command(char *line) {
     else if (!strcmp(op,"selection")) wl_data_device_set_selection(device,source,input_serial);
     else if (!strcmp(op,"attach")) xdg_toplevel_drag_v1_attach(drag,w->top,b,c);
     else if (!strcmp(op,"start")) {
-        if (c) drag_icon=(struct window){.surface=wl_compositor_create_surface(compositor),.width=20,.height=20};
+        if (c) drag_icon=(struct window){.surface=wl_compositor_create_surface(compositor),.id=1,.width=20,.height=20};
         wl_data_device_start_drag(device,source,w->surface,c?drag_icon.surface:NULL,b?0:input_serial);
         if (c) draw(&drag_icon);
     }
     else if (!strcmp(op,"destroy-icon")) { wl_surface_destroy(drag_icon.surface); drag_icon.surface=NULL; }
+    else if (!strcmp(op,"icon-frame")) {
+        assert(drag_icon.surface);
+        struct wl_callback *callback=wl_surface_frame(drag_icon.surface);
+        wl_callback_add_listener(callback,&icon_frame_listener,NULL);
+        draw(&drag_icon);
+    }
     // Keep the proxy alive for this deliberately invalid destructor request
     // so libwayland can report the offending interface in the error event.
     else if (!strcmp(op,"destroy-ongoing")) wl_proxy_marshal_flags((struct wl_proxy*)drag, XDG_TOPLEVEL_DRAG_V1_DESTROY, NULL, 1, 0);

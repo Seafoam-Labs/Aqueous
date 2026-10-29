@@ -94,6 +94,7 @@ pub fn update(input_popup: *InputPopup) void {
     const focused = SceneNodeData.fromSurface(focused_surface) orelse return;
 
     const popup_tree = switch (focused.data) {
+        .drag_icon => return,
         .window => |window| window.popup_tree,
         .shell_surface => |shell_surface| shell_surface.popup_tree,
         // TODO fix positioning for lock surfaces not at 0,0 in layout coords

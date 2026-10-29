@@ -3,7 +3,6 @@
 
 const DragIcon = @This();
 
-const std = @import("std");
 const wlr = @import("wlroots");
 const wl = @import("wayland").server.wl;
 
@@ -29,7 +28,7 @@ pub fn create(wlr_drag_icon: *wlr.Drag.Icon, cursor: *Cursor) error{OutOfMemory}
         .wlr_drag_icon = wlr_drag_icon,
         .scene_drag_icon = scene_drag_icon,
     };
-    scene_drag_icon.node.data = drag_icon;
+    try SceneNodeData.attach(&scene_drag_icon.node, .{ .drag_icon = drag_icon });
 
     drag_icon.updatePosition(cursor);
 

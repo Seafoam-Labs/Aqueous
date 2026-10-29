@@ -304,6 +304,7 @@ fn sceneNodeLabel(node: *wlr.SceneNode, buffer: *[512]u8) [:0]const u8 {
     if (server.overview.nodeLabel(node, buffer)) |label| return label;
 
     if (SceneNodeData.fromNode(node)) |owner| switch (owner.data) {
+        .drag_icon => return "drag icon",
         .window => |window| return windowNodeLabel(window, node, buffer),
         .shell_surface => |surface| {
             if (node == &surface.tree.node) return "shell surface";

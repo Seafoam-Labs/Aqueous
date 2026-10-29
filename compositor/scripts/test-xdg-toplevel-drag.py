@@ -13,6 +13,8 @@ import subprocess
 import tempfile
 import time
 
+from PIL import Image
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -21,6 +23,7 @@ def main():
     parser.add_argument('--compositor', type=Path, default=ROOT / 'zig-out/bin/aqueous')
     parser.add_argument('--ctl', type=Path, default=ROOT / 'zig-out/bin/aqueousctl')
     parser.add_argument('--renderer', choices=('pixman', 'vulkan'), default='pixman')
+    parser.add_argument('--blur', action='store_true', help='Enable blur during the drag regressions')
     parser.add_argument('--external-policy-only', action='store_true', help='Check the global is hidden in legacy external WM mode')
     args = parser.parse_args()
     work = Path(tempfile.mkdtemp(prefix='aqueous-toplevel-drag-'))
@@ -81,6 +84,24 @@ def main():
         clients[label] = launch([work / 'client', label], label)
         wait(lambda: events(label, 'ready'), f'{label} not ready')
         assert events(label, 'global') == [{'event': 'global', 'version': 1}]
+
+    def icon_frames(label='source'):
+        # Roundtrips alone do not ensure the icon reaches the renderer. Keep it
+        # mapped through several damaged frames to exercise scene-owner lookup.
+        for _ in range(3):
+            before = len(events(label, 'icon-frame'))
+            command('icon-frame', label)
+            wait(lambda: len(events(label, 'icon-frame')) > before, f'{label}: drag icon did not render')
+
+    def icon_at(x, y, present=True):
+        # Icons are green; both ordinary windows are red. Capture without the
+        # cursor so its image cannot hide a stationary/mispositioned drag icon.
+        path = work / f'icon-{x}-{y}-{present}.png'
+        run(['grim', '-o', 'HEADLESS-1', path])
+        with Image.open(path) as screenshot:
+            r, g, b = screenshot.convert('RGB').getpixel((x + 10, y + 10))
+        green = g > 200 and r < 50 and b < 50
+        assert green == present, f'drag icon at {(x, y)}: expected present={present}, got {(r, g, b)}'
 
     def ctl(*values):
         return json.loads(run([args.ctl.resolve(), *values, '--json']))
@@ -174,7 +195,9 @@ def main():
             path = work / f'{name.lower()}.toml'
             path.write_text('')
             env[f'AQUEOUS_{name}'] = str(path)
-        (work / 'config.toml').write_text('[layout]\ndefault = "floating"\n[blur]\nenabled = false\n[workspace_transition]\nenabled = false\n[input]\nfocus_follows_mouse = false\n')
+        (work / 'config.toml').write_text('[layout]\ndefault = "floating"\n[blur]\n'
+                                        f'enabled = {str(args.blur).lower()}\n'
+                                        '[workspace_transition]\nenabled = false\n[input]\nfocus_follows_mouse = false\n')
         (work / 'outputs.toml').write_text('[[output]]\nname = "HEADLESS-2"\nenabled = false\n')
         (work / 'layout.toml').write_text('[layout.options.float]\nresistance = 0\nsnap_threshold = 0\n')
         (work / 'rules.toml').write_text('''[[window]]
@@ -236,10 +259,13 @@ height = 400
         command('prepare')
         command('attach 0 30 20')
         command('start 0 0 1')
+        icon_frames()
         before = len(events('target', 'enter'))
         command('move 650 300')
         wait(lambda: at(620, 280), 'attached window did not follow pointer')
         wait(lambda: len(events('target', 'enter')) > before, 'dragged window blocked target')
+        icon_frames()
+        icon_at(650, 300)
         command('release')
         wait(lambda: events('source', 'dropped'), 'no drop event')
         wait(lambda: events('source', 'sent'), 'MIME transfer did not run')
@@ -290,11 +316,13 @@ height = 400
         command('attach 0 30 20')
         enters = len(events('source', 'enter'))
         before = len(events('target', 'enter'))
-        command('start 0')
+        command('start 0 0 1')
         assert len(events('source', 'enter')) == enters, 'touch origin became a drag target'
         touch('motion', 700, 350)
         wait(lambda: at(670, 330), 'touch did not move window')
         wait(lambda: len(events('target', 'enter')) > before, 'touch did not enter target')
+        icon_frames()
+        icon_at(700, 350)
         geometry = window()['geometry']
         touch('down', 100, 600, id=1)
         touch('motion', 200, 650, id=1)
@@ -307,22 +335,43 @@ height = 400
         command('finish', 'target')
         command('destroy-drag')
         command('destroy-source')
-        print('PASS touch movement, target focus, secondary touch isolation, transfer', flush=True)
+        command('destroy-icon')
+        print('PASS touch movement, drag icon, target focus, secondary touch isolation, transfer', flush=True)
 
         # Ordinary DnD continues to transfer data without moving its origin.
         press()
         command('prepare 1')
-        command('start 0')
+        command('start 0 0 1')
         geometry = window()['geometry']
         dropped = len(events('source', 'dropped'))
         sent = len(events('source', 'sent'))
         command('move 950 250')
+        icon_frames()
+        icon_at(950, 250)
         assert window()['geometry'] == geometry
         command('release')
         wait(lambda: len(events('source', 'dropped')) > dropped, 'ordinary DnD drop failed')
         wait(lambda: len(events('source', 'sent')) > sent, 'ordinary transfer failed')
         command('finish', 'target')
         command('destroy-source')
+        command('destroy-icon')
+
+        # Destroying a mapped icon must leave the active drag usable. Repeat to
+        # exercise metadata allocation/cleanup and cursor traversal after free.
+        for _ in range(3):
+            press()
+            command('prepare 1')
+            command('start 0 0 1')
+            command('move 950 250')
+            icon_frames()
+            icon_at(950, 250)
+            command('destroy-icon')
+            icon_at(950, 250, present=False)
+            before = len(events('source', 'cancelled'))
+            command('move 30 650')
+            command('release')
+            wait(lambda: len(events('source', 'cancelled')) > before, 'icon destruction broke cancellation')
+            command('destroy-source')
 
         # A mapped attachment may disappear and return, but needs a new attach.
         press()
@@ -414,12 +463,14 @@ height = 400
         wait(lambda: len(events('source', 'touch')) > before, 'touch cancel setup failed')
         command('prepare')
         command('attach 0 30 20')
-        command('start 0')
+        command('start 0 0 1')
+        icon_frames()
         before = len(events('source', 'cancelled'))
         touch('cancel')
         wait(lambda: len(events('source', 'cancelled')) > before, 'touch cancellation did not end source')
         command('destroy-drag')
         command('destroy-source')
+        command('destroy-icon')
         print('PASS ordinary DnD, remap/reattach, attached destruction, fixed/tiled policy, maximized restore, fullscreen, rejected drop, touch cancellation', flush=True)
 
         # Source-less touch drags must not dereference a missing data source.
@@ -472,7 +523,8 @@ height = 400
         wait(lambda: events('second', 'touch'), 'second seat did not receive serial')
         command('prepare', 'second')
         command('attach 0 30 20', 'second')
-        command('start 0', 'second')
+        command('start 0 0 1', 'second')
+        icon_frames('second')
         command('move 700 250')
         wait(lambda: at(670, 230), 'default seat drag stopped')
         geometry = window()['geometry']
@@ -542,7 +594,8 @@ height = 400
         wait(lambda: events('disconnect', 'press'), 'disconnect drag setup failed')
         command('prepare', 'disconnect')
         command('attach 0 30 20', 'disconnect')
-        command('start 0', 'disconnect')
+        command('start 0 0 1', 'disconnect')
+        icon_frames('disconnect')
         command('quit', 'disconnect', error=True)
         wait(lambda: window(label='disconnect') is None, 'disconnected window remained')
         command('release')

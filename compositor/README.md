@@ -170,6 +170,14 @@ build, or `--renderer vulkan` against the effects build. See the
 [implementation and validation record](../docs/xdg-toplevel-drag-v1-implementation-plan.md)
 for lifecycle behavior, tests, and remaining hardware qualification.
 
+The drag fixture also checks rendered pointer/touch icons, ordinary drag-and-drop,
+icon destruction during a drag, cancellation, seat removal and client disconnect.
+It waits for icon frames and uses `grim` plus Python/Pillow to verify positioning
+and removal. Run the Vulkan variant both with and without `--blur`; disabling
+blur still exercises scene-owner lookup in the effects render hook. Drag icons
+use the same typed scene metadata as other nodes while remaining outside the
+interactive tree.
+
 xdg-shell v7 is available in both builds, including suspension and constrained
 resize-edge states. Run `python3 scripts/test-xdg-shell-states.py --renderer vulkan`
 with the effects build, or use `--renderer pixman` with the diagnostic build.

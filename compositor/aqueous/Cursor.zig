@@ -19,7 +19,7 @@ const scene_surface_projection = @import("scene_surface_projection.zig");
 const cursor_lock_restore = @import("cursor_lock_restore.zig");
 const cursor_config = @import("cursor_config.zig");
 
-const DragIcon = @import("DragIcon.zig");
+const SceneNodeData = @import("SceneNodeData.zig");
 const InputDevice = @import("InputDevice.zig");
 const LockSurface = @import("LockSurface.zig");
 const Output = @import("Output.zig");
@@ -799,7 +799,7 @@ fn updateHovered(cursor: *Cursor, allow_focus_follow: bool) void {
                     .destroying => {},
                 }
             },
-            .shell_surface, .lock_surface, .layer_surface => {},
+            .drag_icon, .shell_surface, .lock_surface, .layer_surface => {},
             .override_redirect => {
                 assert(build_options.xwayland);
                 assert(server.xwayland != null);
@@ -1038,6 +1038,7 @@ pub fn processAxis(cursor: *Cursor, event: *const Seat.Event.PointerAxis) void {
 
 fn interact(cursor: Cursor, result: Scene.AtResult) void {
     switch (result.data) {
+        .drag_icon => {},
         .window => |window| {
             cursor.seat.wm_scheduled.interaction = .{ .window = window.ref };
             server.aqueous.handleWindowInteraction(@bitCast(window.ref));
@@ -1312,7 +1313,11 @@ pub fn refreshDragTarget(cursor: *Cursor) void {
 fn updateDragIcons(cursor: *Cursor) void {
     var it = server.scene.drag_icons.children.iterator(.forward);
     while (it.next()) |node| {
-        const icon = @as(*DragIcon, @ptrCast(@alignCast(node.data)));
+        const data = SceneNodeData.fromNode(node) orelse continue;
+        const icon = switch (data.data) {
+            .drag_icon => |icon| icon,
+            else => continue,
+        };
 
         if (icon.wlr_drag_icon.drag.seat == cursor.seat.wlr_seat) {
             icon.updatePosition(cursor);
