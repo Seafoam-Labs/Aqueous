@@ -1,0 +1,228 @@
+diff --git a/types/wlr_fifo_v1.c b/types/wlr_fifo_v1.c
+--- a/types/wlr_fifo_v1.c
++++ b/types/wlr_fifo_v1.c
+@@ -1,6 +1,8 @@
+ /* FIFO state belongs to the surface, not the lifetime of the protocol resource. */
+ #include <assert.h>
+ #include <stdlib.h>
++#include <time.h>
++#include <wlr/util/log.h>
+ #include <wlr/backend/drm.h>
+ #include <wlr/types/wlr_compositor.h>
+ #include <wlr/types/wlr_fifo_v1.h>
+@@ -13,6 +15,10 @@
+     struct wl_event_loop *loop;
+     struct wl_listener display_destroy;
+     struct wl_list surfaces;
++    struct wl_list hidden;
++    struct wl_event_source *timer;
++    bool timer_dispatching, timer_failed;
++    int64_t armed_deadline;
+ };
+ struct fifo_state { bool set, wait; };
+ struct fifo_surface {
+@@ -28,6 +34,9 @@
+     uint64_t generation, staged, submitted;
+     uint32_t submitted_seq;
+     bool barrier;
++    struct wl_list hidden_link;
++    uint64_t hidden_generation;
++    int64_t hidden_deadline;
+ };
+ static const struct wlr_addon_interface addon_impl;
+ static const struct wp_fifo_v1_interface fifo_impl;
+@@ -59,6 +68,50 @@
+     return output;
+ }
+ static void schedule(struct fifo_surface *fifo);
++static void arm_timer(struct wlr_fifo_manager_v1 *manager);
++static int64_t now_ns(void) {
++    struct timespec now;
++    clock_gettime(CLOCK_MONOTONIC, &now);
++    return (int64_t)now.tv_sec * 1000000000 + now.tv_nsec;
++}
++static void remove_hidden(struct fifo_surface *fifo) {
++    if (!fifo->hidden_generation) return;
++    wl_list_remove(&fifo->hidden_link);
++    wl_list_init(&fifo->hidden_link);
++    fifo->hidden_generation = 0;
++    arm_timer(fifo->manager);
++}
++static void arm_timer(struct wlr_fifo_manager_v1 *manager) {
++    if (manager->timer_dispatching || manager->timer_failed) return;
++    int64_t deadline = 0;
++    struct fifo_surface *fifo;
++    wl_list_for_each(fifo, &manager->hidden, hidden_link) {
++        if (!deadline || fifo->hidden_deadline < deadline) deadline = fifo->hidden_deadline;
++    }
++    if (deadline == manager->armed_deadline) return;
++    // Wayland uses milliseconds; round up and never use 0 for an overdue timer
++    // (0 disarms it). Recheck the monotonic deadline in the callback.
++    int64_t remaining = deadline ? deadline - now_ns() : 0;
++    int delay = deadline ? (remaining > 0 ? (remaining + 999999) / 1000000 : 1) : 0;
++    if (wl_event_source_timer_update(manager->timer, delay) == 0) {
++        manager->armed_deadline = deadline;
++        return;
++    }
++    // Fail open only for hidden FIFO, without flushing from a readiness check
++    // or list mutation. Idles perform the flush and preserve independent locks.
++    wlr_log(WLR_ERROR, "Hidden FIFO timer failed; disabling hidden FIFO pacing");
++    manager->timer_failed = true;
++    wl_list_for_each(fifo, &manager->hidden, hidden_link) schedule(fifo);
++}
++static void pace_hidden(struct fifo_surface *fifo) {
++    if (!fifo->barrier || fifo->manager->timer_failed) return;
++    if (fifo->hidden_generation == fifo->generation) return;
++    remove_hidden(fifo);
++    fifo->hidden_generation = fifo->generation;
++    fifo->hidden_deadline = now_ns() + 25000000; // 40 Hz, with no catch-up bursts.
++    wl_list_insert(fifo->manager->hidden.prev, &fifo->hidden_link);
++    arm_timer(fifo->manager);
++}
+ static void disconnect_output(struct fifo_surface *fifo) {
+     if (!fifo->output) return;
+     wl_list_remove(&fifo->output_destroy.link);
+@@ -81,6 +134,7 @@
+ }
+ static void update_output(struct fifo_surface *fifo) {
+     struct wlr_output *output = pacing_output(fifo->synced.surface);
++    if (output) remove_hidden(fifo);
+     if (output == fifo->output) return;
+     disconnect_output(fifo);
+     fifo->output = output;
+@@ -91,6 +145,7 @@
+     wl_signal_add(&output->events.commit, &fifo->output_commit);
+ }
+ static void clear_barrier(struct fifo_surface *fifo) {
++    remove_hidden(fifo);
+     fifo->barrier = false;
+     fifo->staged = fifo->submitted = 0;
+ }
+@@ -98,13 +153,47 @@
+     struct fifo_surface *fifo = data;
+     fifo->idle = NULL;
+     update_output(fifo);
+-    if (!fifo->output || synchronized(fifo->synced.surface)) {
++    if (synchronized(fifo->synced.surface) ||
++            (!fifo->output && fifo->manager->timer_failed)) {
+         clear_barrier(fifo);
+         // Flushing can invoke compositor code and destroy this addon.
+         surface_flush_cached(fifo->synced.surface);
+         return;
+     }
++    if (!fifo->output) {
++        pace_hidden(fifo);
++        return;
++    }
+     if (fifo->barrier && !fifo->submitted) wlr_output_schedule_frame(fifo->output);
++}
++static int hidden_timer(void *data) {
++    struct wlr_fifo_manager_v1 *manager = data;
++    manager->armed_deadline = 0;
++    manager->timer_dispatching = true;
++    // A fixed cutoff prevents callbacks which take a long time from releasing
++    // newly installed barriers in this same dispatch.
++    int64_t now = now_ns();
++    for (;;) {
++        struct fifo_surface *fifo, *ready = NULL;
++        wl_list_for_each(fifo, &manager->hidden, hidden_link) {
++            if (fifo->hidden_deadline <= now) { ready = fifo; break; }
++        }
++        if (!ready) break;
++        uint64_t generation = ready->hidden_generation;
++        remove_hidden(ready);
++        update_output(ready);
++        if (synchronized(ready->synced.surface) ||
++                (!ready->output && ready->barrier && ready->generation == generation)) {
++            clear_barrier(ready);
++            // Flushing may destroy any surface or install a new generation.
++            surface_flush_cached(ready->synced.surface);
++        } else {
++            schedule(ready);
++        }
++    }
++    manager->timer_dispatching = false;
++    arm_timer(manager);
++    return 0;
+ }
+ static void schedule(struct fifo_surface *fifo) {
+     if (!fifo->idle) {
+@@ -121,7 +210,9 @@
+     if (!fifo) return true;
+     const struct fifo_state *next = wlr_surface_synced_get_state(&fifo->synced, state);
+     if (!next->wait || !fifo->barrier) return true;
+-    if (synchronized(surface) || !pacing_output(surface)) {
++    update_output(fifo);
++    if (!fifo->output && !synchronized(surface)) pace_hidden(fifo);
++    if (synchronized(surface) || (!fifo->output && fifo->manager->timer_failed)) {
+         clear_barrier(fifo);
+         return true;
+     }
+@@ -135,10 +226,13 @@
+ static void apply(struct wlr_surface_synced *synced) {
+     struct fifo_surface *fifo = wl_container_of(synced, fifo, synced);
+     if (fifo->current.set) {
++        remove_hidden(fifo);
+         fifo->barrier = true;
+         // Zero is reserved for "not submitted"; independent of the u32 surface seq.
+         if (++fifo->generation == 0) ++fifo->generation;
+         fifo->staged = fifo->submitted = 0;
++        update_output(fifo);
++        if (!fifo->output && !synchronized(fifo->synced.surface)) pace_hidden(fifo);
+         schedule(fifo);
+     }
+ }
+@@ -147,6 +241,7 @@
+ };
+ static void destroy_addon(struct wlr_addon *addon) {
+     struct fifo_surface *fifo = wl_container_of(addon, fifo, addon);
++    remove_hidden(fifo);
+     if (fifo->idle) wl_event_source_remove(fifo->idle);
+     disconnect_output(fifo);
+     if (fifo->resource) wl_resource_set_user_data(fifo->resource, NULL);
+@@ -196,6 +291,7 @@
+         fifo = calloc(1, sizeof(*fifo));
+         if (!fifo) goto oom;
+         fifo->manager = manager;
++        wl_list_init(&fifo->hidden_link);
+         if (!wlr_surface_synced_init(&fifo->synced, surface, &synced_impl,
+                 &fifo->pending, &fifo->current)) {
+             free(fifo);
+@@ -222,6 +318,8 @@
+ }
+ static void display_destroy(struct wl_listener *listener, void *data) {
+     struct wlr_fifo_manager_v1 *manager = wl_container_of(listener, manager, display_destroy);
++    manager->timer_dispatching = true;
++    wl_event_source_remove(manager->timer);
+     struct fifo_surface *fifo, *tmp;
+     wl_list_for_each_safe(fifo, tmp, &manager->surfaces, link) destroy_addon(&fifo->addon);
+     wl_list_remove(&manager->display_destroy.link);
+@@ -233,9 +331,16 @@
+     if (!manager) return NULL;
+     manager->loop = wl_display_get_event_loop(display);
+     wl_list_init(&manager->surfaces);
++    wl_list_init(&manager->hidden);
++    manager->timer = wl_event_loop_add_timer(manager->loop, hidden_timer, manager);
++    if (!manager->timer) { free(manager); return NULL; }
+     manager->global = wl_global_create(display, &wp_fifo_manager_v1_interface, 1,
+         manager, bind_manager);
+-    if (!manager->global) { free(manager); return NULL; }
++    if (!manager->global) {
++        wl_event_source_remove(manager->timer);
++        free(manager);
++        return NULL;
++    }
+     manager->display_destroy.notify = display_destroy;
+     wl_display_add_destroy_listener(display, &manager->display_destroy);
+     return manager;
+diff --git a/types/wlr_compositor.c b/types/wlr_compositor.c
+--- a/types/wlr_compositor.c
++++ b/types/wlr_compositor.c
+@@ -1177,6 +1177,7 @@
+ 	surface_output->surface = surface;
+ 	surface_output->output = output;
+ 	wl_list_insert(&surface->current_outputs, &surface_output->link);
++	wlr_fifo_v1_surface_changed(surface);
+ 
+ 	wl_resource_for_each(resource, &output->resources) {
+ 		if (client == wl_resource_get_client(resource)) {

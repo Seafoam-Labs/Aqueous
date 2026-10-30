@@ -80,7 +80,7 @@ static void feedback_presented(void *data, struct wp_presentation_feedback *feed
     wp_presentation_feedback_destroy(feedback);
 }
 static void feedback_discarded(void *data, struct wp_presentation_feedback *feedback) {
-    printf("{\"event\":\"discarded\",\"frame\":%u}\n", (unsigned)(uintptr_t)data);
+    printf("{\"event\":\"discarded\",\"frame\":%u,\"ms\":%.3f}\n", (unsigned)(uintptr_t)data, now_ms());
     wp_presentation_feedback_destroy(feedback);
 }
 static const struct wp_presentation_feedback_listener feedback_listener = {
@@ -320,6 +320,11 @@ int main(int argc, char **argv) {
                 for (unsigned i = 0; i < burst; i++) draw();
                 batch_deadline = 0;
             }
+            if (command == 'u') {
+                timing_enabled = false;
+                for (unsigned i = 0; i < burst; i++) draw();
+                timing_enabled = true;
+            }
             if (command == 'n') { timing_fifo = false; draw(); timing_fifo = true; }
             if (command == 'x') {
                 draw();
@@ -331,7 +336,13 @@ int main(int argc, char **argv) {
             if (command == 'b') for (unsigned i = 0; i < burst; i++) draw();
             #endif
             if (command == 'h') { wl_surface_attach(surface, NULL, 0, 0); wl_surface_commit(surface); configured = false; }
-            if (command == 'm') wl_surface_commit(surface);
+            if (command == 'm') {
+                // Unmapping resets xdg-toplevel metadata; restore identity for
+                // tests which address the remapped window through compositor IPC.
+                xdg_toplevel_set_title(top, argv[1]);
+                xdg_toplevel_set_app_id(top, argv[1]);
+                wl_surface_commit(surface);
+            }
             #endif
         }
     }

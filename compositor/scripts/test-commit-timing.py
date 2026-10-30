@@ -108,7 +108,7 @@ def main():
         checked(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter', '-g',
                  *(['-fsanitize=address,undefined'] if args.sanitize else []), f'-I{work}',
                  ROOT / 'scripts/fixtures/wlroots-commit-timing.c', *generated[:2], '-ldl', '-o', work / 'unit', *flags])
-        for case in ('fast-path', 'fast-boundary', 'transition', 'fast-destroy', 'fast-reentry', 'pool', 'pool-cap', 'pool-oom', 'wakeups', 'deadline-changes', 'dispatch-unlock', 'late-timer', 'queued-burst', 'deep-tree', 'queue', 'timer', 'many', 'subsurface', 'waits', 'lifetime', 'reentry', 'parent-destroy', 'duplicate', 'invalid', 'timestamp-exists', 'recreate-pending', 'surface-destroyed', 'bypass'):
+        for case in ('hidden-deadlines', 'hidden-real-timer', 'hidden-reveal', 'hidden-replace', 'hidden-outputs', 'hidden-locks', 'hidden-destroy', 'hidden-many', 'hidden-timer-failure', 'hidden-allocation-failure', 'fast-path', 'fast-boundary', 'transition', 'fast-destroy', 'fast-reentry', 'pool', 'pool-cap', 'pool-oom', 'wakeups', 'deadline-changes', 'dispatch-unlock', 'late-timer', 'queued-burst', 'deep-tree', 'queue', 'timer', 'many', 'subsurface', 'waits', 'lifetime', 'reentry', 'parent-destroy', 'duplicate', 'invalid', 'timestamp-exists', 'recreate-pending', 'surface-destroyed', 'bypass'):
             result = run([work / 'unit', case])
             (work / f'unit-{case}.log').write_text(result.stdout)
             negative = case == 'bypass'
@@ -201,9 +201,15 @@ focus_follows_mouse = false
         wait(lambda: any(e['event'] == 'presented' for e in events('cover')), 'cover did not present')
         time.sleep(.2)
         previous = max(e['frame'] for e in events() if e['event'] == 'submitted')
-        client.stdin.write(b'b'); client.stdin.flush()
+        client.stdin.write(b'u'); client.stdin.flush()
         wait(lambda: len([e for e in events() if e['event'] == 'discarded' and previous < e['frame'] <= previous + 8]) >= 7,
              'occluded FIFO queue did not drain while covered')
+        hidden = [e for e in events() if e['event'] == 'discarded'
+                  and previous < e['frame'] <= previous + 8]
+        # Seven discards cover six paced intervals. Allow timestamp/dispatch
+        # noise; exact early-release boundaries are checked by the unit fixture.
+        assert hidden[-1]['ms'] - hidden[0]['ms'] >= 140, hidden
+        record('hidden-fifo-40hz', samples=hidden)
         cover.stdin.write(b'q'); cover.stdin.flush(); cover.wait(timeout=3)
         wait(lambda: any(e['event'] == 'presented' and e['frame'] >= previous + 8 for e in events()),
              'uncovered FIFO surface did not resume')

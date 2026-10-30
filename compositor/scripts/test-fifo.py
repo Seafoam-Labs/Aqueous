@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--compositor', type=Path, default=ROOT / 'zig-out/bin/aqueous')
+    parser.add_argument('--ctl', type=Path, help='Defaults to aqueousctl beside the selected compositor')
     parser.add_argument('--wlroots-prefix', type=Path, default=ROOT / '.deps/wlroots-render-hook')
     parser.add_argument('--renderer', choices=('pixman', 'vulkan'), default='pixman')
     parser.add_argument('--sanitize', action='store_true', help='Link unit fixture with ASan/UBSan (use a sanitized wlroots prefix)')
@@ -57,6 +58,10 @@ def main():
                 value = json.loads(response.readline())
         assert value.get('ok'), value
         return value
+
+    def ctl(*values):
+        binary = args.ctl or args.compositor.with_name('aqueousctl')
+        return json.loads(checked([binary.resolve(), *values, '--json']))
 
     def launch(command, label):
         out, err = (work / f'{label}.jsonl').open('w'), (work / f'{label}.log').open('w')
@@ -131,12 +136,15 @@ def main():
             path = work / f'{name.lower()}.toml'; path.write_text('')
             env[f'AQUEOUS_{name}'] = str(path)
         (work / 'config.toml').write_text('''[layout]
+default = "floating"
 gaps_outer = 0
 gaps_inner = 0
 border_width = 0
 [blur]
 enabled = false
 [opacity]
+enabled = false
+[workspace_transition]
 enabled = false
 [input]
 focus_follows_mouse = false
@@ -180,11 +188,62 @@ focus_follows_mouse = false
         client.stdin.write(b'b'); client.stdin.flush()
         wait(lambda: len([e for e in events() if e['event'] == 'discarded' and previous < e['frame'] <= previous + 8]) >= 7,
              'occluded FIFO queue did not drain while covered')
+        hidden = [e for e in events() if e['event'] == 'discarded'
+                  and previous < e['frame'] <= previous + 8]
+        # Seven discards cover six paced intervals. Allow timestamp/dispatch
+        # noise; exact early-release boundaries are checked by the unit fixture.
+        assert hidden[-1]['ms'] - hidden[0]['ms'] >= 140, hidden
+        record('hidden-fifo-40hz', samples=hidden)
         cover.stdin.write(b'q'); cover.stdin.flush(); cover.wait(timeout=3)
         wait(lambda: any(e['event'] == 'presented' and e['frame'] >= previous + 8 for e in events()),
              'uncovered FIFO surface did not resume')
         time.sleep(.2)
         record('occluded-queue-forward-progress')
+        # Exercise scene suspension, not focus-based guesses about visibility.
+        windows = ctl('windows')
+        (work / 'windows.json').write_text(json.dumps(windows, indent=2))
+        window = next(w for w in windows if w.get('app_id') == 'aqueous.fifo')
+        snapshot = ctl('shell', 'snapshot')['upsert']
+        output_record = next(o for o in snapshot if o['kind'] == 'output' and o['name'] == names[0])
+        active = output_record['active_workspace']
+        inactive = next(w['id'] for w in snapshot if w['kind'] == 'workspace'
+                        and w['output'] == output_record['id'] and w['id'] != active)
+
+        def hidden_burst(label):
+            time.sleep(.2)
+            previous = max(e['frame'] for e in events() if e['event'] == 'submitted')
+            client.stdin.write(b'b'); client.stdin.flush()
+            wait(lambda: len([e for e in events() if e['event'] == 'discarded'
+                              and previous < e['frame'] <= previous + 8]) >= 7,
+                 f'{label}: hidden FIFO stopped making progress')
+            samples = [e for e in events() if e['event'] == 'discarded'
+                       and previous < e['frame'] <= previous + 8]
+            assert samples[-1]['ms'] - samples[0]['ms'] >= 140, samples
+            record(label, samples=samples)
+            return previous + 8
+
+        for label in ('inactive-workspace', 'minimized', 'overview'):
+            if label == 'inactive-workspace':
+                ctl('workspace', 'activate', '--id', inactive)
+            elif label == 'overview':
+                ctl('overview', 'show', '--output', names[0])
+            else:
+                ctl('window', 'state', '--id', window['id'], '--minimized', 'true')
+            last = hidden_burst(label)
+            if label == 'inactive-workspace':
+                ctl('workspace', 'activate', '--id', active)
+            elif label == 'overview':
+                ctl('overview', 'hide')
+            else:
+                ctl('window', 'activate', '--id', window['id'], '--seat', 'default')
+            wait(lambda: any(e['event'] == 'presented' and e['frame'] >= last for e in events()),
+                 f'{label}: reveal stalled')
+            time.sleep(.2)
+            burst(client, 'client')
+
+        request(op='set', changes=[dict(name=names[0], mode='640x480@240')])
+        time.sleep(.2)
+        record('240hz-queued-numbered-frames', samples=burst(client, 'client'))
         for i in range(10):
             burst(client, 'client')
         record('sustained-queue', frames=80)
