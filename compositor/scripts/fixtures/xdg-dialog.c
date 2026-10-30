@@ -41,7 +41,8 @@ struct window {
     bool delay, mapped;
     uint32_t serial, states;
 };
-static struct window windows[16];
+#define MAX_WINDOWS 128
+static struct window windows[MAX_WINDOWS];
 static void release(void *data, struct wl_buffer *buffer) { (void)data; wl_buffer_destroy(buffer); }
 static const struct wl_buffer_listener buffer_listener = {.release = release};
 static void draw(struct window *w) {
@@ -145,8 +146,8 @@ static bool command(char *line) {
     char op[32]; int id = 0, value = 0, mode = 0;
     int fields = sscanf(line, "%31s %d %d %d", op, &id, &value, &mode);
     assert(fields >= 1 && id >= 0);
-    assert(!strcmp(op, "click") || id < 16);
-    struct window *w = &windows[id < 16 ? id : 0];
+    assert(!strcmp(op, "click") || id < MAX_WINDOWS);
+    struct window *w = &windows[id < MAX_WINDOWS ? id : 0];
     if (!strcmp(op, "quit")) return false;
     if (!strcmp(op, "create")) { assert(fields == 4); create(id, value, mode); }
     else if (!strcmp(op, "sandbox")) {

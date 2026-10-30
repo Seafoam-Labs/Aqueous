@@ -138,10 +138,14 @@ right = 24
         client = launch([work / 'client', 'center'], 'client')
         wait(lambda: '"event":"ready"' in (work / 'client.log').read_text().replace(' ', ''), 'client not ready')
         # 3440x1440 minus struts, then 8px outer gaps: 3384x1400.
-        full = dict(x=24, y=32, width=3384, height=1400)
-        centered = dict(x=471, y=32, width=2489, height=1400)
         results = []
         for layout in ('tile', 'grid', 'rows', 'dwindle', 'reverse-dwindle'):
+            # Dwindle reserves its 2px decorations inside the tile rectangle.
+            dwindle = layout in ('dwindle', 'reverse-dwindle')
+            full = (dict(x=26, y=34, width=3380, height=1396) if dwindle else
+                    dict(x=24, y=32, width=3384, height=1400))
+            centered = (dict(x=475, y=34, width=2482, height=1396) if dwindle else
+                        dict(x=471, y=32, width=2489, height=1400))
             configure(layout)
             create(0)
             geometry(0, centered)
@@ -184,7 +188,8 @@ right = 24
             configure(layout, False)
             geometry(0, full)
             configure(layout, True, 1.0)
-            geometry(0, dict(x=1016, y=32, width=1400, height=1400))
+            geometry(0, dict(x=1018, y=34, width=1396, height=1396) if dwindle else
+                     dict(x=1016, y=32, width=1400, height=1400))
             destroy(0)
             results.append(layout)
             print(f'PASS {layout}: create, close, minimize, restore, workspace moves, overlays, fullscreen, maximize, reload', flush=True)

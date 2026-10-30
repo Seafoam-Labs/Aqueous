@@ -939,7 +939,11 @@ test "single tile centering follows zero one two one transitions in every suppor
             defer allocator.free(result);
             try std.testing.expectEqual(count, result.len);
             if (count == 1) {
-                try std.testing.expectEqual(types.Rect{ .x = -1793, .y = 48, .width = 1202, .height = 801 }, result[0].geometry);
+                const expected: types.Rect = if (id == .dwindle or id == .reverse_dwindle)
+                    .{ .x = -1790, .y = 50, .width = 1196, .height = 797 }
+                else
+                    .{ .x = -1793, .y = 48, .width = 1202, .height = 801 };
+                try std.testing.expectEqual(expected, result[0].geometry);
                 try std.testing.expectEqual(@as(i32, 2), result[0].border.width);
                 try std.testing.expect(result[0].tiling == .tiled and result[0].visible);
             } else if (count == 2) {
@@ -956,7 +960,11 @@ test "single tile centering follows zero one two one transitions in every suppor
         options.center_single_window = false;
         const disabled = try arrange(allocator, &state, &snapshot, area, windows[0..1], 1, .{});
         defer allocator.free(disabled);
-        try std.testing.expectEqual(types.Rect{ .x = -2192, .y = 48, .width = 2001, .height = 801 }, disabled[0].geometry);
+        const expected_uncentered: types.Rect = if (id == .dwindle or id == .reverse_dwindle)
+            .{ .x = -2190, .y = 50, .width = 1997, .height = 797 }
+        else
+            .{ .x = -2192, .y = 48, .width = 2001, .height = 801 };
+        try std.testing.expectEqual(expected_uncentered, disabled[0].geometry);
         try std.testing.expectEqual(id, state.active_layout);
     }
 }
@@ -1011,7 +1019,7 @@ test "single window centering preserves tile resize state and composable members
     const placements = try arrange(allocator, &state, &snapshot, .{ .x = 100, .y = 20, .width = 4000, .height = 1000 }, &.{ .{ .handle = 1 }, .{ .handle = 2 } }, 1, .{});
     defer allocator.free(placements);
     try std.testing.expectEqual(types.Rect{ .x = 600, .y = 20, .width = 1000, .height = 1000 }, placements[0].geometry);
-    try std.testing.expectEqual(types.Rect{ .x = 2600, .y = 20, .width = 1000, .height = 1000 }, placements[1].geometry);
+    try std.testing.expectEqual(types.Rect{ .x = 2602, .y = 22, .width = 996, .height = 996 }, placements[1].geometry);
     try std.testing.expectEqual(@as(?f64, 0.7), state.composite.children[0].tile.master_ratio_override);
     try std.testing.expectEqual(@as(?i32, 300), state.composite.children[0].tile.height_overrides.get(1));
     try std.testing.expectEqual(@as(?u8, 1), state.composite.membership.get(2));

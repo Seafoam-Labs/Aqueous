@@ -155,6 +155,13 @@ gaps_inner = 4
 gaps_inner = 4
 
 [layout.options.dwindle]
+# Dwindle moves overflow to the next workspace with room on the same output.
+# Minimum content size uses the usable logical output area (after scaling and
+# panel reservations): max(client minimum, 320, ceil(width / 5)) horizontally,
+# and max(client minimum, 200, ceil(height / 4)) vertically, plus borders/gaps.
+# If all nine workspaces are full, workspace 9 switches to scrolling and takes
+# the overflow. It stays scrolling until you select another layout there.
+# Reverse dwindle and focused splitting use the same capacity policy.
 # Enable for dwindle only, overriding the global setting:
 # center_single_window = true
 # single_window_aspect_ratio = 1.7777777777777777

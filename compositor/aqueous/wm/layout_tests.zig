@@ -6,4 +6,5 @@ test {
     _ = @import("layout/tests.zig");
     _ = @import("layout/engine.zig");
     _ = @import("config/layout.zig");
+    _ = @import("workspaces/overflow.zig");
 }
