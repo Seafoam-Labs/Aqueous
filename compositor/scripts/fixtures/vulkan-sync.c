@@ -32,6 +32,8 @@ static unsigned fail_export, fail_import, fail_publish;
 static unsigned create_count, fail_create;
 static bool fail_explicit_export, fail_export_semaphore, fail_signal, sentinel;
 static VkResult wait_result, queue_result;
+static unsigned wait_timeouts;
+static bool device_lost, check_recovery_wait;
 static unsigned next_sem;
 static bool sem_live[256], sem_signaled[256];
 static int sem_payload[256];
@@ -60,6 +62,12 @@ static void complete_gpu(uint64_t point) {
     }
 }
 
+static void lose_device(void) {
+    // Vulkan's lost-device resource-lifetime guarantee, not valid pixel data.
+    device_lost = true;
+    complete_gpu(UINT64_MAX);
+}
+
 // Record the operations which access external images. Submission tests check
 // their dependencies in execution order, independent of the number of batches.
 VKAPI_ATTR void VKAPI_CALL vkCmdPipelineBarrier(VkCommandBuffer cb,
@@ -79,11 +87,13 @@ void vulkan_copy_buffer_record(struct wlr_vk_render_buffer *buffer, VkCommandBuf
 }
 VKAPI_ATTR VkResult VKAPI_CALL vkInvalidateMappedMemoryRanges(VkDevice dev,
         uint32_t count, const VkMappedMemoryRange *ranges) {
+    assert(!device_lost);
     assert(completed >= renderer.last_submitted_point);
     return VK_SUCCESS;
 }
 static bool mock_begin_data(struct wlr_buffer *buffer, uint32_t flags,
         void **data, uint32_t *format, size_t *stride) {
+    assert(!device_lost);
     assert(completed >= renderer.last_submitted_point);
     *data = copy_destination;
     *format = DRM_FORMAT_XRGB8888;
@@ -161,9 +171,17 @@ static VkResult wait_semaphores(VkDevice dev, const VkSemaphoreWaitInfoKHR *info
     wait_count++;
     assert(timeout == 1000000000); // bounded error path
     assert(*info->pValues == (expected_wait_point ? expected_wait_point : renderer.last_submitted_point));
-    if (wait_result == VK_SUCCESS)
+    if (check_recovery_wait) {
+        assert(src_buffer.n_locks == 1 && dst_buffer.n_locks == 1);
+        assert(callback_count == 0 && reset_count == 0 && signal_count == 0);
+        assert(!copy_complete);
+    }
+    VkResult result = wait_timeouts ? (wait_timeouts--, VK_TIMEOUT) : wait_result;
+    if (result == VK_SUCCESS)
         complete_gpu(*info->pValues);
-    return wait_result;
+    else if (result == VK_ERROR_DEVICE_LOST)
+        lose_device();
+    return result;
 }
 VKAPI_ATTR VkResult VKAPI_CALL vkEndCommandBuffer(VkCommandBuffer cb) { return VK_SUCCESS; }
 VKAPI_ATTR VkResult VKAPI_CALL vkResetCommandBuffer(VkCommandBuffer cb,
@@ -176,6 +194,8 @@ VKAPI_ATTR VkResult VKAPI_CALL vkQueueSubmit(VkQueue queue, uint32_t count,
                                              const VkSubmitInfo *info, VkFence fence) {
     stage_count++;
     assert(count == 1);
+    if (queue_result == VK_ERROR_DEVICE_LOST)
+        lose_device();
     return queue_result;
 }
 static VkResult queue_submit(VkQueue queue, uint32_t count, const VkSubmitInfo2KHR *info,
@@ -205,8 +225,10 @@ static VkResult queue_submit(VkQueue queue, uint32_t count, const VkSubmitInfo2K
             }
         }
     }
-    // Device loss can accept work without reporting successful submission.
-    if (queue_result == VK_SUCCESS || queue_result == VK_ERROR_DEVICE_LOST) {
+    // Unknown submission can accept work; device loss additionally establishes
+    // that the device no longer uses its resources.
+    if (queue_result == VK_SUCCESS || queue_result == VK_ERROR_DEVICE_LOST ||
+            queue_result == VK_ERROR_UNKNOWN) {
         for (unsigned n = 1; n < 255; n++) {
             if (waited[n]) {
                 assert(sem_payload[n] >= 0 && !sem_pending[n]);
@@ -214,6 +236,8 @@ static VkResult queue_submit(VkQueue queue, uint32_t count, const VkSubmitInfo2K
             }
         }
     }
+    if (queue_result == VK_ERROR_DEVICE_LOST)
+        lose_device();
     return queue_result;
 }
 static int mock_export_sync_file(int fd, uint32_t flags) {
@@ -331,6 +355,8 @@ static void init(void) {
     create_count = fail_create = 0;
     fail_explicit_export = fail_export_semaphore = fail_signal = sentinel = false;
     wait_result = queue_result = VK_SUCCESS;
+    wait_timeouts = 0;
+    device_lost = check_recovery_wait = false;
     next_sem = num_fds = completed = 0;
     expected_wait_point = 0;
     for (unsigned i = 0; i < 256; i++) sem_payload[i] = -1;
@@ -489,7 +515,7 @@ int main(void) {
         render_pass_submit(&copy_pass->base);
         assert(!"copy timeout must not publish incomplete pixels");
     }
-    assert(!copy_complete && signal_count == 0 && wait_count == 1);
+    assert(!copy_complete && signal_count == 0 && wait_count == 10);
     assert(src_buffer.n_locks == 1 && dst_buffer.n_locks == 1);
     renderer.failed_passes = copy_pass;
     finish();
@@ -524,18 +550,19 @@ int main(void) {
 
     // A failed independent upload cannot leave an unsubmitted point available
     // for later waits/reuse. Unknown acceptance is terminal on this route too.
-    for (unsigned fault = 0; fault < 3; fault++) {
+    for (unsigned fault = 0; fault < 4; fault++) {
         init();
         fail_explicit_export = true;
         renderer.stage.cb = &renderer.command_buffers[1];
         renderer.stage.cb->recording = true;
         queue_result = fault == 0 ? VK_ERROR_OUT_OF_HOST_MEMORY :
-            fault == 1 ? VK_ERROR_OUT_OF_DEVICE_MEMORY : VK_ERROR_DEVICE_LOST;
+            fault == 1 ? VK_ERROR_OUT_OF_DEVICE_MEMORY :
+            fault == 2 ? VK_ERROR_DEVICE_LOST : VK_ERROR_UNKNOWN;
         struct wlr_vk_render_pass *upload_pass = new_pass(true, true);
-        expect_fatal = fault == 2;
+        expect_fatal = fault == 3;
         if (setjmp(fatal_jump) == 0) {
             assert(!render_pass_submit(&upload_pass->base));
-            assert(fault < 2 && renderer.sync_failed && lost_count == 1);
+            assert(fault < 3 && renderer.sync_failed && lost_count == 1);
         } else {
             assert(fatal_count == 1);
             renderer.failed_passes = upload_pass;
@@ -566,6 +593,7 @@ int main(void) {
     renderer.last_submitted_point = 7;
     wait_result = VK_TIMEOUT;
     assert(!render_pass_submit(&new_pass(true, true)->base));
+    assert(wait_count == 10);
     assert(renderer.sync_failed && lost_count == 1 && callback_count == 0 && signal_count == 0);
     assert(src_buffer.n_locks == 1 && dst_buffer.n_locks == 1);
     finish();
@@ -579,20 +607,32 @@ int main(void) {
     assert(stage_count == 0 && renderer.stage.cb != NULL);
     finish();
 
-    // A failed queue submission must not leave a reusable timeline point or
-    // execute callbacks for commands whose lifecycle is uncertain.
+    // Device loss retires resource use but retains the pass for renderer
+    // teardown. It is neither a cancelled submission nor a successful frame.
     init();
     queue_result = VK_ERROR_DEVICE_LOST;
     struct wlr_vk_render_pass *lost_pass = new_pass(false, true);
+    assert(!render_pass_submit(&lost_pass->base));
+    assert(lost_pass->submission == WLR_VK_PASS_COMPLETE);
+    assert(renderer.failed_passes == lost_pass && renderer.sync_failed && lost_count == 1);
+    assert(fatal_count == 0 && callback_count == 0 && signal_count == 0 && reset_count == 0);
+    assert(wait_count == 0 && src_buffer.n_locks == 1 && dst_buffer.n_locks == 1);
+    assert(renderer.last_submitted_point == 0 && renderer.stage.last_timeline_point == 0);
+    finish();
+
+    // Unknown acceptance remains fatal: it cannot prove resource completion.
+    init();
+    queue_result = VK_ERROR_UNKNOWN;
+    struct wlr_vk_render_pass *unknown_pass = new_pass(false, true);
     expect_fatal = true;
     if (setjmp(fatal_jump) == 0) {
-        render_pass_submit(&lost_pass->base);
+        render_pass_submit(&unknown_pass->base);
         assert(!"unknown submission must stop before returning to the caller");
     }
     assert(fatal_count == 1 && callback_count == 0 && signal_count == 0 && reset_count == 0);
     assert(src_buffer.n_locks == 1 && dst_buffer.n_locks == 1);
     assert(renderer.last_submitted_point == 0 && renderer.stage.last_timeline_point == 0);
-    renderer.failed_passes = lost_pass;
+    renderer.failed_passes = unknown_pass;
     finish();
 
     // OOM rejection guarantees no work was accepted. Stage recording already
@@ -632,6 +672,69 @@ int main(void) {
     renderer.failed_passes = recover_pass;
     finish();
 
+    // A completed/lost pass must not wait again or emit duplicate loss events.
+    init();
+    recover_pass = new_pass(false, true);
+    recover_pass->submission = WLR_VK_PASS_PENDING;
+    recover_pass->command_buffer->submitted = true;
+    recover_pass->command_buffer->recording = false;
+    recover_pass->command_buffer->timeline_point = 7;
+    renderer.timeline_point = 9;
+    renderer.last_submitted_point = expected_wait_point = 7;
+    wait_result = VK_ERROR_DEVICE_LOST;
+    assert(vulkan_recover_render_pass(recover_pass));
+    assert(recover_pass->submission == WLR_VK_PASS_COMPLETE);
+    assert(renderer.sync_failed && lost_count == 1 && wait_count == 1);
+    assert(vulkan_recover_render_pass(recover_pass));
+    assert(lost_count == 1 && wait_count == 1 && callback_count == 0);
+    renderer.failed_passes = recover_pass;
+    finish();
+
+    // Immediate completion/loss and retries through the last allowed slice.
+    // No release or pixel access may occur while a slice still times out.
+    const unsigned timeout_sequences[] = {0, 1, 9};
+    for (unsigned copy = 0; copy < 2; copy++) {
+        for (unsigned lost = 0; lost < 2; lost++) {
+            for (unsigned sequence = 0; sequence < 3; sequence++) {
+                init();
+                target.copy_target = copy;
+                target.copy_mapping = copy_source;
+                fail_export_semaphore = !copy;
+                wait_timeouts = timeout_sequences[sequence];
+                wait_result = lost ? VK_ERROR_DEVICE_LOST : VK_SUCCESS;
+                check_recovery_wait = true;
+                bool ok = render_pass_submit(&new_pass(false, true)->base);
+                assert(ok == (copy && !lost));
+                assert(wait_count == timeout_sequences[sequence] + 1);
+                assert(renderer.sync_failed == (bool)lost && lost_count == lost);
+                assert(copy_complete == (copy && !lost));
+                assert(signal_count == 1 && callback_count == 0 && reset_count == 0);
+                assert(fatal_count == 0 && renderer.failed_passes == NULL);
+                assert(src_buffer.n_locks == 0 && dst_buffer.n_locks == 0);
+                if (lost) {
+                    for (unsigned pixel = 0; pixel < sizeof(copy_destination); pixel++)
+                        assert(copy_destination[pixel] == 0xa5);
+                }
+                finish();
+            }
+        }
+    }
+
+    // Cancellation also waits on earlier submitted work, including device loss.
+    for (unsigned lost = 0; lost < 2; lost++) {
+        init();
+        fail_explicit_export = true;
+        renderer.last_submitted_point = 7;
+        wait_timeouts = 9;
+        wait_result = lost ? VK_ERROR_DEVICE_LOST : VK_SUCCESS;
+        check_recovery_wait = true;
+        assert(!render_pass_submit(&new_pass(true, true)->base));
+        assert(wait_count == 10 && callback_count == 1 && signal_count == 1);
+        assert(renderer.sync_failed == (bool)lost && lost_count == lost);
+        assert(fatal_count == 0 && src_buffer.n_locks == 0 && dst_buffer.n_locks == 0);
+        finish();
+    }
+
     // Completion export and partial publication, including explicit release.
     for (unsigned operation = 0; operation < 6; operation++) {
         init();
@@ -648,12 +751,13 @@ int main(void) {
         recover_next_frame();
         finish();
     }
-    // A wait timeout/device loss cannot release locks, reset commands, signal
-    // a release point, invoke completion callbacks, or report a good frame.
+    // Exhausted timeout and unknown wait errors cannot release locks, reset
+    // commands, signal a release point, or invoke completion callbacks.
     for (unsigned i = 0; i < 2; i++) {
         init();
         fail_export_semaphore = true;
-        wait_result = i == 0 ? VK_TIMEOUT : VK_ERROR_DEVICE_LOST;
+        wait_result = i == 0 ? VK_TIMEOUT : VK_ERROR_UNKNOWN;
+        check_recovery_wait = true;
         struct wlr_vk_render_pass *p = new_pass(false, true);
         expect_fatal = true;
         if (setjmp(fatal_jump) == 0) {
@@ -661,6 +765,7 @@ int main(void) {
             assert(!"unfenced live capture must not return to its caller");
         }
         assert(fatal_count == 1 && lost_count == 0);
+        assert(wait_count == (i == 0 ? 10 : 1));
         assert(callback_count == 0 && reset_count == 0 && signal_count == 0);
         assert(src_buffer.n_locks == 1 && dst_buffer.n_locks == 1);
         // Test teardown after simulated device completion, not the fatal path.

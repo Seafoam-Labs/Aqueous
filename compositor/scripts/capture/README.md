@@ -107,7 +107,11 @@ production Vulkan submission functions with acquisition/publication failures,
 FD/lock accounting, explicit/implicit synchronization, submission dependencies,
 copy completion, bounded recovery, sanitizers and negative controls. The pinned
 dependency build runs this regression automatically. Both 0020 patches are
-restored, including the recovery behavior exercised by the experiments below.
+restored. Patch 0038 adds device-loss recovery and ten one-second timeout slices;
+the fixture checks immediate loss, transient stalls, exhausted waits, renderer
+loss notification, and rejection of undefined presentation-copy pixels. Unknown
+submission outcomes and unresolved submitted work remain fatal. The experiments
+below exercise acquisition and completion-export failures on a real device.
 
 To inject a one-shot failure into an actual private NVIDIA capture copy, build the
 separate test library against the same wlroots installation:

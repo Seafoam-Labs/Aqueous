@@ -69,8 +69,11 @@ AMD direct capture also passed. These are headless tests, **not physical scanout
 or VM qualification**. Mesa's two changed C files compile against 26.2.4, and
 `packaging/mesa/test-venus-wsi.py` exercises its production policy functions.
 
-The copy waits synchronously for up to one second and copies whole frames in
-8-bit SDR. These are accepted limits for this failure path, not release gates.
+The copy waits synchronously in one-second slices, retrying timeouts for up to
+ten slices, and copies whole frames in 8-bit SDR. Device loss triggers renderer
+replacement without publishing undefined pixels; exhausted waits remain fatal
+because GPU completion is unproven. These are accepted limits for this failure
+path, not release gates.
 Working direct presentation retains HDR and its existing rendering path; other
 GPUs are initialized only when the earlier candidate fails. Candidate enumeration
 adds startup work, not a copy or synchronization cost to direct frames.

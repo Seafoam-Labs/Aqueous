@@ -1,0 +1,221 @@
+Vulkan: recover device loss and retry bounded synchronization waits
+
+VK_ERROR_DEVICE_LOST establishes resource completion, not valid rendered pixels.
+Retain failed submissions for renderer teardown and emit events.lost. Retry
+VK_TIMEOUT for ten one-second slices; unresolved GPU use still cannot return
+false to scene submission, which drops deferred client release reservations.
+Use the same completion policy for synchronous presentation copies, without
+reading lost-device pixel contents or adding waits to healthy direct frames.
+
+Spec: https://docs.vulkan.org/spec/latest/chapters/devsandqueues.html#devsandqueues-lost-device
+
+--- a/include/render/vulkan.h
++++ b/include/render/vulkan.h
+@@ -437,8 +437,12 @@
+ 	uint64_t wait_point;
+ };
+ 
+-// A rejected submit (OOM) leaves resources untouched. Device loss does not
+-// provide that guarantee; do not treat it as cancellation or completion.
++// A rejected submit (OOM) leaves resources untouched. An unknown submit result
++// is neither cancellation nor completion. VK_ERROR_DEVICE_LOST is different:
++// Vulkan defines it as equivalent to VK_SUCCESS when deciding whether command
++// buffers or resources are still in use by the device, so a lost device counts
++// as COMPLETE (never as REJECTED/cancelled) and its pass is retained for
++// teardown while the renderer is replaced.
+ enum wlr_vk_pass_submission {
+ 	WLR_VK_PASS_NOT_SUBMITTED,
+ 	WLR_VK_PASS_REJECTED,
+@@ -446,6 +450,12 @@
+ 	WLR_VK_PASS_COMPLETE,
+ 	WLR_VK_PASS_UNKNOWN,
+ };
++
++// Recovery polls the timeline semaphore in bounded slices. A slice which times
++// out proves nothing about GPU completion, so recovery retries a limited number
++// of slices (~10 s in total) before it gives up and the renderer must stop.
++#define WLR_VK_RECOVERY_WAIT_SLICE_NS 1000000000ULL
++#define WLR_VK_RECOVERY_WAIT_SLICES 10
+ 
+ struct wlr_vk_render_pass {
+ 	struct wlr_vk_render_pass *next_failed;
+@@ -630,8 +640,11 @@
+ 
+ #endif
+ 
+-// Error-path recovery only. Never wait on an allocated but unsubmitted point.
++// Never wait on an allocated but unsubmitted point.
+ bool vulkan_cancel_render_pass(struct wlr_vk_render_pass *pass);
++// Establish resource completion, including device loss. Check sync_failed before
++// consuming rendered pixels: completion on a lost device does not validate data.
++bool vulkan_wait_render_pass(struct wlr_vk_render_pass *pass);
+ bool vulkan_recover_render_pass(struct wlr_vk_render_pass *pass);
+ void vulkan_fail_render_pass(struct wlr_vk_render_pass *pass);
+ void vulkan_render_pass_destroy(struct wlr_vk_render_pass *pass);
+--- a/render/vulkan/pass.c
++++ b/render/vulkan/pass.c
+@@ -782,9 +782,13 @@
+ 	if (res != VK_SUCCESS) {
+ 		wlr_vk_error("vkQueueSubmit", res);
+ 		// Only OOM guarantees no submitted resource was affected. A lost
+-		// device can have accepted work without a usable completion point.
++		// device is defined by Vulkan as no longer using any resource, so it
++		// is complete: retain the pass for teardown instead of cancellation,
++		// and replace the renderer. Any other result may have accepted work
++		// without a usable completion point.
+ 		pass->submission = res == VK_ERROR_OUT_OF_HOST_MEMORY || res == VK_ERROR_OUT_OF_DEVICE_MEMORY ?
+-			WLR_VK_PASS_REJECTED : WLR_VK_PASS_UNKNOWN;
++			WLR_VK_PASS_REJECTED : res == VK_ERROR_DEVICE_LOST ?
++			WLR_VK_PASS_COMPLETE : WLR_VK_PASS_UNKNOWN;
+ 		goto error;
+ 	}
+ 
+@@ -841,7 +845,8 @@
+ 	// survive cancellation: textures/LUTs already reference those uploads.
+ 	// After taking it, it also contains this pass's ownership barriers. A
+ 	// recording/submission failure there requires renderer replacement.
+-	if (stage_cb != NULL || renderer->sync_failed || !vulkan_cancel_render_pass(pass)) {
++	if (stage_cb != NULL || renderer->sync_failed || pass->submission == WLR_VK_PASS_COMPLETE ||
++			!vulkan_cancel_render_pass(pass)) {
+ 		vulkan_fail_render_pass(pass);
+ 		return false;
+ 	}
+--- a/render/vulkan/renderer.c
++++ b/render/vulkan/renderer.c
+@@ -423,6 +423,15 @@
+ 	VkResult res = vkQueueSubmit(renderer->dev->queue, 1, &submit_info, VK_NULL_HANDLE);
+ 	if (res != VK_SUCCESS) {
+ 		wlr_vk_error("vkQueueSubmit", res);
++		if (res == VK_ERROR_DEVICE_LOST) {
++			// Vulkan treats this result as equivalent to completion for
++			// determining whether resources are in use: nothing can still
++			// be executing, so returning to callers is safe. The device
++			// cannot be revived; replace the renderer.
++			wlr_log(WLR_ERROR, "Upload submission lost the Vulkan device; replacing renderer");
++			mark_sync_failed(renderer);
++			return false;
++		}
+ 		if (res != VK_ERROR_OUT_OF_HOST_MEMORY && res != VK_ERROR_OUT_OF_DEVICE_MEMORY) {
+ 			// Submission may have started. Never return to callers which can
+ 			// release upload/readback resources or run completion callbacks.
+@@ -664,9 +673,17 @@
+ 	}
+ }
+ 
+-// Only used after an error. Healthy frames continue to publish fences without
+-// blocking the compositor. Waiting on our own submitted work is not a substitute
+-// for acquiring an external producer dependency.
++// Used for error recovery and synchronous presentation copies. Healthy direct
++// frames continue to publish fences without blocking the compositor. Waiting
++// on our own submitted work is not a substitute for acquiring an external
++// producer dependency.
++//
++// Returns true once the point is complete. VK_ERROR_DEVICE_LOST also returns
++// true: Vulkan defines it as equivalent to VK_SUCCESS when determining whether
++// resources are still in use by the device, so no GPU work remains in flight.
++// The device cannot be revived, so the renderer is marked for replacement.
++// A timed-out slice proves nothing, so retry a bounded number of slices; any
++// other failure or an exhausted budget returns false (completion unproven).
+ static bool wait_submission(struct wlr_vk_renderer *renderer, uint64_t point) {
+ 	if (point == 0) {
+ 		return true;
+@@ -677,13 +694,26 @@
+ 		.pSemaphores = &renderer->timeline_semaphore,
+ 		.pValues = &point,
+ 	};
+-	VkResult res = renderer->dev->api.vkWaitSemaphoresKHR(renderer->dev->dev,
+-		&info, 1000000000); // one second, never an unbounded recovery wait
+-	if (res != VK_SUCCESS) {
++	for (unsigned slice = 0; slice < WLR_VK_RECOVERY_WAIT_SLICES; slice++) {
++		VkResult res = renderer->dev->api.vkWaitSemaphoresKHR(renderer->dev->dev,
++			&info, WLR_VK_RECOVERY_WAIT_SLICE_NS);
++		if (res == VK_SUCCESS) {
++			return true;
++		}
++		if (res == VK_ERROR_DEVICE_LOST) {
++			wlr_vk_error("Synchronization recovery wait", res);
++			wlr_log(WLR_ERROR, "Vulkan device lost; no GPU work remains in flight, replacing renderer");
++			mark_sync_failed(renderer);
++			return true;
++		}
+ 		wlr_vk_error("Synchronization recovery wait failed", res);
+-		return false;
+-	}
+-	return true;
++		if (res != VK_TIMEOUT) {
++			break;
++		}
++		wlr_log(WLR_ERROR, "Synchronization recovery wait timed out (%u/%u)",
++			slice + 1, (unsigned)WLR_VK_RECOVERY_WAIT_SLICES);
++	}
++	return false;
+ }
+ 
+ static bool signal_failed_pass(struct wlr_vk_render_pass *pass) {
+@@ -725,7 +755,7 @@
+ 	return true;
+ }
+ 
+-bool vulkan_recover_render_pass(struct wlr_vk_render_pass *pass) {
++bool vulkan_wait_render_pass(struct wlr_vk_render_pass *pass) {
+ 	struct wlr_vk_renderer *renderer = pass->renderer;
+ 	struct wlr_vk_command_buffer *cb = pass->command_buffer;
+ 	assert(pass->submission == WLR_VK_PASS_PENDING || pass->submission == WLR_VK_PASS_COMPLETE);
+@@ -734,6 +764,15 @@
+ 		return false;
+ 	}
+ 	pass->submission = WLR_VK_PASS_COMPLETE;
++	return true;
++}
++
++bool vulkan_recover_render_pass(struct wlr_vk_render_pass *pass) {
++	if (!vulkan_wait_render_pass(pass)) {
++		return false;
++	}
++	struct wlr_vk_command_buffer *cb = pass->command_buffer;
++	struct wlr_vk_renderer *renderer = pass->renderer;
+ 	if (!signal_failed_pass(pass)) {
+ 		return false;
+ 	}
+--- a/render/vulkan/copy.c
++++ b/render/vulkan/copy.c
+@@ -123,19 +123,11 @@
+ 
+ bool vulkan_copy_buffer_finish(struct wlr_vk_render_pass *pass) {
+     struct wlr_vk_render_buffer *buffer = pass->render_buffer;
+-    const VkSemaphoreWaitInfoKHR wait = {
+-        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO_KHR,
+-        .semaphoreCount = 1,
+-        .pSemaphores = &pass->renderer->timeline_semaphore,
+-        .pValues = &pass->command_buffer->timeline_point,
+-    };
+-    VkResult waited = pass->renderer->dev->api.vkWaitSemaphoresKHR(
+-        pass->renderer->dev->dev, &wait, 1000000000ULL);
+-    if (waited != VK_SUCCESS) {
+-        wlr_vk_error("Vulkan presentation copy completion (1 second limit)", waited);
++    // Device loss establishes resource completion, but the pixel contents are
++    // undefined. Never map or publish them as a successful presentation copy.
++    if (!vulkan_wait_render_pass(pass) || pass->renderer->sync_failed) {
+         return false;
+     }
+-    pass->submission = WLR_VK_PASS_COMPLETE;
+     VkMappedMemoryRange range = {
+         .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+         .memory = buffer->copy_memory, .offset = 0, .size = VK_WHOLE_SIZE,
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -1703,9 +1703,11 @@
+ 			continue;
+ 		}
+ 		// The pinned Vulkan failure handler returns only for work that was
+-		// not submitted, or after establishing completion. Unknown/pending
+-		// submissions terminate there. Do not wait for a rejected frame's
+-		// unsubmitted point; dropping just this ref preserves older inputs.
++		// not submitted, or after establishing completion (a lost device
++		// counts: Vulkan defines it as no longer using any resource).
++		// Unknown/pending submissions terminate there. Do not wait for a
++		// rejected frame's unsubmitted point; dropping just this ref preserves
++		// older inputs.
+ 		// Other renderers retain their existing release-point contract.
+ 		if (submitted || !vulkan) {
+ 			unsigned recoveries = merger->recovery_count;

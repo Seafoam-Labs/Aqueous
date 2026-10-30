@@ -1,6 +1,13 @@
 # GPU synchronization descriptor ownership investigation
 
-Current status (2026-10-27): consolidated patch 0037 defers composed-buffer release registration
+Current status (2026-10-29): patch 0038 treats Vulkan device loss as resource
+completion and schedules renderer replacement. Recovery waits retry timeouts
+for ten one-second slices. Unresolved GPU work still cannot return failure to
+scene submission and release client buffers early. Presentation copies share
+the bounded wait and reject undefined pixels after device loss. Qualification
+and the retained safety contract are recorded in the final section.
+
+Previous status (2026-10-27): consolidated patch 0037 defers composed-buffer release registration
 until render submission, fixing the pre-submission recovery ordering identified
 in the [ndri crash report](https://termbin.com/ndri). It adds resource/error
 diagnostics and preserves release dependencies from other frames and outputs.
@@ -84,7 +91,7 @@ locally established heap leak, not proof of heap leakage in the remote incident.
 | Audited path | Ownership and result |
 | --- | --- |
 | Vulkan implicit/explicit acquisition | DMA-BUF/timeline exports are caller-owned until successful `vkImportSemaphoreFdKHR`, which consumes ownership. The patched pass clears transferred array entries; partial export/import failures close only unconsumed FDs. Tests exercise each plane, repeated slot reuse and recovery. |
-| Vulkan submission and publication | Binary-semaphore export returns a caller-owned FD, closed after timeline/DMA-BUF publication on success or failure. The `-1` already-signalled sentinel is handled separately. Cancellation destroys imported temporary payloads; publication recovery waits before disposing of submitted work. Timeout/device-loss tests retain locks/quarantine work or take the existing fatal path, rather than manufacture completion. |
+| Vulkan submission and publication | Binary-semaphore export returns a caller-owned FD, closed after timeline/DMA-BUF publication on success or failure. The `-1` already-signalled sentinel is handled separately. Cancellation destroys imported temporary payloads; publication recovery waits before disposing of submitted work. Patch 0038 recognizes device loss as resource completion and schedules replacement; exhausted waits and unknown submitted work retain the fatal safety policy. |
 | Semaphore reuse and renderer destruction | Wait semaphores are bounded by command-slot high-water usage; successful imports belong to the Vulkan implementation. Resource retirement requires completion, and renderer destruction waits for idle/device loss before destroying semaphores and quarantined passes. Driver-internal FD retention cannot be qualified by a mock that implements the ownership contract. |
 | DRM atomic and libliftoff | Both commit implementations apply or roll back each connector, including TEST_ONLY and partial preparation failure. Patch 0035 fixes the exported-FD ownership gap. Tests run the real atomic orchestration/preparation/cleanup functions with mocked KMS, two outputs, rejected commits and disable/re-enable. Libliftoff-specific property transitions are covered by the existing overlay test; physical assignments are not simulated. |
 | Hardware layers and fallback | Pending layer fences are closed on replacement, commit, rollback and addon destruction. Queued/current release points move with scanout buffers and are released on replacement/disable. If higher-level preparation exits before `drm_commit`, a pending fence can remain owned by a layer until replacement/destruction; that is bounded per layer, not a lost descriptor. Aqueous finishes output states and overlay candidates on composition fallback. |
@@ -635,3 +642,64 @@ then folded into 0037. Reconstructing the pinned archive and applying the
 consolidated patch produces byte-identical source files to the previously
 tested two-patch series. The consolidated patch applies without context fuzz;
 the separate 0038 file and its shell/Nix entries are removed.
+
+## Vulkan device-loss recovery (2026-10-29)
+
+The new `0038-vulkan-device-loss-recovery.patch` follows consolidated 0037;
+it is unrelated to the earlier, folded scene patch with that number. Its baseline
+is the checksum-pinned `wlroots-0.20.2.tar.gz` plus the 38 patches in the shell
+builder and Nix derivation, not `/home/zoey/Projects/wlroots`. Reconstructing that
+baseline matches `/tmp/aq-wlr/src.base` apart from patch backup files. The
+preserved `/tmp/aq-wlr/src` was copied for integration and remains unchanged.
+The new patch applies without fuzz, and both build lists now contain the same
+39 patches in the same order.
+
+The [Vulkan lost-device specification](https://docs.vulkan.org/spec/latest/chapters/devsandqueues.html#devsandqueues-lost-device)
+treats `VK_ERROR_DEVICE_LOST` as success when determining command-buffer pending
+state and device resource use. Failed render submissions with this result become
+`WLR_VK_PASS_COMPLETE`, retain the pass for teardown, and emit the renderer's
+loss event. Upload submission loss also marks the renderer for replacement.
+Recovery waits accept device loss as resource completion and emit loss once.
+Timeouts retry for at most ten one-second slices; unknown submission outcomes
+and exhausted waits on pending work still terminate before returning to callers.
+Healthy direct rendering adds no wait.
+
+Presentation copies now use the same bounded completion helper. A successful
+wait permits readback, whereas device loss rejects the frame before mapped
+memory is read or copied. Completion on a lost device does not establish valid
+pixel contents. This also closes the preserved prototype's single-wait abort
+path in presentation copying.
+
+There is no output-target exception. Patch 0037 drops the failed frame's deferred
+client surface release-merger reservation when Vulkan submission returns false.
+Even rendering to an output swapchain reads client buffers, so an unresolved
+live timeout cannot safely return false. Device loss satisfies the resource-use
+contract; it does not establish that an external producer dependency completed.
+
+Validation for this change:
+
+- The complete private-wlroots build and checks pass, including the scene release
+  ordering tests, Vulkan/DRM sanitizers, 6,000-frame descriptor checks, and all
+  11 Vulkan negative controls. New cases cover immediate loss, one or nine
+  timeouts followed by success/loss, ten exhausted slices, unknown errors,
+  cancellation, upload submission, wait-point selection, loss notification,
+  retained locks/callbacks during waits, and rejection of lost-device pixels.
+- Aqueous builds with `-Dllvm=true -Doptimize=ReleaseSafe -Dxwayland=true`:
+  58/58 build steps succeed. The full test target passes 658/659 tests. The
+  remaining `aqueousctl` test, `outputs render advertised refresh rates and mode
+  flags`, expects JSON without the existing `xwayland_scaling` object. Its source
+  is unchanged, and the failing binary links only libc, not wlroots or Vulkan.
+- Real Lavapipe presentation passes with `VK_LAYER_KHRONOS_validation`, covering
+  allocation fallback, output isolation/hotplug, pixels, reuse, resize, capture
+  import, commit and renderer recreation. This is not a real device-loss test.
+- Shell/Nix patch-list parity and shell/Python syntax checks pass. Nix itself is
+  unavailable, so no Nix build was run. Shelly commands were checked before
+  building; no dependency installation was needed.
+
+Logs are `/tmp/aqueous-wlroots-recovery-build.log`,
+`/tmp/aqueous-vk-recovery-compositor-build.log`,
+`/tmp/aqueous-vk-recovery-compositor-tests.log`, and
+`/tmp/aqueous-vk-recovery-presentation.log`. LeakSanitizer process inspection
+requires running outside this environment's ptrace-restricted sandbox.
+The GTX 1080 configuration, physical scanout, and recovery from actual device
+loss or hardware stalls remain unqualified. No hardware reset was induced.

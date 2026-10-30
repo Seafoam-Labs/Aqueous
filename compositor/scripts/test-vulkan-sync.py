@@ -33,7 +33,7 @@ def main():
             "vulkan_end_command_buffer", "vulkan_wait_command_buffer", "mark_sync_failed", "submit_stage",
             "release_command_buffer_resources", "vulkan_reset_command_buffer",
             "wait_submission", "signal_failed_pass", "vulkan_cancel_render_pass",
-            "vulkan_recover_render_pass", "vulkan_fail_render_pass",
+            "vulkan_wait_render_pass", "vulkan_recover_render_pass", "vulkan_fail_render_pass",
             "buffer_export_sync_file", "vulkan_sync_foreign_texture_acquire",
             "vulkan_sync_render_buffer_acquire", "buffer_import_sync_file",
             "vulkan_sync_render_pass_release",
@@ -86,11 +86,22 @@ def main():
                 '.value = render_timeline_point,\n\t\t.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR,',
                 '.value = render_timeline_point,\n\t\t.stageMask = 0,'),
             "device-loss-cancelled": (
-                'WLR_VK_PASS_REJECTED : WLR_VK_PASS_UNKNOWN;',
-                'WLR_VK_PASS_REJECTED : WLR_VK_PASS_REJECTED;'),
+                'WLR_VK_PASS_COMPLETE : WLR_VK_PASS_UNKNOWN;',
+                'WLR_VK_PASS_REJECTED : WLR_VK_PASS_UNKNOWN;'),
+            "timeout-completed": (
+                'if (res == VK_SUCCESS) {\n\t\t\treturn true;',
+                'if (res == VK_SUCCESS || res == VK_TIMEOUT) {\n\t\t\treturn true;'),
+            "timeout-no-retry": (
+                'slice < WLR_VK_RECOVERY_WAIT_SLICES', 'slice < 1'),
+            "device-loss-not-replaced": (
+                'mark_sync_failed(renderer);\n\t\t\treturn true;',
+                'return true;'),
+            "copy-device-loss-published": (
+                '!vulkan_wait_render_pass(pass) || pass->renderer->sync_failed',
+                '!vulkan_wait_render_pass(pass)'),
             "recover-allocated-point": (
                 '!wait_submission(renderer, cb->timeline_point)',
-                '!wait_submission(renderer, renderer->timeline_point)'),
+                '((void)cb, !wait_submission(renderer, renderer->timeline_point))'),
         }
         variants = [("plain", production, False), ("asan", production, True)]
         for label, (old, new) in mutations.items():
