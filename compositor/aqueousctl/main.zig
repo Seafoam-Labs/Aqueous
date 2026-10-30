@@ -1091,6 +1091,11 @@ fn transformName(transform: wl.Output.Transform) []const u8 {
 fn writeOutputsJson(writer: *Io.Writer, state: *const State) !void {
     const extra = @import("OutputInfo.zig").read(allocator);
     defer if (extra) |parsed| parsed.deinit();
+    try writeOutputsJsonWithMetadata(writer, state, extra);
+}
+
+// Borrow metadata so serialization can be tested without querying the session.
+fn writeOutputsJsonWithMetadata(writer: *Io.Writer, state: *const State, extra: ?std.json.Parsed(std.json.Value)) !void {
     try writer.writeAll("[\n");
     var first_output = true;
     for (state.outputs.items) |output| {
@@ -1519,7 +1524,7 @@ test "outputs render advertised refresh rates and mode flags" {
 
     var json_buffer: [4096]u8 = undefined;
     var json_writer = Io.Writer.fixed(&json_buffer);
-    try writeOutputsJson(&json_writer, &state);
+    try writeOutputsJsonWithMetadata(&json_writer, &state, null);
     try std.testing.expectEqualStrings(
         "[\n" ++
             "  {\"name\":\"DP-1\",\"description\":\"Example Display\\n27-inch\",\"make\":\"Acme\",\"model\":\"Panel\",\"serial\":\"ABC123\",\"edid_sha256\":\"sha256:daf5f59252c5a28c00c8f13b516d7ccb8afdce47b8f664ff18f3059e18f3057e\",\"physical_size\":{\"width\":600,\"height\":340},\"enabled\":true,\"modes\":[{\"width\":3840,\"height\":2160,\"refresh\":59.997000,\"preferred\":true,\"current\":true},{\"width\":2560,\"height\":1440,\"refresh\":120.000000,\"preferred\":false,\"current\":false},{\"width\":1920,\"height\":1080,\"refresh\":0.000000,\"preferred\":false,\"current\":false}],\"position\":{\"x\":-10,\"y\":20},\"transform\":\"flipped-90\",\"scale\":1.250000,\"adaptive_sync\":true},\n" ++
@@ -1527,6 +1532,26 @@ test "outputs render advertised refresh rates and mode flags" {
             "]\n",
         json_writer.buffered(),
     );
+
+    // Optional metadata comes from a fixed response, never the running desktop.
+    const extra = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"xwayland_scaling":{"mode":"legacy","dpi_status":"unmanaged","target_dpi":null,"published_dpi":null,"source_output":null},"outputs":[{"name":"DP-1","actual_vrr":true}]}
+    , .{});
+    defer extra.deinit();
+    json_writer = Io.Writer.fixed(&json_buffer);
+    try writeOutputsJsonWithMetadata(&json_writer, &state, extra);
+    const rendered = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, json_writer.buffered(), .{});
+    defer rendered.deinit();
+    const rendered_outputs = rendered.value.array.items;
+    try std.testing.expectEqual(@as(usize, 2), rendered_outputs.len);
+    for (rendered_outputs) |output| {
+        const scaling = output.object.get("xwayland_scaling").?.object;
+        try std.testing.expectEqualStrings("legacy", scaling.get("mode").?.string);
+        try std.testing.expectEqualStrings("unmanaged", scaling.get("dpi_status").?.string);
+        try std.testing.expect(scaling.get("target_dpi").? == .null);
+    }
+    try std.testing.expect(rendered_outputs[0].object.get("actual_vrr").?.bool);
+    try std.testing.expect(rendered_outputs[1].object.get("actual_vrr") == null);
 }
 
 test "pending waits for the list and every live window snapshot" {

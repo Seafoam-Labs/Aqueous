@@ -685,10 +685,12 @@ Validation for this change:
   cancellation, upload submission, wait-point selection, loss notification,
   retained locks/callbacks during waits, and rejection of lost-device pixels.
 - Aqueous builds with `-Dllvm=true -Doptimize=ReleaseSafe -Dxwayland=true`:
-  58/58 build steps succeed. The full test target passes 658/659 tests. The
-  remaining `aqueousctl` test, `outputs render advertised refresh rates and mode
-  flags`, expects JSON without the existing `xwayland_scaling` object. Its source
-  is unchanged, and the failing binary links only libc, not wlroots or Vulkan.
+  58/58 build steps succeed. The initial full test run passed 658/659 tests;
+  the `aqueousctl` output JSON test unexpectedly read `xwayland_scaling` metadata
+  from the running desktop's output service. Separating service lookup from
+  serialization lets that test supply absent metadata or a fixed response.
+  The full test target now passes, including all 17 `aqueousctl` tests, with the
+  desktop environment retained. Results are in `/tmp/aqueous-output-json-tests.log`.
 - Real Lavapipe presentation passes with `VK_LAYER_KHRONOS_validation`, covering
   allocation fallback, output isolation/hotplug, pixels, reuse, resize, capture
   import, commit and renderer recreation. This is not a real device-loss test.
