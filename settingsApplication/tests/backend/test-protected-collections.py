@@ -143,7 +143,7 @@ class Fixture:
 
 with Fixture() as f:
     version = f.call('version')
-    assert version['version'] == '1.0.14'
+    assert version['version'] == '1.0.15'
     assert {'protected_collection_apply_v1', 'collection_preconditions_v2'} <= set(version['capabilities'])
     req = f.request()
     reviewed = f.review(req)
