@@ -36,6 +36,8 @@ const transient = @import("state/transient.zig");
 const OutputService = @import("output/Service.zig");
 const output_navigation = @import("output/navigation.zig");
 const workspace_navigation = @import("workspaces/navigation.zig");
+const workspace_overflow = @import("workspaces/overflow.zig");
+const layout_clone = @import("layout/clone.zig");
 const overview_model = @import("overview/model.zig");
 const rules_config = @import("rules/config.zig");
 const Rules = @import("rules/engine.zig");
@@ -56,6 +58,9 @@ rules: Rules,
 layout_states: std.AutoHashMapUnmanaged(LayoutStateKey, layout_engine.State) = .empty,
 workspace_stacks: std.AutoHashMapUnmanaged(LayoutStateKey, WorkspaceStack) = .empty,
 layout_overrides: std.AutoHashMapUnmanaged(LayoutStateKey, layout_config.LayoutId) = .empty,
+/// Capacity fallback and subsequent explicit layout selections take priority
+/// over per-window layout rules on the overflow workspace.
+overflow_layout_owned: std.AutoHashMapUnmanaged(LayoutStateKey, void) = .empty,
 snap_layout_overrides: std.AutoHashMapUnmanaged(u64, layout_config.SnapId) = .empty,
 previous_workspaces: std.AutoHashMapUnmanaged(u64, u32) = .empty,
 fired_exec: std.AutoHashMapUnmanaged(u64, void) = .empty,
@@ -179,6 +184,7 @@ pub fn deinit(aqueous: *Aqueous) void {
     while (stacks.next()) |stack| stack.deinit(util.gpa);
     aqueous.workspace_stacks.deinit(util.gpa);
     aqueous.layout_overrides.deinit(util.gpa);
+    aqueous.overflow_layout_owned.deinit(util.gpa);
     aqueous.snap_layout_overrides.deinit(util.gpa);
     aqueous.previous_workspaces.deinit(util.gpa);
     aqueous.fired_exec.deinit(util.gpa);
@@ -395,6 +401,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         // docks) and the user's static struts. Taking the intersection avoids
         // double-counting when both reserve the same edge.
         const usable_area = aqueous.effectiveUsableArea(output.area, output.usable_area);
+        for (&output_layout.options) |*options| options.readable_minimum = layout_types.readableMinimum(usable_area);
         const workspace_key = workspaceKey(output.id, output.workspace_number);
         const layout_key: LayoutStateKey = .{ .output = output.id, .workspace = output.workspace_number };
         const stack_entry = try aqueous.workspace_stacks.getOrPut(util.gpa, layout_key);
@@ -440,6 +447,10 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             );
             var window_drag_seats = server.input_manager.seats.iterator(.forward);
             while (window_drag_seats.next()) |seat| seat.toplevel_drag.syncWindow(window.handle);
+            if (!effect.workspace_visible) {
+                aqueous.api.hideTransferredWindow(window.handle, output, usable_area);
+                continue;
+            }
             if (pending_new_focus != 0 and window.handle == pending_new_focus) {
                 pending_new_focus_seen = true;
                 if (!admissionFocusEligible(window.accepts_focus and state.focus_allowed, state.kind(), effect.workspace_visible)) {
@@ -542,7 +553,9 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 continue;
             }
             if (rule) |matched| {
-                if (matched.layout) |id| output_layout.default = ruleLayout(id);
+                if (!aqueous.overflow_layout_owned.contains(layout_key)) {
+                    if (matched.layout) |id| output_layout.default = ruleLayout(id);
+                }
                 if (matched.layout == .game_mode and (game_anchor == null or cycle_focus == window.handle)) {
                     game_anchor = .{ .handle = window.handle, .rule = matched };
                 }
@@ -583,13 +596,32 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 aqueous.config.wm.force_ssd,
             );
         }
-        const entry = try aqueous.layout_states.getOrPut(util.gpa, layout_key);
+        var entry = try aqueous.layout_states.getOrPut(util.gpa, layout_key);
         if (!entry.found_existing) entry.value_ptr.* = .{};
         const game_state = layout_engine.gameModeState(entry.value_ptr);
         if (game_anchor != null) game_state.rule_layout_owned = true;
         if (game_state.rule_layout_owned) output_layout.default = .game_mode;
         game_state.rule_anchor = if (game_anchor) |anchor| anchor.handle else null;
         if (game_anchor) |anchor| game_state.rule_options = gameOptions(anchor.rule, aqueous.rules.game_mode, output.area, &output_layout);
+        if (aqueous.overflow_layout_owned.contains(layout_key)) {
+            output_layout.default = aqueous.layout_overrides.get(layout_key) orelse .scrolling;
+            game_state.rule_layout_owned = false;
+        }
+        if (try aqueous.distributeLayoutOverflow(output, &output_layout, usable_area, managed.items, cycle_focus)) {
+            // Transfers have already hidden outgoing windows. Remove their
+            // stale snapshot entries before focus and client configuration.
+            retainWorkspaceWindows(aqueous.api, &managed, output.id, output.workspace_number);
+            retainWorkspaceWindows(aqueous.api, &focusable, output.id, output.workspace_number);
+            var write: usize = 0;
+            for (requested.items) |placement| {
+                if (!aqueous.api.windowOnWorkspace(placement.handle, output.id, output.workspace_number)) continue;
+                requested.items[write] = placement;
+                write += 1;
+            }
+            requested.shrinkRetainingCapacity(write);
+            // The overflow transaction may have grown the state map.
+            entry = try aqueous.layout_states.getOrPut(util.gpa, layout_key);
+        }
         if (cycle_focus) |handle| {
             if (containsWindow(focusable.items, handle)) {
                 focused_is_focusable = true;
@@ -3474,6 +3506,145 @@ fn prepareWindowRuleMatch(aqueous: *Aqueous, window: layout_types.Window, output
     state.skip_switcher = false;
     state.skip_taskbar = false;
     state.acceptRuleMatch(match);
+    return true;
+}
+
+fn retainWorkspaceWindows(api: CompositorApi, windows: *std.ArrayListUnmanaged(layout_types.Window), output: u64, workspace: u32) void {
+    var write: usize = 0;
+    for (windows.items) |window| {
+        if (!api.windowOnWorkspace(window.handle, output, workspace)) continue;
+        windows.items[write] = window;
+        write += 1;
+    }
+    windows.shrinkRetainingCapacity(write);
+}
+
+/// Plan against owned copies. All allocation and destination capacity checks
+/// finish before changing membership or publishing any client dimensions.
+fn distributeLayoutOverflow(
+    aqueous: *Aqueous,
+    output: CompositorApi.PolicyOutput,
+    source_layout: *layout_config.Snapshot,
+    area: layout_types.Rect,
+    managed: []const layout_types.Window,
+    focused: ?layout_types.Handle,
+) !bool {
+    switch (source_layout.default) {
+        .dwindle, .reverse_dwindle, .composable, .game_mode => {},
+        else => return false,
+    }
+    const a = util.gpa;
+    const source_key: LayoutStateKey = .{ .output = output.id, .workspace = output.workspace_number };
+    var preview = try layout_clone.layout(a, aqueous.layout_states.getPtr(source_key).?);
+    defer preview.deinit(a);
+    const placements = try layout_engine.arrange(a, &preview, source_layout, area, managed, focused, gameConfigOptions(aqueous.rules.game_mode, source_layout));
+    defer a.free(placements);
+    const overflowing = for (placements) |placement| {
+        if (placement.overflow) break true;
+    } else false;
+    if (!overflowing) return false;
+
+    const count = aqueous.api.workspaceCount(output.id);
+    if (count == 0 or output.workspace_number > count) return false;
+    const workspaces = try a.alloc(workspace_overflow.Workspace, count);
+    for (workspaces) |*workspace| workspace.* = .{ .layout = aqueous.config.layout };
+    defer {
+        for (workspaces) |*workspace| workspace.deinit(a);
+        a.free(workspaces);
+    }
+    var all = try aqueous.api.rulePlacementSnapshot(a);
+    defer all.deinit(a);
+    const residents = for (all.outputs) |candidate| {
+        if (candidate.id == output.id) break candidate.windows;
+    } else return false;
+    var layout_rules: std.ArrayListUnmanaged(workspace_overflow.LayoutRule) = .empty;
+    defer layout_rules.deinit(a);
+    for (residents) |window| {
+        const rule = aqueous.rules.resolve(.{ .app_id = window.app_id, .class = window.app_id, .title = window.title, .tag = window.tag, .content_type = window.content_type }) orelse continue;
+        const id = rule.layout orelse continue;
+        try layout_rules.append(a, .{
+            .handle = window.handle,
+            .layout = ruleLayout(id),
+            .game_options = if (id == .game_mode) gameOptions(rule, aqueous.rules.game_mode, output.area, &aqueous.config.layout) else null,
+        });
+    }
+    for (workspaces, 1..) |*workspace, number| {
+        workspace.layout_rules = layout_rules.items;
+        const key: LayoutStateKey = .{ .output = output.id, .workspace = @intCast(number) };
+        if (aqueous.config.wm.resolveOutput(.{ .name = output.name, .make = output.make, .model = output.model, .serial = output.serial })) |id| workspace.layout.default = id;
+        if (aqueous.config.wm.resolveWorkspace(output.name, @intCast(number))) |id| workspace.layout.default = id;
+        if (aqueous.layout_overrides.get(key)) |id| workspace.layout.default = id;
+        if (aqueous.layout_states.getPtr(key)) |state| workspace.state = try layout_clone.layout(a, state);
+        for (&workspace.layout.options) |*options| options.readable_minimum = layout_types.readableMinimum(area);
+        for (residents) |window| {
+            if (!aqueous.api.windowOnWorkspace(window.handle, output.id, @intCast(number))) continue;
+            const state = aqueous.window_states.get(window.handle) orelse continue;
+            const rule = aqueous.rules.resolve(.{ .app_id = window.app_id, .class = window.app_id, .title = window.title, .tag = window.tag, .content_type = window.content_type });
+            if (window.fullscreen or state.kind() == .maximized or (rule != null and rule.?.fullscreen and !state.rule_fullscreen_overridden)) workspace.blocked = true;
+            if (state.kind() != .tiled or window.fullscreen) continue;
+            if (rule) |matched| {
+                if (matched.placement.floating and !state.rule_floating_overridden) continue;
+                if (matched.layout) |id| workspace.layout.default = ruleLayout(id);
+            }
+            try workspace.windows.append(a, window);
+        }
+        if (workspace.state.standalone.game_mode.rule_layout_owned) workspace.layout.default = .game_mode;
+        if (aqueous.overflow_layout_owned.contains(key)) {
+            workspace.layout.default = aqueous.layout_overrides.get(key) orelse .scrolling;
+            workspace.state.standalone.game_mode.rule_layout_owned = false;
+            workspace.layout_locked = true;
+        }
+        workspace.game_options = gameConfigOptions(aqueous.rules.game_mode, &workspace.layout);
+    }
+    const source = &workspaces[output.workspace_number - 1];
+    source.windows.clearRetainingCapacity();
+    try source.windows.appendSlice(a, managed);
+    source.layout = source_layout.*;
+    source.focused = focused;
+    const moves = try workspace_overflow.plan(a, area, workspaces, output.workspace_number);
+    defer a.free(moves);
+
+    // Reserve every map entry before the commit so OOM cannot leave half of a
+    // transfer applied, or invalidate pointers while installing owned states.
+    try aqueous.layout_states.ensureUnusedCapacity(a, count);
+    try aqueous.layout_overrides.ensureUnusedCapacity(a, count);
+    try aqueous.overflow_layout_owned.ensureUnusedCapacity(a, count);
+    for (workspaces, 1..) |*workspace, number| {
+        if (!workspace.changed) continue;
+        const key: LayoutStateKey = .{ .output = output.id, .workspace = @intCast(number) };
+        const entry = aqueous.layout_states.getOrPutAssumeCapacity(key);
+        if (entry.found_existing) entry.value_ptr.deinit(a);
+        entry.value_ptr.* = workspace.state;
+        workspace.state = .{};
+        if (workspace.force_scrolling) {
+            aqueous.layout_overrides.putAssumeCapacity(key, .scrolling);
+            aqueous.overflow_layout_owned.putAssumeCapacity(key, {});
+        }
+    }
+    source_layout.* = source.layout;
+    // Follow dependent dialogs in the same batch, including nested dialogs.
+    // Resolve ancestry from the immutable snapshot rather than move order.
+    for (residents) |window| {
+        var handle = window.handle;
+        var destination: ?u32 = null;
+        var remaining = residents.len;
+        while (remaining > 0) : (remaining -= 1) {
+            for (moves) |move| if (move.handle == handle) {
+                destination = move.destination;
+                break;
+            };
+            if (destination != null) break;
+            const parent = findLayoutWindow(residents, handle) orelse break;
+            handle = parent.parent orelse break;
+        }
+        const number = destination orelse continue;
+        if (aqueous.api.moveWindowToWorkspace(window.handle, output.id, number)) {
+            if (aqueous.window_states.get(window.handle)) |state| state.overrideWorkspace();
+            aqueous.api.hideTransferredWindow(window.handle, output, area);
+            if (aqueous.pending_new_focus == window.handle) aqueous.pending_new_focus = 0;
+        }
+    }
+    aqueous.api.requestManageCycle();
     return true;
 }
 

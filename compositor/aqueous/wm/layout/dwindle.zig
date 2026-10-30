@@ -21,6 +21,14 @@ pub const State = struct {
         if (state.root) |root| destroyTree(allocator, root);
         state.root = null;
     }
+
+    pub fn clone(state: *const State, allocator: std.mem.Allocator) !State {
+        var result: State = .{ .last_focused = state.last_focused };
+        errdefer result.deinit(allocator);
+        try result.order.items.appendSlice(allocator, state.order.items.items);
+        if (state.root) |root| result.root = try cloneTree(allocator, root, null);
+        return result;
+    }
 };
 
 pub const Options = struct {
@@ -51,15 +59,23 @@ pub fn arrange(allocator: std.mem.Allocator, state: *State, usable_area: types.R
     try state.order.sync(allocator, windows);
     const handles = state.order.items.items;
     const result = try allocator.alloc(types.Placement, handles.len);
-    var area = math.shrink(usable_area, options.gaps_outer);
+    var area = layoutArea(usable_area, windows, options);
     var vertical = dwindle_options.start_vertical;
     for (result, handles, 0..) |*placement, handle, index| {
         if (index == handles.len - 1) {
-            placement.* = makePlacement(handle, area, options.border);
+            placement.* = makePlacement(handle, area, windows, options);
             break;
         }
         const pair = split(area, vertical, if (index == 0) options.master_ratio else dwindle_options.split_ratio, options.gaps_inner, dwindle_options.reverse);
-        placement.* = makePlacement(handle, pair.primary, options.border);
+        if (!contains(area, pair.primary) or !contains(area, pair.remainder) or
+            !fits(pair.primary, handle, windows, options) or
+            !fits(pair.remainder, handles[index + 1], windows, options))
+        {
+            placement.* = makePlacement(handle, area, windows, options);
+            for (result[index + 1 ..], handles[index + 1 ..]) |*extra, extra_handle| extra.* = overflowPlacement(extra_handle);
+            break;
+        }
+        placement.* = makePlacement(handle, pair.primary, windows, options);
         area = pair.remainder;
         vertical = !vertical;
     }
@@ -68,7 +84,39 @@ pub fn arrange(allocator: std.mem.Allocator, state: *State, usable_area: types.R
 
 const Split = struct { primary: types.Rect, remainder: types.Rect };
 
+fn contains(area: types.Rect, child: types.Rect) bool {
+    return child.x >= area.x and child.y >= area.y and
+        @as(i64, child.x) + child.width <= @as(i64, area.x) + area.width and
+        @as(i64, child.y) + child.height <= @as(i64, area.y) + area.height;
+}
+
+fn overflowPlacement(handle: types.Handle) types.Placement {
+    return .{ .handle = handle, .overflow = true, .geometry = .empty, .visible = false, .z_order = 0, .border = .none };
+}
+
+fn windowMinimum(handle: types.Handle, windows: []const types.Window, options: types.Options) types.Size {
+    const minimum = options.readable_minimum orelse types.Size{ .width = 1, .height = 1 };
+    var width = minimum.width;
+    var height = minimum.height;
+    for (windows) |window| if (window.handle == handle) {
+        width = @max(width, window.min_width);
+        height = @max(height, window.min_height);
+        break;
+    };
+    return .{ .width = width, .height = height };
+}
+
+fn fits(rect: types.Rect, handle: types.Handle, windows: []const types.Window, options: types.Options) bool {
+    const minimum = windowMinimum(handle, windows, options);
+    const border = @max(0, options.border.width) *| 2;
+    return rect.width -| border >= minimum.width and rect.height -| border >= minimum.height;
+}
+
 fn split(area: types.Rect, vertical: bool, ratio: f64, gap: i32, reverse: bool) Split {
+    const length = if (vertical) area.width else area.height;
+    if (length <= 1 or gap >= length - 1) {
+        return .{ .primary = area, .remainder = .{ .x = area.x, .y = area.y, .width = 0, .height = 0 } };
+    }
     if (vertical) {
         const available = @max(1, area.width - gap);
         const primary_width = @min(available, @max(1, @as(i32, @intFromFloat(@round(@as(f64, @floatFromInt(available)) * ratio)))));
@@ -97,8 +145,30 @@ fn mirrorHorizontally(area: types.Rect, rect: types.Rect) types.Rect {
     return mirrored;
 }
 
-fn makePlacement(handle: types.Handle, geometry: types.Rect, border: types.Border) types.Placement {
-    return .{ .handle = handle, .geometry = geometry, .z_order = 0, .visible = true, .border = border };
+fn makePlacement(handle: types.Handle, geometry: types.Rect, windows: []const types.Window, options: types.Options) types.Placement {
+    const border = options.border;
+    const minimum = windowMinimum(handle, windows, options);
+    // Layout rectangles include decorations; configure only the content box.
+    const inset = @min(@max(0, border.width), insetLimit(geometry, minimum));
+    var bounded_border = border;
+    bounded_border.width = inset;
+    return .{ .handle = handle, .geometry = math.shrink(geometry, inset), .z_order = 0, .visible = true, .border = bounded_border };
+}
+
+fn insetLimit(area: types.Rect, minimum: types.Size) i32 {
+    return @divTrunc(@min(
+        @max(0, area.width - minimum.width),
+        @max(0, area.height - minimum.height),
+    ), 2);
+}
+
+fn layoutArea(area: types.Rect, windows: []const types.Window, options: types.Options) types.Rect {
+    var minimum = options.readable_minimum orelse types.Size{ .width = 1, .height = 1 };
+    for (windows) |window| {
+        minimum.width = @max(minimum.width, window.min_width);
+        minimum.height = @max(minimum.height, window.min_height);
+    }
+    return math.shrink(area, @min(@max(0, options.gaps_outer), insetLimit(area, minimum)));
 }
 
 /// Swap two windows in both the order and the split tree, so a keyboard or
@@ -114,7 +184,7 @@ pub fn swap(state: *State, a: types.Handle, b: types.Handle) bool {
 }
 
 fn arrangeTree(allocator: std.mem.Allocator, state: *State, usable_area: types.Rect, windows: []const types.Window, options: types.Options, dwindle_options: Options) ![]types.Placement {
-    const area = math.shrink(usable_area, options.gaps_outer);
+    const area = layoutArea(usable_area, windows, options);
 
     // Drop windows that left this layout; each sibling takes over the space.
     while (state.root) |root| {
@@ -134,16 +204,22 @@ fn arrangeTree(allocator: std.mem.Allocator, state: *State, usable_area: types.R
     // window that last had focus, and any others arriving in the same cycle
     // split the window inserted just before them.
     var anchor: ?types.Handle = if (state.root == null) null else state.last_focused;
+    var rejected: std.ArrayListUnmanaged(types.Handle) = .empty;
+    defer rejected.deinit(allocator);
     for (windows) |window| {
         if (state.root != null and findLeaf(state.root.?, window.handle) != null) continue;
-        try insert(allocator, state, window.handle, anchor, area, options.gaps_inner, dwindle_options);
-        anchor = window.handle;
+        if (try insert(allocator, state, window.handle, anchor, area, windows, options, dwindle_options)) {
+            anchor = window.handle;
+        } else {
+            try rejected.append(allocator, window.handle);
+        }
     }
 
     var placements: std.ArrayListUnmanaged(types.Placement) = .empty;
     errdefer placements.deinit(allocator);
     try placements.ensureTotalCapacity(allocator, windows.len);
-    if (state.root) |root| place(root, area, options, dwindle_options, &placements);
+    if (state.root) |root| place(root, area, windows, options, dwindle_options, &placements);
+    for (rejected.items) |handle| placements.appendAssumeCapacity(overflowPlacement(handle));
 
     // Keep the published order in tree order so order-based queries and
     // swaps agree with what is on screen.
@@ -153,23 +229,29 @@ fn arrangeTree(allocator: std.mem.Allocator, state: *State, usable_area: types.R
     return placements.toOwnedSlice(allocator);
 }
 
-fn insert(allocator: std.mem.Allocator, state: *State, handle: types.Handle, anchor: ?types.Handle, area: types.Rect, gap: i32, dwindle_options: Options) !void {
+fn insert(allocator: std.mem.Allocator, state: *State, handle: types.Handle, anchor: ?types.Handle, area: types.Rect, windows: []const types.Window, options: types.Options, dwindle_options: Options) !bool {
+    const root = state.root orelse {
+        const leaf = try allocator.create(Node);
+        leaf.* = .{ .kind = .{ .leaf = handle } };
+        state.root = leaf;
+        return true;
+    };
+    const target = (if (anchor) |value| findLeaf(root, value) else null) orelse lastLeaf(root);
+    const rect = rectOf(root, target, area, options.gaps_inner, dwindle_options) orelse area;
+    // Split along the longer side so both halves stay as square as possible.
+    const vertical = if (rect.width != rect.height) rect.width > rect.height else dwindle_options.start_vertical;
+    const pair = split(rect, vertical, dwindle_options.split_ratio, options.gaps_inner, dwindle_options.reverse);
+    if (!contains(rect, pair.primary) or !contains(rect, pair.remainder) or
+        !fits(pair.primary, target.kind.leaf, windows, options) or !fits(pair.remainder, handle, windows, options)) return false;
     const leaf = try allocator.create(Node);
     errdefer allocator.destroy(leaf);
     leaf.* = .{ .kind = .{ .leaf = handle } };
-    const root = state.root orelse {
-        state.root = leaf;
-        return;
-    };
-    const target = (if (anchor) |value| findLeaf(root, value) else null) orelse lastLeaf(root);
-    const rect = rectOf(root, target, area, gap, dwindle_options) orelse area;
-    // Split along the longer side so both halves stay as square as possible.
-    const vertical = if (rect.width != rect.height) rect.width > rect.height else dwindle_options.start_vertical;
     const branch = try allocator.create(Node);
     branch.* = .{ .parent = target.parent, .kind = .{ .branch = .{ .vertical = vertical, .first = target, .second = leaf } } };
     replaceChild(state, target.parent, target, branch);
     target.parent = branch;
     leaf.parent = branch;
+    return true;
 }
 
 fn removeLeaf(allocator: std.mem.Allocator, state: *State, leaf: *Node) void {
@@ -195,15 +277,59 @@ fn replaceChild(state: *State, parent: ?*Node, old: *Node, new: *Node) void {
     if (branch.first == old) branch.first = new else branch.second = new;
 }
 
-fn place(node: *Node, area: types.Rect, options: types.Options, dwindle_options: Options, out: *std.ArrayListUnmanaged(types.Placement)) void {
+fn place(node: *Node, area: types.Rect, windows: []const types.Window, options: types.Options, dwindle_options: Options, out: *std.ArrayListUnmanaged(types.Placement)) void {
     switch (node.kind) {
-        .leaf => |handle| out.appendAssumeCapacity(makePlacement(handle, area, options.border)),
+        .leaf => |handle| out.appendAssumeCapacity(makePlacement(handle, area, windows, options)),
         .branch => |branch| {
             const pair = split(area, branch.vertical, dwindle_options.split_ratio, options.gaps_inner, dwindle_options.reverse);
-            place(branch.first, pair.primary, options, dwindle_options, out);
-            place(branch.second, pair.remainder, options, dwindle_options, out);
+            if (!contains(area, pair.primary) or !contains(area, pair.remainder) or
+                !fits(pair.primary, firstLeaf(branch.first), windows, options) or
+                !fits(pair.remainder, firstLeaf(branch.second), windows, options))
+            {
+                // Collapse this subtree to its first window. Keep all other
+                // handles in tree order for the workspace transfer planner.
+                const start = out.items.len;
+                overflowTree(node, out);
+                out.items[start] = makePlacement(firstLeaf(node), area, windows, options);
+                return;
+            }
+            place(branch.first, pair.primary, windows, options, dwindle_options, out);
+            place(branch.second, pair.remainder, windows, options, dwindle_options, out);
         },
     }
+}
+
+fn firstLeaf(node: *const Node) types.Handle {
+    return switch (node.kind) {
+        .leaf => |handle| handle,
+        .branch => |branch| firstLeaf(branch.first),
+    };
+}
+
+fn overflowTree(node: *const Node, out: *std.ArrayListUnmanaged(types.Placement)) void {
+    switch (node.kind) {
+        .leaf => |handle| out.appendAssumeCapacity(overflowPlacement(handle)),
+        .branch => |branch| {
+            overflowTree(branch.first, out);
+            overflowTree(branch.second, out);
+        },
+    }
+}
+
+fn cloneTree(allocator: std.mem.Allocator, node: *const Node, parent: ?*Node) !*Node {
+    const result = try allocator.create(Node);
+    errdefer allocator.destroy(result);
+    result.parent = parent;
+    switch (node.kind) {
+        .leaf => |handle| result.kind = .{ .leaf = handle },
+        .branch => |branch| {
+            const first = try cloneTree(allocator, branch.first, result);
+            errdefer destroyTree(allocator, first);
+            const second = try cloneTree(allocator, branch.second, result);
+            result.kind = .{ .branch = .{ .vertical = branch.vertical, .first = first, .second = second } };
+        },
+    }
+    return result;
 }
 
 fn rectOf(node: *Node, target: *Node, area: types.Rect, gap: i32, dwindle_options: Options) ?types.Rect {
@@ -400,5 +526,28 @@ fn expectHorizontalMirrors(bounds: types.Rect, normal: []const types.Placement, 
         );
         try std.testing.expectEqual(ordinary.border, mirrored.border);
         try std.testing.expectEqual(ordinary.visible, mirrored.visible);
+    }
+}
+
+test "readable split includes borders client minima and excessive gaps" {
+    const a = std.testing.allocator;
+    const area: types.Rect = .{ .x = 50, .y = -100, .width = 1920, .height = 1080 };
+    const windows = [_]types.Window{ .{ .handle = 1, .min_width = 1400 }, .{ .handle = 2 } };
+    for ([_]bool{ false, true }) |tree| {
+        var state: State = .{};
+        defer state.deinit(a);
+        const placements = try arrange(a, &state, area, &windows, .{
+            .readable_minimum = types.readableMinimum(area),
+            .gaps_inner = std.math.maxInt(i32),
+            .gaps_outer = std.math.maxInt(i32),
+            .border = .{ .width = std.math.maxInt(i32), .focused = 0, .normal = 0, .urgent = 0 },
+        }, .{ .split_focused = tree });
+        defer a.free(placements);
+        try std.testing.expect(!placements[0].overflow);
+        try std.testing.expect(placements[1].overflow);
+        try std.testing.expect(placements[0].geometry.width >= 384);
+        try std.testing.expect(placements[0].geometry.height >= 270);
+        try std.testing.expect(placements[0].geometry.x >= area.x);
+        try std.testing.expect(placements[0].geometry.bottom() <= area.bottom());
     }
 }

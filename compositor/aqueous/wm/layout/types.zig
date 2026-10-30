@@ -82,6 +82,9 @@ pub const Border = struct {
 };
 
 pub const Options = struct {
+    /// Injected from the full output's usable logical area by policy. Child
+    /// layouts inherit this rather than shrinking the readability threshold.
+    readable_minimum: ?Size = null,
     gaps_outer: i32 = 8,
     gaps_inner: i32 = 4,
     master_ratio: f64 = 0.55,
@@ -110,6 +113,9 @@ pub const Options = struct {
 
 pub const Placement = struct {
     handle: Handle,
+    /// No client configure may use this placement. Policy transfers the window
+    /// to another workspace before publishing the layout.
+    overflow: bool = false,
     geometry: Rect,
     /// Scale of the output which owns this placement. It is deliberately not
     /// part of layout arithmetic: it resolves compositor geometry onto the
@@ -132,6 +138,15 @@ pub const Placement = struct {
     tiling: enum { untiled, tiled, snapped } = .tiled,
     maximized: bool = false,
 };
+
+pub const Size = struct { width: i32, height: i32 };
+
+pub fn readableMinimum(area: Rect) Size {
+    return .{
+        .width = @max(320, @as(i32, @intCast(@divTrunc(@as(i64, @max(0, area.width)) + 4, 5)))),
+        .height = @max(200, @as(i32, @intCast(@divTrunc(@as(i64, @max(0, area.height)) + 3, 4)))),
+    };
+}
 
 pub const Direction = enum {
     left,

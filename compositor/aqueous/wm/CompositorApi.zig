@@ -599,6 +599,23 @@ pub fn moveWindowToWorkspace(_: CompositorApi, handle: layout.Handle, output_id:
     return false;
 }
 
+/// Remove a transfer from this transaction's visible layout, while still
+/// giving an unmapped client a usable initial configure on its new workspace.
+pub fn hideTransferredWindow(_: CompositorApi, handle: layout.Handle, output: PolicyOutput, area: layout.Rect) void {
+    const ref: Window.Ref = @bitCast(handle);
+    const window = ref.get() orelse return;
+    // A transient may already have an unspecified-size configure queued so
+    // its toolkit can choose a natural size. Do not replace that handshake.
+    const initial = (window.state == .ready or window.state == .initialized) and
+        window.policy_state.pending_natural_parent == 0;
+    const hint = window.wm_scheduled.dimensions_hint;
+    const minimum = layout.readableMinimum(area);
+    const width = if (initial) @min(@max(1, area.width), @max(minimum.width, @as(i32, hint.min_width))) else 0;
+    const height = if (initial) @min(@max(1, area.height), @max(minimum.height, @as(i32, hint.min_height))) else 0;
+    const tiled = window.policy_state.kind() == .tiled and !server.aqueous.clientWindowUsesFloatingLayout(handle);
+    window.policyApplyPlacement(area.x, area.y, width, height, output.scale, output.area.x, output.area.y, null, false, 0, 0, 0, tiled, false);
+}
+
 pub fn suppressPointerConstraints(_: CompositorApi, suppressed: bool) void {
     var seats = server.input_manager.seats.iterator(.forward);
     while (seats.next()) |seat| seat.cursor.setConstraintsSuppressed(suppressed);
@@ -1187,6 +1204,13 @@ pub fn applyPlacement(
 ) void {
     const ref: Window.Ref = @bitCast(placement.handle);
     const window = ref.get() orelse return;
+    if (placement.overflow) {
+        // A reorder coalesced after the overflow preflight can change which
+        // split needs room. Hide it and replan before ever configuring it.
+        window.policyApplyPlacement(0, 0, 0, 0, placement.output_scale, placement.output_origin_x, placement.output_origin_y, null, false, 0, 0, 0, true, false);
+        server.wm.dirtyWindowing();
+        return;
+    }
     const border_color = if (focused)
         placement.border.focused
     else

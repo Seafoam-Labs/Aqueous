@@ -51,6 +51,26 @@ build to check output transfers with real pointer events. `--compositor` and
 
 ## Workspace cycling
 
+Dwindle and reverse dwindle stop splitting before windows become unreadable.
+Their minimum content width is `max(client minimum, 320, ceil(usable width / 5))`;
+minimum height is `max(client minimum, 200, ceil(usable height / 4))`. Dimensions
+are logical pixels after output scaling and panel/strut reservations. Borders
+and gaps consume additional space. The same checks apply to focused splits.
+An output too small for even one minimum-sized window retains one bounded tile.
+
+Overflow moves forward through workspaces on the same output, wrapping once
+and counting existing residents. The selected workspace stays active and
+dependent dialogs follow their parent. If every workspace lacks room,
+workspace 9 switches to scrolling and receives the remaining overflow after
+its existing windows. That layout remains until explicitly changed; increasing
+available space does not automatically move windows back.
+
+`python3 scripts/test-dwindle-overflow.py --compositor BIN --ctl CTL` checks
+19/26-window transitions, dialog transfers, stable workspace membership,
+navigation, and the all-workspaces-full fallback in a private headless session.
+Use `--renderer vulkan` with the normal build, or a compositor built with
+`-Dvulkan-effects=false` for pixman.
+
 Super+Tab and Alt+Tab animate through eligible windows on the initiating seat's
 current workspace; Shift reverses the order. `cycle_focus` and
 `cycle_focus_reverse` share a stable workspace ring that survives focus changes
