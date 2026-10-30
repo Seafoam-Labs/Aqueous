@@ -76,6 +76,12 @@ static void sync_client(void) {
     }
     assert(synced);
 }
+static void wait_hidden(unsigned expected) {
+    for (unsigned i = 0; i < 1000 && commits < expected; i++) {
+        assert(wl_event_loop_dispatch(wl_display_get_event_loop(server), 1) >= 0);
+    }
+    assert(commits == expected);
+}
 static void submit(struct wp_fifo_v1 *fifo, struct wl_surface *s, bool set, bool wait) {
     if (wait && !bypass) wp_fifo_v1_wait_barrier(fifo);
     if (set) wp_fifo_v1_set_barrier(fifo);
@@ -172,9 +178,9 @@ int main(int argc, char **argv) {
     submit(fifo, s, false, false); assert(commits == 8);
     submit(fifo, s, false, false); assert(commits == 9);
     submit(fifo, s, false, true); assert(commits == 9);
-    // Hiding releases waits without needing another frame or mouse movement.
-    wlr_surface_send_leave(surface, output); sync_client(); assert(commits == 10);
-    submit(fifo, s, true, true); submit(fifo, s, false, true); assert(commits == 12);
+    // Hiding paces waits without needing another frame or mouse movement.
+    wlr_surface_send_leave(surface, output); sync_client(); wait_hidden(10);
+    submit(fifo, s, true, true); submit(fifo, s, false, true); wait_hidden(12);
 
     // Surface and output sequence wrap do not alias the barrier generation.
     wlr_surface_send_enter(surface, output);
@@ -190,7 +196,7 @@ int main(int argc, char **argv) {
     present(output, seq, true); assert(commits == 15);
     seq = latch(other, true); present(other, seq, true); assert(commits == 16);
     submit(fifo, s, true, false); submit(fifo, s, false, true); assert(commits == 17);
-    wlr_output_destroy(other); sync_client(); assert(commits == 18);
+    wlr_output_destroy(other); sync_client(); wait_hidden(18);
 
     // Synchronized children bypass FIFO but still wait for parent application.
     wp_fifo_v1_destroy(fifo); wl_surface_destroy(s); sync_client();
@@ -237,7 +243,7 @@ int main(int argc, char **argv) {
 
     // Manager resource destruction leaves existing FIFO objects operational.
     wp_fifo_manager_v1_destroy(manager);
-    submit(fifo, s, true, false); submit(fifo, s, false, true); assert(commits == before + 2);
+    submit(fifo, s, true, false); submit(fifo, s, false, true); wait_hidden(before + 2);
     // Destroy a surface with both cached and uncommitted FIFO state.
     wlr_surface_send_enter(surface, output);
     submit(fifo, s, true, false); submit(fifo, s, true, true);
