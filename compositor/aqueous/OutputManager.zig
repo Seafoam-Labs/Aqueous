@@ -702,20 +702,19 @@ pub fn autoLayout(om: *OutputManager) void {
     for (entries.items) |entry| entry.output.scheduled = entry.state;
 }
 
-/// Group commits do not identify which output failed. Retain already copied
-/// outputs, and try the remaining enabled members once before rejecting the GPU.
-fn retryPresentation(states: []wlr.Backend.OutputState) bool {
+/// Normalize color state for outputs already using copy (forced/software).
+/// Group failures cannot identify an output and must not select CPU copy.
+fn retryCopyColorState(states: []wlr.Backend.OutputState) bool {
     const presentation = @import("render/Presentation.zig");
     var changed = false;
     for (states) |*state| {
         if (!state.base.enabled) continue;
         const output: *Output = @ptrCast(@alignCast(state.output.data));
-        const selected = presentation.tryCopy(state.output);
         if (!presentation.usesCopy(state.output)) continue;
         const format = if (state.base.committed.render_format) state.base.render_format else state.output.render_format;
         const description = if (state.base.committed.image_description) state.base.image_description else state.output.image_description;
         const hdr_pending = format != Output.hdr.sdr_render_format or description != null;
-        if (!selected and !hdr_pending) continue;
+        if (!hdr_pending) continue;
         if (!Output.hdr.apply(state.output, false, .l1000, Output.hdr.default_sdr_white_level, &state.base)) return false;
         output.discardOverlayCandidate();
         output.scene_output.?.damage_ring.addWhole();
@@ -871,8 +870,7 @@ pub fn commitOutputState(om: *OutputManager) void {
         swapchain_manager.init(server.backend);
         defer swapchain_manager.finish();
 
-        // Each output can switch to copy once. Include real backend commits in
-        // this loop: TEST_ONLY success alone does not prove presentation works.
+        // Already copied outputs may each need their HDR state normalized once.
         var attempts: usize = 0;
         build_group: while (true) : (attempts += 1) {
             for (states.items) |state| {
@@ -882,7 +880,7 @@ pub fn commitOutputState(om: *OutputManager) void {
             if (!swapchain_manager.prepare(states.items) and
                 !(retainAdaptiveSync(states.items) and swapchain_manager.prepare(states.items)))
             {
-                if (attempts <= states.items.len and retryPresentation(states.items)) continue;
+                if (attempts <= states.items.len and retryCopyColorState(states.items)) continue;
                 log.err("failed to prepare new output configuration", .{});
                 om.modesetFailed();
                 return;
@@ -890,7 +888,7 @@ pub fn commitOutputState(om: *OutputManager) void {
             for (states.items) |*state| {
                 const output: *Output = @ptrCast(@alignCast(state.output.data));
                 if (!output.buildSceneState(&state.base, swapchain_manager.getSwapchain(state.output), false, false)) {
-                    if (attempts <= states.items.len and retryPresentation(@as(*[1]wlr.Backend.OutputState, @ptrCast(state))))
+                    if (attempts <= states.items.len and retryCopyColorState(@as(*[1]wlr.Backend.OutputState, @ptrCast(state))))
                         continue :build_group;
                     log.err("failed to render scene for {s}", .{state.output.name});
                     om.modesetFailed();
@@ -910,7 +908,7 @@ pub fn commitOutputState(om: *OutputManager) void {
                 preview.test_fail_commit = false;
                 const selection = @import("render/RendererSelection.zig");
                 fail = fail or (om.first_modeset and selection.testFails(server.selection_attempt, "commit"));
-                // Reject direct only, proving copy is tried before another GPU.
+                // Reject direct only, exercising candidate rejection without copying.
                 for (states.items) |state| {
                     if (om.first_modeset and !@import("render/Presentation.zig").usesCopy(state.output) and
                         selection.testFails(server.selection_attempt, "direct")) fail = true;
@@ -923,7 +921,7 @@ pub fn commitOutputState(om: *OutputManager) void {
                 // Preview fault injection verifies transaction rollback, not
                 // renderer selection, and must retain its existing semantics.
                 if (!@import("DisplayPreview.zig").active() and attempts <= states.items.len and
-                    retryPresentation(states.items)) continue;
+                    retryCopyColorState(states.items)) continue;
                 log.err("failed to commit new output configuration", .{});
                 om.modesetFailed();
                 return;
@@ -933,6 +931,7 @@ pub fn commitOutputState(om: *OutputManager) void {
         for (states.items) |*state| {
             const output: *Output = @ptrCast(@alignCast(state.output.data));
             output.commitOverlayState(true);
+            output.retry.copy_failures = 0;
         }
         om.first_modeset = false;
 

@@ -82,7 +82,8 @@ with tempfile.TemporaryDirectory(prefix='aqueous-candidates-') as directory:
     run('default Vulkan selection', copy=args.hardware_count == 0)
     run('forced copy', extra={'AQUEOUS_VULKAN_PRESENTATION': 'copy'}, copy=True)
     if args.hardware_count:
-        run('direct commit failure uses copy on same GPU', '1:direct', copy=True)
+        run('direct startup commit failure rejects candidate', '1:direct',
+            expected=2, copy=args.hardware_count == 1)
     for phase in ('renderer', 'effects', 'allocator', 'commit'):
         for rejected in range(1, total + 1):
             failures = ','.join(f'{i}:{phase}' for i in range(1, rejected + 1))

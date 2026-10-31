@@ -796,6 +796,7 @@ fn gpuResetRecover(server: *Server) !void {
                     server.fatal_error = error.PresentationRecoveryFailed;
                     server.wl_server.terminate();
                 } else {
+                    output.retry.copy_failures = 0;
                     @import("render/Presentation.zig").configure(wlr_output) catch |err| {
                         log.err("output presentation recovery failed: {s}", .{@errorName(err)});
                         server.fatal_error = error.PresentationRecoveryFailed;

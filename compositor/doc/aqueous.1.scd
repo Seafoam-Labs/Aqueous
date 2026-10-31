@@ -103,6 +103,12 @@ requires a presentation mode that permits it. Invalid values use *auto*.
 *WLR_RENDER_DRM_DEVICE* remains an explicit device restriction and takes
 precedence. GPU vendor names and DRM card numbering do not determine GPU type.
 
+Automatic CPU-copy presentation fallback requires five consecutive failed frame
+commits on the affected output. A successful frame or output reinitialization
+resets the count. Scene-build failures and failed group configurations do not
+trigger copying. Explicitly forced copy and renderers requiring copy remain
+supported; automatic return to direct presentation is not implemented.
+
 Display-device discovery remains automatic, including GPU hotplug. An explicit
 *WLR_DRM_DEVICES* list is honored, but disables wlroots GPU hotplug monitoring.
 The compositor does not migrate its running renderer when devices are attached;

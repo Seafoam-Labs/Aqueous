@@ -8,6 +8,7 @@ pub const Outcome = union(enum) { skipped, committed, failed: Stage };
 pub const State = struct {
     pending: bool = false,
     failures: u32 = 0,
+    copy_failures: u8 = 0,
     total_failures: u64 = 0,
     retries: u64 = 0,
     started_ms: u64 = 0,
@@ -19,6 +20,14 @@ pub const State = struct {
     recovery_commit: ?u32 = null,
     accepted_commit: ?u32 = null,
     presented_commit: ?u32 = null,
+
+    /// Count failed frame commits, not scene-build or synchronization failures.
+    /// The caller invokes this only while the output uses direct presentation.
+    pub fn allowCopyAfterFailure(state: *State, stage: Stage) bool {
+        if (stage != .output_commit and stage != .fallback_commit) return false;
+        state.copy_failures = @min(state.copy_failures + 1, 5);
+        return state.copy_failures == 5;
+    }
 
     pub fn delayMs(refresh_mhz: i32, failures: u32) u32 {
         const period: u32 = if (refresh_mhz > 0)
@@ -57,6 +66,7 @@ pub const State = struct {
     }
 
     pub fn committed(state: *State, sequence: u32) bool {
+        state.copy_failures = 0;
         const recovering = state.pending;
         if (recovering) state.recovery_commit = sequence;
         state.accepted_commit = sequence;
@@ -79,6 +89,7 @@ pub const State = struct {
     }
 
     pub fn cancel(state: *State) void {
+        state.copy_failures = 0;
         state.pending = false;
         state.failures = 0;
         state.deadline_ms = 0;
@@ -87,6 +98,22 @@ pub const State = struct {
         state.accepted_commit = null;
     }
 };
+
+test "copy fallback requires five failed commits on the same output and resets on success" {
+    var first: State = .{};
+    var second: State = .{};
+    for (0..4) |_| try std.testing.expect(!first.allowCopyAfterFailure(.output_commit));
+    try std.testing.expect(!first.allowCopyAfterFailure(.scene_build));
+    try std.testing.expect(!first.allowCopyAfterFailure(.fallback_build));
+    try std.testing.expect(!second.allowCopyAfterFailure(.output_commit));
+    try std.testing.expect(first.allowCopyAfterFailure(.fallback_commit));
+    for (0..300) |_| try std.testing.expect(first.allowCopyAfterFailure(.output_commit));
+    _ = first.committed(1);
+    for (0..4) |_| try std.testing.expect(!first.allowCopyAfterFailure(.output_commit));
+    first.cancel();
+    try std.testing.expect(!first.allowCopyAfterFailure(.output_commit));
+    try std.testing.expectEqual(@as(u8, 1), second.copy_failures);
+}
 
 test "backoff respects refresh, caps rate, and saturates counters" {
     try std.testing.expectEqual(@as(u32, 8), State.delayMs(180000, 1));

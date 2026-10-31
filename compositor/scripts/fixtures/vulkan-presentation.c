@@ -83,8 +83,8 @@ int main(void) {
 	struct wlr_output *output = wlr_headless_add_output(backend, 127, 65);
 	assert(output && wlr_output_init_render(output, allocator, renderer));
 	assert(!wlr_output_try_presentation_copy(output)); // default is unchanged
-	// A failed allocation switches only the affected output, and hot-unplug
-	// drops its allocator and locks without changing another output's path.
+	// Allocation failure must not bypass the compositor's failure threshold.
+	// An explicit copy request still works and remains isolated to this output.
 	for (int plug = 0; plug < 2; plug++) {
 		struct wlr_allocator *bad = calloc(1, sizeof(*bad));
 		assert(bad);
@@ -96,8 +96,12 @@ int main(void) {
 		wlr_output_state_init(&pending);
 		wlr_output_state_set_enabled(&pending, true);
 		wlr_log_init(WLR_SILENT, NULL); // expected allocation failure
-		assert(wlr_output_configure_primary_swapchain(other, &pending, &other->swapchain));
+		assert(!wlr_output_configure_primary_swapchain(other, &pending, &other->swapchain));
 		wlr_log_init(WLR_DEBUG, NULL);
+		assert(!wlr_output_uses_presentation_copy(other));
+		assert(other->allocator == bad && other->attach_render_locks == 0 && other->software_cursor_locks == 0);
+		assert(wlr_output_try_presentation_copy(other));
+		assert(wlr_output_configure_primary_swapchain(other, &pending, &other->swapchain));
 		assert(wlr_output_uses_presentation_copy(other));
 		assert(!wlr_output_presentation_copy_committed(other));
 		assert(!wlr_output_uses_presentation_copy(output));

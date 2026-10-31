@@ -2300,6 +2300,12 @@ fn handleFrame(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) voi
         },
         .failed => |stage| {
             output.discardRenderMetric();
+            const presentation = @import("render/Presentation.zig");
+            if (!presentation.usesCopy(wlr_output) and output.retry.allowCopyAfterFailure(stage) and
+                presentation.tryCopy(wlr_output))
+            {
+                log.warn("output {s}: trying CPU-copy presentation after 5 consecutive failed commits", .{wlr_output.name});
+            }
             const now_ms = retryNowMs();
             if (output.retry.failed(stage, now_ms, wlr_output.refresh)) {
                 log.err("output {s}: {s} failed, sequence={} frame_pending={} failures={} retry_in={}ms", .{
@@ -2411,7 +2417,6 @@ fn renderAndCommit(output: *Output, force: bool, recovering: bool) output_retry.
 
     output.current.applyNoModeset(&state);
 
-    const was_copy = @import("render/Presentation.zig").usesCopy(wlr_output);
     const collect_metrics = render_metrics.enabled() and output.render_metric_sample == null;
     if (output.injectRetryFailure(.scene_build)) return .{ .failed = .scene_build };
     if (!output.buildSceneStateInternal(
@@ -2420,19 +2425,7 @@ fn renderAndCommit(output: *Output, force: bool, recovering: bool) output_retry.
         collect_metrics,
         force,
         !recovering,
-    )) {
-        if (!@import("render/Presentation.zig").tryCopy(wlr_output) and
-            !(!was_copy and @import("render/Presentation.zig").usesCopy(wlr_output)))
-            return .{ .failed = .scene_build };
-        output.discardRenderMetric();
-        output.discardOverlayCandidate();
-        state.finish();
-        state = wlr.Output.State.init();
-        output.current.applyNoModeset(&state);
-        output.scene_output.?.damage_ring.addWhole();
-        if (!output.buildSceneStateInternal(&state, null, collect_metrics, true, false))
-            return .{ .failed = .scene_build };
-    }
+    )) return .{ .failed = .scene_build };
 
     // FIFO barriers use a non-tearing latch. The client's tearing preference
     // remains a hint and resumes once its FIFO-constrained update has latched.
@@ -2457,8 +2450,9 @@ fn renderAndCommit(output: *Output, force: bool, recovering: bool) output_retry.
         const color_pipeline_attempt = buffer_has_color_pipeline or
             (if (comptime build_options.output_retry_testing) output.retry_test.simulate_color_pipeline and !recovering else false);
         output.commitOverlayState(false);
-        const copied_attempt = @import("render/Presentation.zig").tryCopy(wlr_output);
-        if (!promoted_attempt and !color_pipeline_attempt and !copied_attempt) return .{ .failed = .output_commit };
+        // Optional plane/color failures first retry ordinary GPU composition.
+        // Only the final failed frame counts toward the CPU-copy threshold.
+        if (!promoted_attempt and !color_pipeline_attempt) return .{ .failed = .output_commit };
 
         // The failed state may omit an overlay or contain a primary buffer
         // awaiting hardware color conversion. Rebuild the complete renderer

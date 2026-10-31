@@ -25,8 +25,8 @@ def main():
     parser.add_argument('--compositor', type=Path, default=ROOT / 'zig-out/bin/aqueous')
     parser.add_argument('--ctl', type=Path, default=ROOT / 'zig-out/bin/aqueousctl')
     parser.add_argument('--renderer', choices=('pixman', 'vulkan'), default='pixman')
-    parser.add_argument('--presentation', choices=('direct', 'copy'), default='copy',
-                        help='Fix the Vulkan path so injected faults test frame recovery, not path selection')
+    parser.add_argument('--presentation', choices=('direct', 'copy', 'auto'), default='copy',
+                        help='Use auto with hardware Vulkan to exercise the five-commit copy threshold')
     parser.add_argument('--negative-control', action='store_true')
     parser.add_argument('--negative-stage', choices=('scene_build', 'output_commit'), default='scene_build')
     args = parser.parse_args()
@@ -204,6 +204,7 @@ focus_follows_mouse = false
                  'client frame did not receive presentation feedback')
             assert latest('target', 'submitted')['frame'] == frame, 'client committed again during recovery'
             assert not s['timer_armed'] and s['render_locks'] == int(s['presentation_path'].startswith('cpu-copy')), s
+            assert s['retry']['copy_failures'] == 0, s
             return s
 
         if args.negative_control:
@@ -212,7 +213,8 @@ focus_follows_mouse = false
             recovered(before, 1, frame, timeout=1)
             raise AssertionError('negative control unexpectedly recovered')
 
-        for stage, count in [('scene_build', 1), ('output_commit', 1), ('output_commit', 4)]:
+        initial_path = status()['presentation_path']
+        for stage, count in [('scene_build', 1), ('output_commit', 1), ('output_commit', 4), ('output_commit', 4)]:
             label = f'{stage}-{count}'
             before = arm(stage, count)['retry']['total_failures']
             frame = draw()
@@ -221,6 +223,15 @@ focus_follows_mouse = false
             verify_pixels(frame, label)
             results.append(dict(case=label, passed=True, state=s))
             print(f'PASS {label}: one client commit recovered autonomously', flush=True)
+
+        assert status()['presentation_path'] == initial_path, 'fewer than five failures changed the presentation path'
+        if args.renderer == 'vulkan' and args.presentation == 'auto' and initial_path == 'direct':
+            before = arm('output_commit', 5)['retry']['total_failures']
+            frame = draw()
+            recovered(before, 5, frame)
+            assert status()['presentation_path'] == 'cpu-copy', 'fifth failure did not select copy'
+            assert request(op='test_output_retry', name=names[1])['presentation_path'] == 'direct', 'healthy output switched to copy'
+            print('PASS five-commit threshold: affected output copies, healthy output stays direct', flush=True)
 
         # Model the promotion branch without claiming real DRM plane coverage.
         before = arm('output_commit', 1, overlay=True)['retry']['total_failures']

@@ -45,6 +45,7 @@ patch_files=(
     "$here/patches/wlroots/0036-syncobj-waiter-allocation-cleanup.patch"
     "$here/patches/wlroots/0037-syncobj-merger-error-handling.patch"
     "$here/patches/wlroots/0038-vulkan-device-loss-recovery.patch"
+    "$here/patches/wlroots/0039-output-copy-fallback-policy.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}

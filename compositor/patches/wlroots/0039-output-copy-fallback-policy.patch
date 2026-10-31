@@ -1,0 +1,37 @@
+Output: leave CPU-copy selection to the compositor failure threshold
+
+Allocation and group-prepare errors must not bypass the per-output policy.
+
+--- a/types/output/swapchain.c
++++ b/types/output/swapchain.c
+@@ -68,7 +68,7 @@
+ 	return ok;
+ }
+ 
+-static bool configure_primary_swapchain(struct wlr_output *output,
++bool wlr_output_configure_primary_swapchain(struct wlr_output *output,
+ 		const struct wlr_output_state *state, struct wlr_swapchain **swapchain_ptr) {
+ 	struct wlr_output_state empty_state;
+ 	if (state == NULL) {
+@@ -122,9 +122,3 @@
+ 	return true;
+ }
+ 
+-bool wlr_output_configure_primary_swapchain(struct wlr_output *output,
+-		const struct wlr_output_state *state, struct wlr_swapchain **swapchain_ptr) {
+-	if (configure_primary_swapchain(output, state, swapchain_ptr)) return true;
+-	if (!wlr_output_try_presentation_copy(output)) return false;
+-	return configure_primary_swapchain(output, state, swapchain_ptr);
+-}
+--- a/types/wlr_output_swapchain_manager.c
++++ b/types/wlr_output_swapchain_manager.c
+@@ -184,8 +184,7 @@
+ 			return false;
+ 		}
+ 		if (!manager_output_prepare(manager_output, &state->base, explicit_modifiers)) {
+-			if (!wlr_output_try_presentation_copy(state->output) ||
+-					!manager_output_prepare(manager_output, &state->base, explicit_modifiers)) return false;
++			return false;
+ 		}
+ 	}
+ 
