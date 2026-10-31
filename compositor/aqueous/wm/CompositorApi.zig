@@ -817,6 +817,9 @@ fn snapshotWindows(allocator: std.mem.Allocator, include_inactive: bool) !Policy
         const start = windows.items.len;
         var window_it = server.wm.windows.iterator();
         while (window_it.next()) |window| {
+            // Deferred removal placement must not fall through to admission,
+            // including when creating its destination workspace failed.
+            if (window.output_recovery != null) continue;
             const window_snapshot = window.policySnapshot();
             if (!window_snapshot.active and !(include_inactive and window.state == .mapped)) continue;
             // A newly created xdg_toplevel has to receive its initial configure

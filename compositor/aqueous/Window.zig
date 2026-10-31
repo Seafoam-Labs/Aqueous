@@ -276,6 +276,11 @@ ref: Ref,
 /// An unassigned window is always visible; an assigned window is visible only
 /// while its workspace is the active one on its output.
 workspace: ?*Workspace = null,
+/// Pointer-free placement retained while no usable output is available.
+output_recovery: ?struct { workspace_number: u32, fullscreen: bool } = null,
+/// Original connector and workspace, retained across temporary fallback outputs.
+/// Explicit placement cancels the return; automatic recovery preserves it.
+output_home: ?struct { name: []const u8, workspace_number: u32 } = null,
 /// Node in the owning workspace's member list (`Workspace.windows`).
 workspace_link: wl.list.Link,
 
@@ -918,6 +923,7 @@ pub fn destroy(window: *Window) void {
         .ready, .initialized, .mapped => unreachable,
     }
     assert(window.object == null);
+    window.forgetOutputHome();
 
     // A backend destroy event can arrive after policy assigned the window to a
     // workspace but before the surface ever mapped. Those windows never receive
@@ -958,6 +964,12 @@ pub fn destroy(window: *Window) void {
 
 /// Assign this window to the given workspace, removing it from any previous one.
 pub fn setWorkspace(window: *Window, workspace: *Workspace) void {
+    window.forgetOutputHome();
+    window.assignWorkspace(workspace);
+}
+
+fn assignWorkspace(window: *Window, workspace: *Workspace) void {
+    window.output_recovery = null;
     if (window.workspace == workspace) return;
     // A snapshot belongs to its original workspace/output viewport.
     window.cancelSlide();
@@ -977,6 +989,8 @@ pub fn setWorkspace(window: *Window, workspace: *Workspace) void {
 
 /// Remove this window from its workspace, if any.
 pub fn clearWorkspace(window: *Window) void {
+    window.forgetOutputHome();
+    window.output_recovery = null;
     if (window.workspace == null) return;
     window.detachWorkspace();
     // Reaping is deferred to the coalesced workspace cycle (see setWorkspace).
@@ -994,6 +1008,59 @@ pub fn detachWorkspace(window: *Window) void {
     // Drop any in-flight slide clone so it can't linger, enabled, in the shared
     // scene layer once the window no longer belongs to a (visible) workspace.
     window.cancelSlide();
+}
+
+/// Restore removal placement before snapshots admit unassigned windows onto
+/// the active workspace. Failed allocations leave the saved placement intact.
+pub fn recoverOutput(window: *Window, output: *Output) void {
+    const recovery = window.output_recovery orelse return;
+    const workspace = output.ensureWorkspaceNumber(recovery.workspace_number) orelse return;
+    window.recoverWorkspace(workspace);
+}
+
+/// Record only the first departure: losing a temporary fallback must not
+/// replace the original connector with the intermediate output's identity.
+pub fn rememberOutputHome(window: *Window, name: []const u8, number: u32) void {
+    if (window.output_home != null or name.len == 0) return;
+    const owned_name = util.gpa.dupe(u8, name) catch {
+        log.err("out of memory saving window's original output", .{});
+        return;
+    };
+    window.output_home = .{ .name = owned_name, .workspace_number = number };
+}
+
+fn forgetOutputHome(window: *Window) void {
+    if (window.output_home) |home| util.gpa.free(home.name);
+    window.output_home = null;
+}
+
+/// Run after output management and before snapshots, including for windows on
+/// inactive workspaces. An unrelated hotplug must not consume the return target.
+pub fn restoreOutputHome(window: *Window) void {
+    const home = window.output_home orelse return;
+    var outputs = server.om.outputs.iterator(.forward);
+    while (outputs.next()) |output| {
+        if (!output.policyTransferTarget() or !std.mem.eql(u8, output.policyName(), home.name)) continue;
+        const box = output.policyFullBox();
+        if (box.width <= 0 or box.height <= 0) continue;
+        const workspace = output.ensureWorkspaceNumber(home.workspace_number) orelse return;
+        server.aqueous.cancelRemovedOutputDrag(@bitCast(window.ref));
+        window.recoverWorkspace(workspace);
+        window.forgetOutputHome();
+        return;
+    }
+}
+
+fn recoverWorkspace(window: *Window, workspace: *Workspace) void {
+    const fullscreen = if (window.output_recovery) |recovery| recovery.fullscreen else window.wm_requested.fullscreen != null;
+    window.assignWorkspace(workspace);
+    const output = workspace.output;
+    if (fullscreen) window.policySetFullscreen(output);
+    switch (window.wm_scheduled.fullscreen_requested) {
+        .fullscreen => window.wm_scheduled.fullscreen_requested = .{ .fullscreen = output },
+        .no_request, .exit => {},
+    }
+    window.policy_state.needs_output_recovery = true;
 }
 
 pub fn setDimensionsHint(window: *Window, hint: DimensionsHint) void {
@@ -3202,7 +3269,7 @@ pub fn map(window: *Window) !void {
     // corner metadata before its first rendered frame.
     window.applySurfaceVisualState();
 
-    if (window.workspace == null) {
+    if (window.workspace == null and window.output_recovery == null) {
         if (window.initialOutput()) |output| {
             if (output.active_workspace) |workspace| {
                 window.setWorkspace(workspace);

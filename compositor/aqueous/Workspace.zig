@@ -39,8 +39,8 @@ id: u32,
 name: [:0]const u8,
 
 /// Name of the output this workspace was originally created on, heap owned by
-/// this workspace. Used to move a workspace back to its home output if that
-/// output is reconnected after having been disconnected.
+/// this workspace. Departure copies it into each window's return placement,
+/// including after the physical output has already been destroyed.
 home_output_name: [:0]const u8,
 
 /// Windows that are members of this workspace.

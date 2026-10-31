@@ -1072,6 +1072,15 @@ pub fn clientDragEligible(aqueous: *Aqueous, drag: Drag) bool {
             aqueous.windowUsesFloatingLayout(drag.layout_key, drag.handle)));
 }
 
+/// Output evacuation owns placement; discard pointer/snap destinations before
+/// ending the gesture so drag recovery cannot change the saved workspace.
+pub fn cancelRemovedOutputDrag(aqueous: *Aqueous, handle: layout_types.Handle) void {
+    if (aqueous.drag) |*drag| if (drag.handle == handle) {
+        drag.snap_candidate = null;
+    };
+    aqueous.finishInteractiveDragFor(handle);
+}
+
 fn finishInteractiveDragFor(aqueous: *Aqueous, handle: layout_types.Handle) void {
     var seats = server.input_manager.seats.iterator(.forward);
     while (seats.next()) |seat| seat.toplevel_drag.stopWindow(handle);

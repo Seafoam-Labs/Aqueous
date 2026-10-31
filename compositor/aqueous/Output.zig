@@ -1713,64 +1713,77 @@ pub fn reapEmpty(output: *Output) void {
     }
 }
 
-/// Return another enabled output to which this output's workspaces may be
-/// migrated, or null if this is the last remaining output.
-fn fallbackOutput(output: *Output) ?*Output {
+/// Choose the active primary, or the first remaining active output in list order.
+/// Soft-disabled outputs retain workspaces but cannot receive recovered windows.
+pub fn recoveryOutput(excluded: ?*Output) ?*Output {
+    if (server.aqueous.output_service.primaryRecoveryOutput()) |primary| {
+        if (primary != excluded) return primary;
+    }
     var it = server.om.outputs.iterator(.forward);
     while (it.next()) |other| {
-        if (other == output) continue;
-        if (!other.policyExposed()) continue;
-        if (other.wlr_output == null) continue;
+        if (other == excluded or other.wlr_output == null) continue;
+        if (!other.policyTransferTarget()) continue;
+        const box = other.policyFullBox();
+        if (box.width <= 0 or box.height <= 0) continue;
         return other;
     }
     return null;
 }
 
-fn migrateWorkspacesTo(output: *Output, dest: *Output) void {
-    output.cancelTransition();
-    output.active_workspace = null;
-    var it = output.workspaces.safeIterator(.forward);
-    while (it.next()) |workspace| {
-        var fullscreen_windows = workspace.windows.iterator(.forward);
-        while (fullscreen_windows.next()) |window| {
-            if (window.wm_requested.fullscreen != null) window.wm_requested.fullscreen = dest;
-        }
-        if (workspace.pinned) {
-            if (dest.pinnedByName(workspace.name)) |target| {
-                var win_it = workspace.windows.safeIterator(.forward);
-                while (win_it.next()) |window| window.setWorkspace(target);
-            } else {
-                workspace.link.remove();
-                workspace.output = dest;
-                dest.workspaces.append(workspace);
-                continue;
-            }
-            workspace.destroy();
-            continue;
-        }
-
-        workspace.link.remove();
-        workspace.output = dest;
-        dest.workspaces.append(workspace);
-    }
-    dest.ensureTrailingEmpty();
-    dest.reapEmpty();
-    server.wm.dirtyWindowing();
-    server.workspace_manager.dirty();
+fn fallbackOutput(output: *Output) ?*Output {
+    return recoveryOutput(output);
 }
 
-/// Destroy all workspaces, detaching any remaining windows first. Detaching is
-/// done without triggering reaping so it is safe to call while iterating the
-/// workspace list.
+/// Preserve numeric slots, including gaps, when recovering custom workspaces.
+pub fn ensureWorkspaceNumber(output: *Output, number: u32) ?*Workspace {
+    if (number == 0) return null;
+    while (output.workspaces.length() < number) {
+        _ = output.createWorkspace() orelse return null;
+    }
+    var index: u32 = 1;
+    var workspaces = output.workspaces.iterator(.forward);
+    while (workspaces.next()) |workspace| : (index += 1) {
+        // Existing empty custom slots must not be reaped beneath the target.
+        workspace.pinned = true;
+        if (index == number) return workspace;
+    }
+    unreachable;
+}
+
+fn migrateWorkspacesTo(output: *Output, dest: *Output) void {
+    output.evacuateWorkspaces(dest);
+}
+
 fn clearWorkspaces(output: *Output) void {
+    output.evacuateWorkspaces(null);
+}
+
+/// Save numbers before removing workspace list nodes. Never retain an output or
+/// workspace pointer in deferred recovery: the final output can disappear too.
+fn evacuateWorkspaces(output: *Output, dest: ?*Output) void {
     output.cancelTransition();
     output.active_workspace = null;
-    var it = output.workspaces.iterator(.forward);
-    while (it.next()) |workspace| {
-        var window_it = workspace.windows.iterator(.forward);
-        while (window_it.next()) |window| window.detachWorkspace();
+    var number: u32 = 1;
+    var it = output.workspaces.safeIterator(.forward);
+    while (it.next()) |workspace| : (number += 1) {
+        var windows = workspace.windows.safeIterator(.forward);
+        while (windows.next()) |window| {
+            server.aqueous.cancelRemovedOutputDrag(@bitCast(window.ref));
+            // The workspace retains the connector name even after handleDestroy
+            // has cleared wlr_output. Copy it before destroying the workspace.
+            window.rememberOutputHome(workspace.home_output_name, number);
+            window.output_recovery = .{
+                .workspace_number = number,
+                .fullscreen = window.wm_requested.fullscreen != null,
+            };
+            window.detachWorkspace();
+            window.policy_state.needs_output_recovery = true;
+            if (dest) |to| window.recoverOutput(to);
+        }
         workspace.destroy();
     }
+    server.wm.dirtyWindowing();
+    server.workspace_manager.dirty();
 }
 
 fn createWorkspace(output: *Output) ?*Workspace {
@@ -2057,6 +2070,12 @@ pub fn manageStart(output: *Output) void {
 
             if (output.scheduled.state == .destroying) {
                 assert(output.wlr_output == null);
+                const dest = output.fallbackOutput();
+                if (dest) |to| {
+                    output.migrateWorkspacesTo(to);
+                } else {
+                    output.clearWorkspaces();
+                }
                 {
                     var it = server.wm.windows.iterator();
                     while (it.next()) |window| {
@@ -2072,12 +2091,6 @@ pub fn manageStart(output: *Output) void {
                             window.wm_requested.fullscreen = null;
                         }
                     }
-                }
-                const dest = output.fallbackOutput();
-                if (dest) |to| {
-                    output.migrateWorkspacesTo(to);
-                } else {
-                    output.clearWorkspaces();
                 }
                 server.workspace_manager.handleOutputRemoved(output, dest);
 
@@ -2910,16 +2923,6 @@ fn processPresent(output: *Output, event: *const wlr.Output.event.Present) void 
         },
         .blanked, .lock_surface => {},
     }
-}
-
-fn pinnedByName(output: *Output, name: [:0]const u8) ?*Workspace {
-    var it = output.workspaces.iterator(.forward);
-    while (it.next()) |workspace| {
-        if (workspace.pinned and std.mem.eql(u8, workspace.name, name)) {
-            return workspace;
-        }
-    }
-    return null;
 }
 
 pub fn actualAdaptiveSync(output: *const Output) bool {

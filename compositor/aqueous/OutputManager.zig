@@ -3,6 +3,9 @@
 
 const OutputManager = @This();
 
+/// Scoped by the private headless hotplug fixture; unused in production builds.
+pub var test_output_name: ?[:0]const u8 = null;
+
 const build_options = @import("build_options");
 const std = @import("std");
 const assert = std.debug.assert;
@@ -120,6 +123,12 @@ fn handleSessionDestroy(listener: *wl.Listener(*wlr.Session), _: *wlr.Session) v
 }
 
 fn handleNewOutput(_: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) void {
+    if (comptime build_options.output_retry_testing) {
+        if (test_output_name) |name| {
+            assert(wlr_output.isHeadless());
+            wlr_output.setName(name);
+        }
+    }
     log.debug("new output {s}", .{wlr_output.name});
 
     if (server.drm_lease.reserve(wlr_output)) return;

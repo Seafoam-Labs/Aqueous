@@ -120,6 +120,15 @@ fn fallbackProfile(service: *const Service) []const u8 {
 /// preserves the legacy wm.toml-first behavior exactly. Once it does, wm.toml
 /// is folded first as a base and outputs.toml supplies the final overrides.
 pub fn primaryOutput(service: *Service) ?*Output {
+    return service.resolvePrimaryOutput(false);
+}
+
+/// Recovery must never choose a powered-off or mirrored primary.
+pub fn primaryRecoveryOutput(service: *Service) ?*Output {
+    return service.resolvePrimaryOutput(true);
+}
+
+fn resolvePrimaryOutput(service: *Service, recovery: bool) ?*Output {
     const sources = service.primarySpecs();
     if (sources.base.len == 0 and sources.preferred.len == 0) return null;
 
@@ -127,6 +136,7 @@ pub fn primaryOutput(service: *Service) ?*Output {
     var outputs = server.om.outputs.iterator(.forward);
     while (outputs.next()) |output| {
         const wlr_output = output.wlr_output orelse continue;
+        if (recovery and !output.policyTransferTarget()) continue;
         var preferred = false;
         for (sources.base) |*spec| if (OutputManager.matchesSpec(spec, wlr_output)) {
             if (spec.primary) |value| preferred = value;
@@ -456,8 +466,33 @@ fn handleRequest(service: *Service, client: *Client, line: []const u8) void {
 /// the isolated test session's runtime directory. Arming/clearing never repaints.
 fn handleRetryTest(service: *Service, client: *Client, request: std.json.ObjectMap) void {
     if (comptime !build_options.output_retry_testing) unreachable;
-    const name = jsonString(request.get("name")) orelse return service.sendError(client, "missing name");
     const action = jsonString(request.get("action")) orelse "status";
+    if (std.mem.eql(u8, action, "create")) {
+        const requested_name = jsonString(request.get("name"));
+        const owned_name = if (requested_name) |name| blk: {
+            if (name.len == 0 or std.mem.indexOfScalar(u8, name, 0) != null) return service.sendError(client, "invalid name");
+            var outputs = server.om.outputs.iterator(.forward);
+            while (outputs.next()) |output| {
+                if (std.mem.eql(u8, output.policyName(), name)) return service.sendError(client, "output already exists");
+            }
+            break :blk util.gpa.dupeSentinel(u8, name, 0) catch return service.sendError(client, "out of memory");
+        } else null;
+        defer if (owned_name) |name| util.gpa.free(name);
+        OutputManager.test_output_name = owned_name;
+        defer OutputManager.test_output_name = null;
+        const Search = struct {
+            headless: ?*wlr.Backend = null,
+            fn find(backend: *wlr.Backend, result: *@This()) void {
+                if (backend.isHeadless()) result.headless = backend;
+            }
+        };
+        var search: Search = .{};
+        server.backend.multiForEachBackend(*Search, Search.find, &search);
+        const backend = search.headless orelse return service.sendError(client, "headless backend required");
+        _ = backend.headlessAddOutput(1280, 720) catch return service.sendError(client, "output allocation failed");
+        return service.sendStatic(client, "{\"ok\":true}\n");
+    }
+    const name = jsonString(request.get("name")) orelse return service.sendError(client, "missing name");
     var outputs = server.om.outputs.iterator(.forward);
     while (outputs.next()) |output| {
         const wlr_output = output.wlr_output orelse continue;

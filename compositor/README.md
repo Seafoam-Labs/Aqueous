@@ -587,6 +587,7 @@ python3 scripts/test-primary-selection.py # middle-click transfers, focus orderi
 python3 scripts/test-negative-output-position.py # Xwayland negative origins, rotation, reload and clicks (diagnostic pixman build)
 python3 scripts/test-output-retry.py --compositor /tmp/aqueous-retry/bin/aqueous --ctl /tmp/aqueous-retry/bin/aqueousctl # requires -Doutput-retry-testing=true; see ../docs/output-commit-retry.md
 python3 scripts/test-output-teardown.py --compositor /tmp/aqueous-retry/bin/aqueous # same test build; removes outputs with occluded live windows
+python3 scripts/test-output-workspace-recovery.py --compositor /tmp/aqueous-retry/bin/aqueous --ctl /tmp/aqueous-retry/bin/aqueousctl --renderer vulkan # same test build; primary selection, workspace merging, zero-output hotplug and return to original outputs
 scripts/test-scaling.sh
 scripts/test-overlay-planes.sh
 scripts/test-client-buffer-scaling.sh

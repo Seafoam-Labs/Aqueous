@@ -441,6 +441,17 @@ fn manageStart(wm: *WindowManager) void {
         while (it.next()) |output| output.manageStart();
     }
 
+    // All output workspaces must exist before restoring windows, and recovery
+    // must finish before policy snapshots decide visibility and admission.
+    {
+        var windows = wm.windows.iterator();
+        while (windows.next()) |window| window.restoreOutputHome();
+    }
+    if (Output.recoveryOutput(null)) |output| {
+        var windows = wm.windows.iterator();
+        while (windows.next()) |window| window.recoverOutput(output);
+    }
+
     assert(wm.sent.output_config == null);
     wm.sent.output_config = wm.scheduled.output_config;
     wm.scheduled.output_config = null;
