@@ -2297,6 +2297,7 @@ fn handleFrame(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) voi
             // Some backends present synchronously inside commitState(). Replay
             // only after commit and session-lock submission bookkeeping finish.
             if (output.early_present) |*event| output.processPresent(event);
+            server.checkFdPressure(retryNowMs());
         },
         .failed => |stage| {
             output.discardRenderMetric();
@@ -2425,7 +2426,13 @@ fn renderAndCommit(output: *Output, force: bool, recovering: bool) output_retry.
         collect_metrics,
         force,
         !recovering,
-    )) return .{ .failed = .scene_build };
+    )) {
+        if (output.retry.shouldRecoverRenderer(.scene_build)) {
+            server.requestRendererRecovery("repeated scene_build failures");
+        }
+        return .{ .failed = .scene_build };
+    }
+    output.retry.resetSceneBuildStreak();
 
     // FIFO barriers use a non-tearing latch. The client's tearing preference
     // remains a hint and resumes once its FIFO-constrained update has latched.
@@ -2467,13 +2474,20 @@ fn renderAndCommit(output: *Output, force: bool, recovering: bool) output_retry.
         var fallback = wlr.Output.State.init();
         defer fallback.finish();
         output.current.applyNoModeset(&fallback);
-        if (output.injectRetryFailure(.fallback_build) or !output.buildSceneStateInternal(
+        if (output.injectRetryFailure(.fallback_build)) return .{ .failed = .fallback_build };
+        if (!output.buildSceneStateInternal(
             &fallback,
             null,
             collect_metrics,
             true,
             false,
-        )) return .{ .failed = .fallback_build };
+        )) {
+            if (output.retry.shouldRecoverRenderer(.fallback_build)) {
+                server.requestRendererRecovery("repeated fallback_build failures");
+            }
+            return .{ .failed = .fallback_build };
+        }
+        output.retry.resetSceneBuildStreak();
         if (!output.commitFrameState(&fallback, .fallback_commit)) {
             output.discardRenderMetric();
             output.commitOverlayState(false);

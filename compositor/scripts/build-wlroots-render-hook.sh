@@ -47,6 +47,7 @@ patch_files=(
     "$here/patches/wlroots/0038-vulkan-device-loss-recovery.patch"
     "$here/patches/wlroots/0039-output-copy-fallback-policy.patch"
     "$here/patches/wlroots/0040-hidden-fifo-pacing.patch"
+    "$here/patches/wlroots/0041-vulkan-semaphore-import-lifecycle.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -118,7 +119,7 @@ grep -Fq 'connector_update_layers_acceptance(&state->connectors[i])' \
     "$liftoff_source" ||
     die "patched wlroots does not enforce output-layer TEST_ONLY acceptance"
 scene_header="$source_dir/include/wlr/types/wlr_scene.h"
-    grep -Fq 'struct wlr_scene_output_layer_candidate' "$scene_header" &&
+grep -Fq 'struct wlr_scene_output_layer_candidate' "$scene_header" &&
     grep -Fq 'WLR_AQUEOUS_OUTPUT_LAYER_PROMOTION_VERSION 3' "$scene_header" &&
     grep -Fq 'scene_entry_try_output_layer' "$scene_source" &&
     grep -Fq 'wlr_scene_output_layer_candidate_finish' "$scene_source" ||

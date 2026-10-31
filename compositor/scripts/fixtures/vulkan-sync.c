@@ -49,14 +49,19 @@ static jmp_buf fatal_jump;
 static bool expect_fatal;
 static unsigned fatal_count;
 static bool copy_complete, fail_copy_map;
+static bool retain_payload_until_destroy, sync_file_signaled, timeline_signaled, fail_timeline_check;
+static int import_errno_value;
 static unsigned char copy_source[32 * 32 * 4], copy_destination[32 * (32 * 4 + 8)];
 
 static void complete_gpu(uint64_t point) {
     completed = point;
     for (unsigned i = 1; i < 255; i++) {
         if (sem_pending[i] && sem_pending[i] <= completed) {
-            assert(sem_payload[i] >= 0 && close(sem_payload[i]) == 0);
-            sem_payload[i] = -1;
+            assert(sem_payload[i] >= 0);
+            if (!retain_payload_until_destroy) {
+                assert(close(sem_payload[i]) == 0);
+                sem_payload[i] = -1;
+            }
             sem_pending[i] = 0;
         }
     }
@@ -145,8 +150,10 @@ VKAPI_ATTR void VKAPI_CALL vkDestroySemaphore(VkDevice dev, VkSemaphore sem,
     sem_live[n] = sem_signaled[n] = false;
 }
 static VkResult import_fd(VkDevice dev, const VkImportSemaphoreFdInfoKHR *info) {
-    if (++import_count == fail_import)
+    if (++import_count == fail_import) {
+        errno = import_errno_value;
         return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    }
     unsigned n = (uintptr_t)info->semaphore;
     assert(sem_live[n] && !sem_pending[n] && sem_payload[n] == -1);
     // Model a driver duplicating a successful import and retaining its payload
@@ -250,7 +257,16 @@ static bool mock_import_sync_file(int fd, uint32_t flags, int sync_fd) {
     return ++publish_count != fail_publish;
 }
 static int mock_poll(struct pollfd *fds, nfds_t n, int timeout) {
-    assert(timeout == 1000 && n == 1);
+    assert(n == 1 && (timeout == 0 || timeout == 1000));
+    if (timeout == 0) {
+        assert(fds[0].events == POLLIN && fcntl(fds[0].fd, F_GETFD) >= 0);
+        if (poll_mode == 2) {
+            fds[0].revents = POLLIN | POLLERR;
+            return 1;
+        }
+        fds[0].revents = sync_file_signaled ? POLLIN : 0;
+        return sync_file_signaled ? 1 : 0;
+    }
     fds[0].revents = poll_mode == 1 ? fds[0].events : POLLNVAL;
     return poll_mode == 0 ? 0 : 1;
 }
@@ -270,6 +286,14 @@ static void mock_unlock(struct wlr_buffer *buffer) {
         return;
     assert(buffer->n_locks > 0);
     buffer->n_locks--;
+}
+static bool mock_timeline_check(struct wlr_drm_syncobj_timeline *tl, uint64_t point,
+                                uint32_t flags, bool *result) {
+    assert(tl == &source_timeline && flags == 0);
+    if (fail_timeline_check)
+        return false;
+    *result = timeline_signaled;
+    return true;
 }
 static int mock_timeline_export(struct wlr_drm_syncobj_timeline *tl, uint64_t point) {
     return fail_explicit_export ? -1 : new_fd();
@@ -308,6 +332,7 @@ static _Noreturn void mock_abort(void) {
 #define wlr_buffer_end_data_ptr_access mock_end_data
 #define wlr_buffer_lock mock_lock
 #define wlr_buffer_unlock mock_unlock
+#define wlr_drm_syncobj_timeline_check mock_timeline_check
 #define wlr_drm_syncobj_timeline_export_sync_file mock_timeline_export
 #define wlr_drm_syncobj_timeline_import_sync_file mock_timeline_import
 #define wlr_drm_syncobj_timeline_signal mock_signal
@@ -368,6 +393,8 @@ static void init(void) {
     expect_fatal = false;
     fatal_count = 0;
     copy_complete = fail_copy_map = false;
+    retain_payload_until_destroy = sync_file_signaled = timeline_signaled = fail_timeline_check = false;
+    import_errno_value = 0;
     memset(copy_source, 0x71, sizeof(copy_source));
     memset(copy_destination, 0xa5, sizeof(copy_destination));
 }
@@ -452,9 +479,10 @@ static int fd_count(void) {
     for (int fd = 0; fd < 64; fd++) count += fcntl(fd, F_GETFD) >= 0;
     return count;
 }
-static void stress(void) {
+static void stress(bool retain_until_destroy) {
     int baseline = fd_count();
     init();
+    retain_payload_until_destroy = retain_until_destroy;
     for (unsigned frame = 0; frame < 6000; frame++) {
         active_output = frame % 2;
         bool explicit = frame % 3 == 0;
@@ -474,11 +502,16 @@ static void stress(void) {
         assert(fd_count() == baseline);
         assert(src_buffer.n_locks == 0 && dst_buffer.n_locks == 0);
         assert(other_src.n_locks == 0 && other_dst.n_locks == 0);
-        if (frame % 97 == 0) { finish(); init(); }
+        if (frame % 97 == 0) {
+            finish();
+            init();
+            retain_payload_until_destroy = retain_until_destroy;
+        }
     }
     finish();
     assert(fd_count() == baseline);
-    printf("PASS: 6000 Vulkan frames, two output buffers/command slots, RLIMIT_NOFILE=64, baseline=%d after each frame and teardown\n", baseline);
+    printf("PASS: 6000 Vulkan frames (retain_until_destroy=%u), two output buffers/command slots, RLIMIT_NOFILE=64, baseline=%d after each frame and teardown\n",
+           (unsigned)retain_until_destroy, baseline);
 }
 int main(void) {
     struct rlimit limit = {64, 64};
@@ -806,7 +839,71 @@ int main(void) {
         assert(callback_count == i + 1);
     }
     finish();
-    stress();
+    // Already-signaled explicit timeline points and sync_files skip semaphore
+    // creation/import while closing exported descriptors; unsignaled points,
+    // failed timeline checks, and poll error bits still require GPU waits.
+    init();
+    timeline_signaled = true;
+    sync_file_signaled = true;
+    assert(render_pass_submit(&new_pass(true, false)->base));
+    assert(import_count == 0 && create_count == 1 && export_count == 2);
+    assert_fds_closed();
+    retire();
+    finish();
+
+    init();
+    timeline_signaled = false;
+    sync_file_signaled = false;
+    assert(render_pass_submit(&new_pass(true, false)->base));
+    assert(import_count == 3);
+    assert_fds_closed();
+    retire();
+    finish();
+
+    init();
+    timeline_signaled = true;
+    fail_timeline_check = true;
+    assert(render_pass_submit(&new_pass(true, false)->base));
+    assert(import_count == 3);
+    assert_fds_closed();
+    retire();
+    finish();
+
+    init();
+    sync_file_signaled = true;
+    poll_mode = 2;
+    assert(render_pass_submit(&new_pass(false, false)->base));
+    assert(import_count == 4);
+    assert_fds_closed();
+    retire();
+    finish();
+
+    // Sustained pre-submit acquire/import failures (e.g. driver dup3 EMFILE)
+    // reset on any healthy frame, and trigger renderer replacement once the
+    // consecutive streak reaches WLR_VK_ACQUIRE_FAIL_LIMIT.
+    init();
+    import_errno_value = EMFILE;
+    for (unsigned i = 0; i < WLR_VK_ACQUIRE_FAIL_LIMIT - 1; i++) {
+        fail_import = import_count + 2;
+        assert(!render_pass_submit(&new_pass(false, true)->base));
+        assert(!renderer.sync_failed && lost_count == 0);
+        assert_fds_closed();
+    }
+    recover_next_frame();
+    retire();
+    assert(renderer.acquire_fail_streak == 0);
+    for (unsigned i = 0; i < WLR_VK_ACQUIRE_FAIL_LIMIT; i++) {
+        fail_import = import_count + 2;
+        assert(!render_pass_submit(&new_pass(false, true)->base));
+        bool reached = i + 1 == WLR_VK_ACQUIRE_FAIL_LIMIT;
+        assert(renderer.sync_failed == reached && lost_count == (unsigned)reached);
+        assert(src_buffer.n_locks == 0 && dst_buffer.n_locks == 0);
+        assert_fds_closed();
+    }
+    finish();
+
+    stress(false);
+    stress(true);
     puts("PASS: acquire/export/import/publication faults, FD/lock ownership, recovery, stage "
          "scopes, callbacks");
     return 0;

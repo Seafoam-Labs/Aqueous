@@ -22,6 +22,7 @@ extern fn wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_accep
 ) bool;
 
 const util = @import("util.zig");
+const output_retry = @import("output_retry.zig");
 const RendererSelection = @import("render/RendererSelection.zig");
 const color_management = @import("color_management.zig");
 const global_filter = @import("global_filter.zig");
@@ -86,6 +87,8 @@ gpu_reset_recover: ?*wl.EventSource = null,
 fatal_error: ?anyerror = null,
 selection_attempt: usize,
 selection_pending: bool = true,
+fd_reserve: output_retry.FdReserve = .{},
+fd_pressure: output_retry.FdPressure = .{},
 
 background_effect_manager: @import("BackgroundEffectManager.zig") = .{},
 
@@ -419,6 +422,7 @@ pub fn init(
 
     server.drm_lease.init(wl_server, server.backend, server.session);
     wl_server.setGlobalFilter(*Server, globalFilter, server);
+    server.fd_reserve.fill();
 }
 
 /// Start Xwayland only after a renderer has passed the initial commit.
@@ -472,6 +476,10 @@ pub fn deinit(server: *Server) void {
     server.sigint_source.remove();
     server.sigterm_source.remove();
 
+    if (server.gpu_reset_recover) |idle| {
+        idle.remove();
+        server.gpu_reset_recover = null;
+    }
     server.renderer_lost.link.remove();
     server.new_xdg_toplevel.link.remove();
     server.system_bell.deinit();
@@ -531,6 +539,7 @@ pub fn deinit(server: *Server) void {
 
     server.wl_server.destroy();
     server.gpu_pin.deinit(util.gpa);
+    _ = server.fd_reserve.release();
 }
 
 const WlrOutputClientProjection = extern struct {
@@ -718,6 +727,43 @@ fn terminate(_: c_int, wl_server: *wl.Server) c_int {
     return 0;
 }
 
+fn canRecoverVulkanRenderer(server: *const Server) bool {
+    if (comptime !build_options.vulkan_effects) return false;
+    if (server.selection_pending or server.gpu_reset_recover != null) return false;
+    return c.wlr_renderer_is_vk(@ptrCast(server.renderer));
+}
+
+fn scheduleRendererRecoveryIdle(server: *Server) void {
+    const event_loop = server.wl_server.getEventLoop();
+    server.gpu_reset_recover = event_loop.addIdle(*Server, gpuResetRecoverIdle, server) catch |err| switch (err) {
+        error.OutOfMemory => {
+            log.err("out of memory", .{});
+            return;
+        },
+    };
+}
+
+pub fn requestRendererRecovery(server: *Server, reason: []const u8) void {
+    if (!server.canRecoverVulkanRenderer()) return;
+    log.warn("requesting renderer recovery ({s}), scheduling recovery", .{reason});
+    server.scheduleRendererRecoveryIdle();
+}
+
+pub fn checkFdPressure(server: *Server, now_ms: u64) void {
+    if (!server.fd_pressure.pollDue()) return;
+    if (!server.canRecoverVulkanRenderer()) return;
+    const soft_limit = output_retry.queryNofileSoftLimit() orelse return;
+    const threshold = output_retry.FdPressure.highWaterThreshold(soft_limit) orelse return;
+    const open_fds = output_retry.countOpenFdsBounded(soft_limit, threshold) orelse return;
+    if (server.fd_pressure.shouldTriggerRecovery(open_fds, soft_limit, now_ms)) {
+        log.warn(
+            "open_fds>={d} reached high-water threshold {d} (soft_limit={d}), scheduling proactive GPU renderer refresh",
+            .{ open_fds, threshold, soft_limit },
+        );
+        server.requestRendererRecovery("file descriptor high-water mark");
+    }
+}
+
 fn handleRendererLost(listener: *wl.Listener(void)) void {
     const server: *Server = @fieldParentPtr("renderer_lost", listener);
     if (server.selection_pending) {
@@ -738,13 +784,7 @@ fn handleRendererLost(listener: *wl.Listener(void)) void {
     // temporary links to the list during iteration.
     // Using an idle callback is the most straightforward way to work around this
     // design wart.
-    const event_loop = server.wl_server.getEventLoop();
-    server.gpu_reset_recover = event_loop.addIdle(*Server, gpuResetRecoverIdle, server) catch |err| switch (err) {
-        error.OutOfMemory => {
-            log.err("out of memory", .{});
-            return;
-        },
-    };
+    server.scheduleRendererRecoveryIdle();
 }
 
 fn gpuResetRecoverIdle(server: *Server) void {
@@ -762,6 +802,11 @@ fn gpuResetRecover(server: *Server) !void {
         if (output.wlr_output) |w| server.om.warming.invalidate(w);
     }
     log.info("recovering from GPU reset", .{});
+    const released_fds = server.fd_reserve.release();
+    if (released_fds > 0) {
+        log.info("released {d} reserved file descriptors for GPU recovery", .{released_fds});
+    }
+    errdefer server.fd_reserve.fill();
     const resources = try RendererSelection.recover(server.backend, server.renderer);
     const new_renderer = resources.renderer;
     errdefer new_renderer.destroy();
@@ -797,11 +842,14 @@ fn gpuResetRecover(server: *Server) !void {
                     server.wl_server.terminate();
                 } else {
                     output.retry.copy_failures = 0;
+                    output.retry.scene_build_failures = 0;
                     @import("render/Presentation.zig").configure(wlr_output) catch |err| {
                         log.err("output presentation recovery failed: {s}", .{@errorName(err)});
                         server.fatal_error = error.PresentationRecoveryFailed;
                         server.wl_server.terminate();
                     };
+                    if (output.scene_output) |scene_output| scene_output.damage_ring.addWhole();
+                    if (!output.retry.pending) wlr_output.scheduleFrame();
                 }
                 output.invalidateOverlayCapabilities();
             }
@@ -823,6 +871,7 @@ fn gpuResetRecover(server: *Server) !void {
 
     server.allocator.destroy();
     server.allocator = new_allocator;
+    server.fd_reserve.fill();
 
     if (server.linux_dmabuf) |old_dmabuf| {
         if (new_renderer.getDrmFd() >= 0 and new_renderer.getTextureFormats(@intFromEnum(wlr.BufferCap.dmabuf)) != null) {

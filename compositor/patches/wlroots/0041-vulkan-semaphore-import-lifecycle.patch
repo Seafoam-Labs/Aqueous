@@ -1,0 +1,225 @@
+Vulkan: retire temporary wait semaphores, skip signaled imports, and bound acquire failures
+
+Destroy per-command-buffer wait semaphores when their consuming submission
+retires instead of pooling them until renderer teardown. Drivers such as NVIDIA
+580.xx duplicate imported sync_file descriptors during vkImportSemaphoreFdKHR
+and retain the internal FD until vkDestroySemaphore rather than closing it when
+the queue wait completes, exhausting RLIMIT_NOFILE over long uptimes.
+
+Also probe explicit wait timeline points and exported sync_file descriptors
+before importing them into Vulkan semaphores so already-signaled dependencies
+avoid temporary semaphore imports altogether, log FD table diagnostics at the
+start of an acquire/import failure episode, and mark the renderer for
+replacement after eight consecutive pre-submit acquire failures instead of
+looping indefinitely without emitting events.lost.
+
+--- a/include/render/vulkan.h
++++ b/include/render/vulkan.h
+@@ -349,6 +349,7 @@
+ 	struct wlr_drm_format_set copy_formats;
+ 	bool offscreen_enabled;
+ 	bool sync_failed;
++	uint32_t acquire_fail_streak;
+ 	uint64_t last_submitted_point;
+ 	struct wlr_vk_render_pass *failed_passes;
+ 
+@@ -457,6 +458,10 @@
+ #define WLR_VK_RECOVERY_WAIT_SLICE_NS 1000000000ULL
+ #define WLR_VK_RECOVERY_WAIT_SLICES 10
+ 
++// Consecutive pre-submit dependency acquire/import failures before replacing
++// the Vulkan renderer (e.g. driver-internal FD exhaustion).
++#define WLR_VK_ACQUIRE_FAIL_LIMIT 8
++
+ struct wlr_vk_render_pass {
+ 	struct wlr_vk_render_pass *next_failed;
+ 	bool transition_dummy;
+@@ -647,6 +652,7 @@
+ bool vulkan_wait_render_pass(struct wlr_vk_render_pass *pass);
+ bool vulkan_recover_render_pass(struct wlr_vk_render_pass *pass);
+ void vulkan_fail_render_pass(struct wlr_vk_render_pass *pass);
++void vulkan_fail_acquire_sync(struct wlr_vk_renderer *renderer);
+ void vulkan_render_pass_destroy(struct wlr_vk_render_pass *pass);
+ 
+ #endif // RENDER_VULKAN_H
+--- a/render/vulkan/pass.c
++++ b/render/vulkan/pass.c
+@@ -1,6 +1,10 @@
+ #include <assert.h>
+ #include <drm_fourcc.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <poll.h>
+ #include <stdlib.h>
++#include <sys/resource.h>
+ #include <unistd.h>
+ #include <wlr/util/log.h>
+ #include <wlr/render/color.h>
+@@ -230,6 +234,44 @@
+ 	free(pass);
+ }
+ 
++static void vulkan_log_sync_import_failure(struct wlr_vk_renderer *renderer,
++		const char *operation, int sync_file_fd, int err) {
++	if (renderer->acquire_fail_streak != 0) {
++		return;
++	}
++	int saved_errno = errno;
++	int fd_flags = sync_file_fd >= 0 ? fcntl(sync_file_fd, F_GETFD) : -1;
++	int fd_errno = fd_flags < 0 ? errno : 0;
++	struct rlimit limit = {0};
++	bool have_limit = getrlimit(RLIMIT_NOFILE, &limit) == 0;
++	rlim_t scan = have_limit && limit.rlim_cur < 65536 ? limit.rlim_cur : 65536;
++	unsigned count = 0;
++	for (rlim_t fd = 0; fd < scan; fd++) {
++		if (fcntl((int)fd, F_GETFD) >= 0) {
++			count++;
++		}
++	}
++	wlr_log(WLR_ERROR, "Vulkan sync import diagnostic: operation=%s fd=%d fd_valid=%d "
++		"fd_errno=%d import_errno=%d open_fds=%u%s fd_scan_limit=%ju soft_limit=%ju hard_limit=%ju",
++		operation, sync_file_fd, fd_flags >= 0, fd_errno, err, count,
++		!have_limit || scan < limit.rlim_cur ? "+" : "",
++		(uintmax_t)scan, (uintmax_t)limit.rlim_cur, (uintmax_t)limit.rlim_max);
++	errno = saved_errno;
++}
++
++static bool sync_file_already_signaled(int sync_file_fd) {
++	struct pollfd pfd = {
++		.fd = sync_file_fd,
++		.events = POLLIN,
++	};
++	int ret;
++	do {
++		ret = poll(&pfd, 1, 0);
++	} while (ret < 0 && errno == EINTR);
++	return ret > 0 && (pfd.revents & POLLIN) &&
++		!(pfd.revents & (POLLERR | POLLHUP | POLLNVAL));
++}
++
+ static VkSemaphore render_pass_wait_sync_file(struct wlr_vk_render_pass *pass,
+ 		size_t sem_index, int sync_file_fd) {
+ 	struct wlr_vk_renderer *renderer = pass->renderer;
+@@ -268,9 +310,13 @@
+ 		.semaphore = *sem_ptr,
+ 		.fd = sync_file_fd,
+ 	};
++	errno = 0;
+ 	res = renderer->dev->api.vkImportSemaphoreFdKHR(renderer->dev->dev, &import_info);
+ 	if (res != VK_SUCCESS) {
++		int import_errno = errno;
+ 		wlr_vk_error("vkImportSemaphoreFdKHR", res);
++		vulkan_log_sync_import_failure(renderer, "vkImportSemaphoreFdKHR",
++			sync_file_fd, import_errno);
+ 		return VK_NULL_HANDLE;
+ 	}
+ 
+@@ -293,6 +339,7 @@
+ 	}
+ 
+ 	if (!vulkan_sync_render_buffer_acquire(pass->render_buffer, sync_file_fds)) {
++		vulkan_log_sync_import_failure(pass->renderer, "render-buffer-acquire", -1, errno);
+ 		close_sync_files(sync_file_fds);
+ 		return false;
+ 	}
+@@ -301,6 +348,11 @@
+ 		if (sync_file_fds[i] < 0) {
+ 			continue;
+ 		}
++		if (sync_file_already_signaled(sync_file_fds[i])) {
++			close(sync_file_fds[i]);
++			sync_file_fds[i] = -1;
++			continue;
++		}
+ 
+ 		VkSemaphore sem = render_pass_wait_sync_file(pass, *render_wait_len_ptr, sync_file_fds[i]);
+ 		if (sem == VK_NULL_HANDLE) {
+@@ -332,8 +384,14 @@
+ 		}
+ 
+ 		if (pass_texture->wait_timeline) {
++			bool signaled = false;
++			if (wlr_drm_syncobj_timeline_check(pass_texture->wait_timeline,
++					pass_texture->wait_point, 0, &signaled) && signaled) {
++				continue;
++			}
+ 			int sync_file_fd = wlr_drm_syncobj_timeline_export_sync_file(pass_texture->wait_timeline, pass_texture->wait_point);
+ 			if (sync_file_fd < 0) {
++				vulkan_log_sync_import_failure(pass->renderer, "timeline-export-sync-file", -1, errno);
+ 				wlr_log(WLR_ERROR, "Failed to export wait timeline point as sync_file");
+ 				close_sync_files(sync_file_fds);
+ 				return false;
+@@ -343,6 +401,7 @@
+ 		} else {
+ 			struct wlr_vk_texture *texture = pass_texture->texture;
+ 			if (!vulkan_sync_foreign_texture_acquire(texture, sync_file_fds)) {
++				vulkan_log_sync_import_failure(pass->renderer, "foreign-texture-acquire", -1, errno);
+ 				wlr_log(WLR_ERROR, "Failed to wait for foreign texture DMA-BUF fence");
+ 				close_sync_files(sync_file_fds);
+ 				return false;
+@@ -353,6 +412,11 @@
+ 			if (sync_file_fds[i] < 0) {
+ 				continue;
+ 			}
++			if (sync_file_already_signaled(sync_file_fds[i])) {
++				close(sync_file_fds[i]);
++				sync_file_fds[i] = -1;
++				continue;
++			}
+ 
+ 			VkSemaphore sem = render_pass_wait_sync_file(pass, render_wait_len, sync_file_fds[i]);
+ 			if (sem == VK_NULL_HANDLE) {
+@@ -442,8 +506,10 @@
+ 
+ 	uint32_t render_wait_len = 0;
+ 	if (!render_pass_wait_textures(pass, render_wait, &render_wait_len)) {
++		renderer->acquire_fail_streak++;
+ 		goto error;
+ 	}
++	renderer->acquire_fail_streak = 0;
+ 
+ 	if (vulkan_record_stage_cb(renderer) == VK_NULL_HANDLE) {
+ 		goto error;
+@@ -852,6 +918,11 @@
+ 	}
+ 	vulkan_render_pass_destroy(pass);
+ 	wlr_buffer_unlock(render_buffer->wlr_buffer);
++	if (renderer->acquire_fail_streak >= WLR_VK_ACQUIRE_FAIL_LIMIT) {
++		wlr_log(WLR_ERROR, "Acquire synchronization failed %u consecutive times; replacing renderer",
++			(unsigned)renderer->acquire_fail_streak);
++		vulkan_fail_acquire_sync(renderer);
++	}
+ 	return false;
+ }
+ 
+--- a/render/vulkan/renderer.c
++++ b/render/vulkan/renderer.c
+@@ -390,6 +390,10 @@
+ 	}
+ }
+ 
++void vulkan_fail_acquire_sync(struct wlr_vk_renderer *renderer) {
++	mark_sync_failed(renderer);
++}
++
+ static bool submit_stage(struct wlr_vk_renderer *renderer) {
+ 	if (renderer->sync_failed) {
+ 		return false;
+@@ -547,6 +551,17 @@
+ 		wlr_color_transform_unref(cb->color_transform);
+ 		cb->color_transform = NULL;
+ 	}
++
++	// Destroy temporary wait semaphores once their consuming submission retires.
++	// Drivers such as NVIDIA 580.xx duplicate imported sync_file descriptors and
++	// keep the internal FD open until vkDestroySemaphore rather than closing it
++	// when the queue wait completes.
++	VkSemaphore *wait_sem;
++	wl_array_for_each(wait_sem, &cb->wait_semaphores) {
++		vkDestroySemaphore(renderer->dev->dev, *wait_sem, NULL);
++		*wait_sem = VK_NULL_HANDLE;
++	}
++	cb->wait_semaphores.size = 0;
+ }
+ 
+ static struct wlr_vk_command_buffer *get_command_buffer(

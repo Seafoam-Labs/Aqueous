@@ -30,7 +30,8 @@ def main():
     source, prefix = map(Path, sys.argv[1:])
     selected = {
         "render/vulkan/renderer.c": [
-            "vulkan_end_command_buffer", "vulkan_wait_command_buffer", "mark_sync_failed", "submit_stage",
+            "vulkan_end_command_buffer", "vulkan_wait_command_buffer", "mark_sync_failed",
+            "vulkan_fail_acquire_sync", "submit_stage",
             "release_command_buffer_resources", "vulkan_reset_command_buffer",
             "wait_submission", "signal_failed_pass", "vulkan_cancel_render_pass",
             "vulkan_wait_render_pass", "vulkan_recover_render_pass", "vulkan_fail_render_pass",
@@ -41,7 +42,8 @@ def main():
         "render/vulkan/pass.c": [
             "get_render_pass", "get_color_transform", "bind_pipeline",
             "encode_proj_matrix", "encode_color_matrix", "convert_pixman_box_to_vk_rect",
-            "vulkan_render_pass_destroy", "render_pass_wait_sync_file", "close_sync_files",
+            "vulkan_render_pass_destroy", "vulkan_log_sync_import_failure",
+            "sync_file_already_signaled", "render_pass_wait_sync_file", "close_sync_files",
             "render_pass_wait_render_buffer", "render_pass_wait_textures", "render_pass_submit",
         ],
         "render/vulkan/copy.c": ["vulkan_copy_buffer_finish"],
@@ -102,6 +104,18 @@ def main():
             "recover-allocated-point": (
                 '!wait_submission(renderer, cb->timeline_point)',
                 '((void)cb, !wait_submission(renderer, renderer->timeline_point))'),
+            "wait-semaphores-pooled": (
+                'VkSemaphore *wait_sem;\n\twl_array_for_each(wait_sem, &cb->wait_semaphores) {\n\t\tvkDestroySemaphore(renderer->dev->dev, *wait_sem, NULL);\n\t\t*wait_sem = VK_NULL_HANDLE;\n\t}\n\tcb->wait_semaphores.size = 0;',
+                '(void)0;'),
+            "unsignaled-sync-file-skipped": (
+                'return ret > 0 && (pfd.revents & POLLIN) &&',
+                'return ret >= 0 &&'),
+            "unsignaled-timeline-skipped": (
+                'pass_texture->wait_point, 0, &signaled) && signaled)',
+                'pass_texture->wait_point, 0, &signaled))'),
+            "acquire-streak-ignored": (
+                'if (renderer->acquire_fail_streak >= WLR_VK_ACQUIRE_FAIL_LIMIT) {',
+                'if (false) {'),
         }
         variants = [("plain", production, False), ("asan", production, True)]
         for label, (old, new) in mutations.items():
