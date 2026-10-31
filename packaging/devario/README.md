@@ -4,11 +4,11 @@ This directory follows the three-recipe layout in `packaging/arch`, with
 Devario maintainers, Shelly builds, Zig `0.17.0` and Pearl desktop defaults.
 Each recipe has its own `PKGBUILD` and `.SRCINFO`.
 
-Release `1.0.16` requires five consecutive failed frame commits on an output
-before selecting CPU-copy presentation. Success resets that output's count;
-allocation failures and failed group configurations no longer bypass the threshold.
-Vulkan effects, explicit synchronization, both patch 0020 components, and the
-higher file-descriptor limit introduced in 1.0.10 remain enabled.
+Release `1.0.17` destroys temporary Vulkan wait semaphores when submissions
+retire, skips semaphore imports for already-signaled fences, and adds bounded
+renderer recovery and an emergency file-descriptor reserve. The five-commit
+CPU-copy threshold, Vulkan effects, explicit synchronization, both patch 0020
+components, and the higher file-descriptor limit introduced in 1.0.10 remain enabled.
 These recipes build that implementation directly; no packaging backport is applied.
 
 | Recipe | Outputs | Purpose |
@@ -17,7 +17,7 @@ These recipes build that implementation directly; no packaging backport is appli
 | `aqueous-desktop/` | `aqueous-core`, `aqueous-session`, `xdg-desktop-portal-aqueous`, `aqueous-integration-pearl`, `aqueous-shell-pearl`, `devario-desktop` | Complete stable Devario Pearl desktop |
 | `aqueous-desktop-git/` | `aqueous-core-git`, `aqueous-session-git`, `xdg-desktop-portal-aqueous-git`, `aqueous-integration-pearl-git`, `aqueous-shell-pearl-git`, `devario-desktop-git` | Development replacement for the stable desktop using Pearl Git |
 
-The stable recipes check out the Git tag `v1.0.16`; publish that tag from the
+The stable recipes check out the Git tag `v1.0.17`; publish that tag from the
 release commit before building them. All PKGBUILD checksum entries use `SKIP`.
 `aqueous` is compositor-only. `aqueous-core` provides `aqueous` and conflicts
 with the minimal package because they own the same compositor files.
@@ -86,9 +86,9 @@ not activate services. Pearl Greeter handles its own greeter setup. Select
 Replace the former `aqueous-devario/PKGBUILD` and top-level `PKGBUILD` build
 jobs with one `aqueous-desktop/PKGBUILD` job. Its package base is
 `aqueous-desktop`, while the installed desktop preset remains
-`devario-desktop`. The six existing package names now share version `1.0.16-1`.
+`devario-desktop`. The six existing package names now share version `1.0.17-1`.
 The Aqueous components use exact sibling dependency pins. `devario-desktop`
-requires those components at its build version or newer (currently `>=1.0.16-1`),
+requires those components at its build version or newer (currently `>=1.0.17-1`),
 so an installed desktop preset accepts future Aqueous releases. Publish the
 updated preset once to replace its previous exact pins. The package base is a build identity;
 there is no separate `aqueous-desktop` output on Devario. Update `pkgver` or

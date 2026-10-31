@@ -62,7 +62,7 @@ run_helper snapshot --json >"$snapshot"
 jq -e '
   .ok == true and
   .protocol == 1 and
-  .helper_version == "1.0.16" and
+  .helper_version == "1.0.17" and
   (.fields | length) >= 145 and
   (.fields[] | select(.id == "decoration.corner_radius") | .value == 15 and .type == "integer" and .file == "wm") and
   (.fields[] | select(.id == "layout.default") | .options | index("composable") != null and index("stacking") != null and index("float") == null) and
