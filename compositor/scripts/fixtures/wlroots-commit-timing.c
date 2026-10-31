@@ -31,6 +31,35 @@ static struct wp_commit_timing_manager_v1 *manager;
 static struct wp_fifo_manager_v1 *fifo;
 static struct wlr_fifo_manager_v1 *fifo_server;
 static struct wl_listener new_surface;
+// Capture only the FIFO manager's timer. Production still uses the real
+// Wayland timer; deterministic tests can invoke its callback at exact times.
+static bool capture_fifo_timer, fail_timer_alloc, fail_timer_arm;
+static bool real_clock_mode;
+static struct wl_event_source *fifo_timer;
+static wl_event_loop_timer_func_t fifo_timer_callback;
+static void *fifo_timer_data;
+static unsigned fifo_timer_arms;
+static int fifo_timer_delay;
+struct wl_event_source *wl_event_loop_add_timer(struct wl_event_loop *loop,
+        wl_event_loop_timer_func_t func, void *data) {
+    struct wl_event_source *(*real_add)(struct wl_event_loop *, wl_event_loop_timer_func_t, void *) =
+        dlsym(RTLD_NEXT, "wl_event_loop_add_timer");
+    if (capture_fifo_timer && fail_timer_alloc) { errno = ENOMEM; return NULL; }
+    struct wl_event_source *source = real_add(loop, func, data);
+    if (capture_fifo_timer) {
+        fifo_timer = source; fifo_timer_callback = func; fifo_timer_data = data;
+    }
+    return source;
+}
+int wl_event_source_timer_update(struct wl_event_source *source, int ms) {
+    int (*real_update)(struct wl_event_source *, int) = dlsym(RTLD_NEXT, "wl_event_source_timer_update");
+    if (source == fifo_timer) {
+        fifo_timer_arms++;
+        if (fail_timer_arm) { fail_timer_arm = false; errno = ENOMEM; return -1; }
+        fifo_timer_delay = ms;
+    }
+    return real_update(source, ms);
+}
 static uint64_t fake_ns = 1000000000000ULL;
 static unsigned log_ids[65536], log_count;
 static struct tracked {
@@ -63,7 +92,7 @@ int clock_gettime(clockid_t id, struct timespec *ts) {
     static int (*real_clock)(clockid_t, struct timespec *);
     if (!real_clock) real_clock = dlsym(RTLD_NEXT, "clock_gettime");
     Dl_info info = {0};
-    if (id == CLOCK_MONOTONIC && dladdr(__builtin_return_address(0), &info) &&
+    if (!real_clock_mode && id == CLOCK_MONOTONIC && dladdr(__builtin_return_address(0), &info) &&
             info.dli_fname && strstr(info.dli_fname, "libwlroots")) {
         *ts = (struct timespec){.tv_sec = fake_ns / 1000000000, .tv_nsec = fake_ns % 1000000000};
         return 0;
@@ -171,6 +200,172 @@ static void latch(struct wlr_output *output) {
     wlr_fifo_manager_v1_present(fifo_server, output, &event);
     assert(sync_client());
 }
+// Simulate expiry without waiting 25 ms per deterministic assertion. Disarm the
+// kernel timer before manually invoking its callback; the manager will rearm it.
+static void hidden_tick(uint64_t ns) {
+    fake_ns = ns;
+    int (*real_update)(struct wl_event_source *, int) = dlsym(RTLD_NEXT, "wl_event_source_timer_update");
+    assert(real_update(fifo_timer, 0) == 0);
+    fifo_timer_delay = 0;
+    fifo_timer_callback(fifo_timer_data);
+    assert(sync_client());
+}
+static struct wp_fifo_v1 *hidden_queue(struct tracked *s, unsigned count) {
+    struct wp_fifo_v1 *f = wp_fifo_manager_v1_get_fifo(fifo, s->proxy);
+    for (unsigned i = 0; i < count; i++) {
+        wp_fifo_v1_set_barrier(f);
+        if (i) wp_fifo_v1_wait_barrier(f);
+        wl_surface_commit(s->proxy);
+    }
+    assert(sync_client());
+    return f;
+}
+static void test_hidden(const char *mode, struct tracked *s, struct tracked *tick,
+        struct wlr_output *output) {
+    const uint64_t start = fake_ns, interval = 25000000;
+    if (!strcmp(mode, "hidden-real-timer")) {
+        real_clock_mode = true;
+        struct timespec begin, end;
+        clock_gettime(CLOCK_MONOTONIC, &begin);
+        struct wp_fifo_v1 *f = hidden_queue(s, 4);
+        while (s->count < 4) {
+            assert(wl_event_loop_dispatch(wl_display_get_event_loop(server), 10) >= 0);
+            clock_gettime(CLOCK_MONOTONIC, &end);
+            assert(end.tv_sec - begin.tv_sec < 5);
+        }
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        int64_t elapsed = (end.tv_sec - begin.tv_sec) * 1000000000LL + end.tv_nsec - begin.tv_nsec;
+        assert(elapsed >= 3 * (int64_t)interval);
+        printf("Real hidden FIFO: 3 waits in %.3f ms\n", elapsed / 1e6);
+        wp_fifo_v1_destroy(f);
+        return;
+    }
+    struct wp_fifo_v1 *f = hidden_queue(s, !strcmp(mode, "hidden-replace") ? 1 : 4);
+    assert(s->count == 1);
+    if (!strcmp(mode, "hidden-timer-failure")) {
+        struct tracked *other = create_surface();
+        struct wp_fifo_v1 *g = hidden_queue(other, 2);
+        uint32_t lock = wlr_surface_lock_pending(other->surface);
+        wp_fifo_v1_wait_barrier(g); commit(other);
+        fail_timer_arm = true;
+        hidden_tick(start + interval);
+        assert(s->count == 4 && other->count == 2 && !fail_timer_arm);
+        wlr_surface_unlock_cached(other->surface, lock); assert(sync_client());
+        assert(other->count == 3);
+        // Failure recovery must leave visible FIFO enforced.
+        wlr_surface_send_enter(s->surface, output);
+        wp_fifo_v1_set_barrier(f); commit(s);
+        wp_fifo_v1_wait_barrier(f); commit(s); assert(s->count == 5);
+        latch(output); assert(s->count == 6);
+        wp_fifo_v1_destroy(g);
+    } else if (!strcmp(mode, "hidden-replace")) {
+        fake_ns += interval - 1;
+        wp_fifo_v1_set_barrier(f); commit(s); assert(s->count == 2);
+        wp_fifo_v1_wait_barrier(f); commit(s); assert(s->count == 2);
+        hidden_tick(start + interval); assert(s->count == 2);
+        hidden_tick(start + 2 * interval - 2); assert(s->count == 2);
+        hidden_tick(start + 2 * interval - 1); assert(s->count == 3);
+        assert(fifo_timer_delay == 0);
+    } else if (!strcmp(mode, "hidden-outputs")) {
+        struct wlr_output *other = wlr_headless_add_output(output->backend, 100, 100);
+        assert(other); other->enabled = true; other->refresh = 144000; output->refresh = 60000;
+        wlr_surface_send_enter(s->surface, output);
+        wlr_surface_send_enter(s->surface, other); assert(sync_client());
+        assert(!wlr_fifo_manager_v1_output_pending(fifo_server, output));
+        assert(wlr_fifo_manager_v1_output_pending(fifo_server, other));
+        hidden_tick(start + interval); assert(s->count == 1);
+        latch(output); assert(s->count == 1);
+        latch(other); assert(s->count == 2);
+        struct wlr_surface_output *entered;
+        wl_list_for_each(entered, &s->surface->current_outputs, link) {
+            if (entered->output == other) entered->WLR_PRIVATE.suspended = true;
+        }
+        wlr_fifo_v1_surface_changed(s->surface); assert(sync_client());
+        assert(wlr_fifo_manager_v1_output_pending(fifo_server, output));
+        hidden_tick(start + 2 * interval); assert(s->count == 2);
+        // With the other output suspended, disabling the remaining one hides it.
+        output->enabled = false;
+        struct wlr_output_state state = {.committed = WLR_OUTPUT_STATE_ENABLED};
+        struct wlr_output_event_commit event = {.state = &state};
+        wl_signal_emit_mutable(&output->events.commit, &event); assert(sync_client());
+        hidden_tick(start + 3 * interval - 1); assert(s->count == 2);
+        hidden_tick(start + 3 * interval); assert(s->count == 3);
+        // Revealing on a 240 Hz output cancels the new hidden generation.
+        other->refresh = 240000;
+        wl_list_for_each(entered, &s->surface->current_outputs, link) entered->WLR_PRIVATE.suspended = false;
+        wlr_fifo_v1_surface_changed(s->surface); assert(sync_client());
+        hidden_tick(start + 4 * interval); assert(s->count == 3);
+        latch(other); assert(s->count == 4);
+        wlr_output_destroy(other);
+    } else if (!strcmp(mode, "hidden-reveal")) {
+        hidden_tick(start + interval - 1); assert(s->count == 1);
+        wlr_surface_send_enter(s->surface, output); assert(sync_client());
+        assert(fifo_timer_delay == 0);
+        hidden_tick(start + interval); assert(s->count == 1);
+        latch(output); assert(s->count == 2);
+        // A hidden-to-visible-to-hidden transition starts a fresh deadline.
+        wlr_surface_send_leave(s->surface, output); assert(sync_client());
+        hidden_tick(start + 2 * interval - 1); assert(s->count == 2);
+        hidden_tick(start + 2 * interval); assert(s->count == 3);
+        // An enabled output keeps the surface on presentation-driven pacing.
+        wlr_surface_send_enter(s->surface, output); assert(sync_client());
+        hidden_tick(start + 3 * interval); assert(s->count == 3);
+        latch(output); assert(s->count == 4);
+    } else if (!strcmp(mode, "hidden-locks")) {
+        hidden_tick(start + 3 * interval); assert(s->count == 2);
+        hidden_tick(start + 4 * interval); assert(s->count == 3);
+        hidden_tick(start + 5 * interval); assert(s->count == 4);
+        uint32_t lock = wlr_surface_lock_pending(s->surface);
+        wp_fifo_v1_wait_barrier(f); timestamp(s, start + 10 * interval); commit(s);
+        hidden_tick(start + 6 * interval); assert(s->count == 4);
+        // FIFO expiration must not satisfy the independent lock or timestamp.
+        wlr_surface_unlock_cached(s->surface, lock); assert(sync_client());
+        assert(s->count == 4);
+        advance(tick, start + 10 * interval); assert(s->count == 5);
+        assert(fifo_timer_delay == 0);
+    } else if (!strcmp(mode, "hidden-destroy")) {
+        struct tracked *other = create_surface();
+        struct wp_fifo_v1 *g = hidden_queue(other, 3);
+        destroy_trigger = s->id; destroy_on_commit = other->surface;
+        hidden_tick(start + interval);
+        assert(s->count == 2 && !other->surface);
+        // Destroy a surface with a newly installed barrier and cached waits.
+        wl_surface_destroy(s->proxy); assert(sync_client());
+        assert(!s->surface);
+        assert(fifo_timer_delay == 0);
+        wp_fifo_v1_destroy(g);
+    } else if (!strcmp(mode, "hidden-many")) {
+        struct tracked *other = create_surface();
+        fake_ns += 5000000;
+        struct wp_fifo_v1 *g = hidden_queue(other, 3);
+        hidden_tick(start + interval); assert(s->count == 2 && other->count == 1);
+        hidden_tick(start + interval + 5000000); assert(s->count == 2 && other->count == 2);
+        hidden_tick(start + 2 * interval); assert(s->count == 3 && other->count == 2);
+        hidden_tick(start + 2 * interval + 5000000); assert(other->count == 3);
+        wp_fifo_v1_destroy(g);
+    } else {
+        // An early callback must rearm. Notifications do not reset the deadline.
+        hidden_tick(start + interval - 1); assert(s->count == 1);
+        assert(fifo_timer_delay == 1);
+        for (unsigned i = 0; i < 20; i++) {
+            wlr_fifo_v1_surface_changed(s->surface); assert(sync_client());
+        }
+        // FIFO object recreation does not reset committed deadlines either.
+        wp_fifo_v1_destroy(f); f = wp_fifo_manager_v1_get_fifo(fifo, s->proxy);
+        assert(sync_client());
+        hidden_tick(start + interval); assert(s->count == 2);
+        hidden_tick(start + 10 * interval); assert(s->count == 3); // no catch-up
+        hidden_tick(start + 11 * interval - 1); assert(s->count == 3);
+        hidden_tick(start + 11 * interval); assert(s->count == 4);
+        // A commit without wait is not capped even with a barrier outstanding.
+        commit(s); assert(s->count == 5);
+        hidden_tick(start + 12 * interval); assert(fifo_timer_delay == 0);
+        unsigned arms = fifo_timer_arms;
+        for (unsigned i = 0; i < 20; i++) assert(sync_client());
+        assert(fifo_timer_arms == arms); // no periodic idle polling
+    }
+    wp_fifo_v1_destroy(f);
+}
 int main(int argc, char **argv) {
     const char *mode = argc > 1 ? argv[1] : "queue";
     bypass = !strcmp(mode, "bypass");
@@ -180,7 +375,14 @@ int main(int argc, char **argv) {
     struct wlr_compositor *wc = wlr_compositor_create(server, 6, NULL); assert(wc);
     assert(wlr_subcompositor_create(server));
     assert(wlr_commit_timing_manager_v1_create(server));
+    capture_fifo_timer = true;
+    if (!strcmp(mode, "hidden-allocation-failure")) {
+        fail_timer_alloc = true;
+        assert(!wlr_fifo_manager_v1_create(server));
+        fail_timer_alloc = false;
+    }
     fifo_server = wlr_fifo_manager_v1_create(server); assert(fifo_server);
+    capture_fifo_timer = false;
     new_surface.notify = new_notify; wl_signal_add(&wc->events.new_surface, &new_surface);
     struct wlr_backend *backend = wlr_headless_backend_create(wl_display_get_event_loop(server)); assert(backend);
     struct wlr_output *output = wlr_headless_add_output(backend, 100, 100); assert(output);
@@ -197,7 +399,9 @@ int main(int argc, char **argv) {
     uint32_t expected_error = 0;
     struct wp_commit_timer_v1 *duplicate = NULL;
     const struct wl_interface *expected_interface = &wp_commit_timer_v1_interface;
-    if (!strcmp(mode, "fast-path") || !strcmp(mode, "fast-boundary")) {
+    if (!strncmp(mode, "hidden-", 7)) {
+        test_hidden(mode, s, tick, output);
+    } else if (!strcmp(mode, "fast-path") || !strcmp(mode, "fast-boundary")) {
         unsigned children = !strcmp(mode, "fast-path") ? 8 : 33;
         struct tracked *parent = create_optional_timer(false), *child[33];
         for (unsigned i = 0; i < children; i++) {

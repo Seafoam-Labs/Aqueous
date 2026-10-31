@@ -172,7 +172,19 @@ See the [performance and validation record](../docs/commit-timing-v1-performance
 for the immediate transaction path, bounded snapshot reuse, scheduling changes,
 queue/subsurface and explicit-sync checks, and remaining performance/DRM gaps.
 
-FIFO v1 is available in both builds. After building with
+FIFO v1 is available in both builds. Private wlroots patch 0039 paces surfaces
+with no active, non-suspended output at 40 Hz (one dependent commit per 25 ms).
+Visible surfaces return to output-driven pacing when revealed. This is a fixed
+FIFO policy, not a universal background FPS cap: clients that omit FIFO waits
+are unaffected. Independent acquire synchronization and commit timestamps still
+apply. Rebuild and ship the private wlroots library, then restart Aqueous to use
+this change; editing or rebuilding only the compositor is insufficient.
+
+The [hidden FIFO implementation record](../docs/hidden-fifo-40hz-plan.md) describes
+the timer, regression coverage, and remaining hardware qualification. Run both
+`test-fifo.py` and `test-commit-timing.py` to cover hidden pacing and its interaction
+with cached locks/timestamps (`--unit-only` runs the protocol fixtures).
+After building with
 `-Doutput-retry-testing=true`, run `python3 scripts/test-fifo.py --renderer vulkan`
 (or `--renderer pixman` for the diagnostic build). See the
 [FIFO implementation and validation record](../docs/fifo-v1-implementation-plan.md)

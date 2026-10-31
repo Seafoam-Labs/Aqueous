@@ -144,6 +144,7 @@ let
       "${src}/compositor/patches/wlroots/0037-syncobj-merger-error-handling.patch"
       "${src}/compositor/patches/wlroots/0038-vulkan-device-loss-recovery.patch"
       "${src}/compositor/patches/wlroots/0039-output-copy-fallback-policy.patch"
+      "${src}/compositor/patches/wlroots/0040-hidden-fifo-pacing.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending
