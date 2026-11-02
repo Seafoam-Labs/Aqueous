@@ -9,6 +9,10 @@ extern fn wlr_scene_buffer_set_transfer_function(buffer: *wlr.SceneBuffer, value
 extern fn wlr_scene_buffer_set_primaries(buffer: *wlr.SceneBuffer, value: wlr.color.NamedPrimaries) void;
 extern fn wlr_scene_buffer_set_color_encoding(buffer: *wlr.SceneBuffer, value: wlr.color.Encoding) void;
 extern fn wlr_scene_buffer_set_color_range(buffer: *wlr.SceneBuffer, value: wlr.color.Range) void;
+// Aqueous wlroots patch 0043: snapshots have no surface, so the scRGB stimulus
+// mapping must be copied explicitly.
+extern fn wlr_scene_buffer_set_windows_scrgb(buffer: *wlr.SceneBuffer, value: c_int) void;
+extern fn wlr_scene_buffer_get_windows_scrgb(buffer: *const wlr.SceneBuffer) bool;
 
 /// Copy the frozen buffer's rendering state, without borrowing surface identity
 /// or listeners. Compositor-specific effects are attached by the caller.
@@ -25,6 +29,7 @@ pub fn clone(target: *wlr.SceneTree, source: *wlr.SceneBuffer, x: i32, y: i32) !
     wlr_scene_buffer_set_primaries(snapshot, source.primaries);
     wlr_scene_buffer_set_color_encoding(snapshot, source.color_encoding);
     wlr_scene_buffer_set_color_range(snapshot, source.color_range);
+    wlr_scene_buffer_set_windows_scrgb(snapshot, @intFromBool(wlr_scene_buffer_get_windows_scrgb(source)));
     return snapshot;
 }
 
@@ -44,6 +49,7 @@ test "snapshot preserves non-default color state and sampling independently of s
     wlr_scene_buffer_set_primaries(source, .bt2020);
     wlr_scene_buffer_set_color_encoding(source, .bt2020);
     wlr_scene_buffer_set_color_range(source, .limited);
+    wlr_scene_buffer_set_windows_scrgb(source, 1);
 
     for ([_]wlr.color.TransferFunction{ .gamma22, .st2084_pq, .ext_linear, .bt1886 }) |tf| {
         wlr_scene_buffer_set_transfer_function(source, tf);
@@ -53,6 +59,7 @@ test "snapshot preserves non-default color state and sampling independently of s
         try std.testing.expectEqual(wlr.color.NamedPrimaries.bt2020, snapshot.primaries);
         try std.testing.expectEqual(wlr.color.Encoding.bt2020, snapshot.color_encoding);
         try std.testing.expectEqual(wlr.color.Range.limited, snapshot.color_range);
+        try std.testing.expect(wlr_scene_buffer_get_windows_scrgb(snapshot));
         try std.testing.expectEqual(source.filter_mode, snapshot.filter_mode);
         try std.testing.expectEqual(source.opacity, snapshot.opacity);
         try std.testing.expectEqual(source.transform, snapshot.transform);
@@ -85,6 +92,7 @@ test "snapshot preserves default SDR properties and destroying it leaves the sou
     try std.testing.expectEqual(source.primaries, snapshot.primaries);
     try std.testing.expectEqual(source.color_encoding, snapshot.color_encoding);
     try std.testing.expectEqual(source.color_range, snapshot.color_range);
+    try std.testing.expect(!wlr_scene_buffer_get_windows_scrgb(snapshot));
     try std.testing.expectEqual(source.filter_mode, snapshot.filter_mode);
     try std.testing.expectEqual(@as(f32, 1), snapshot.opacity);
     snapshot.node.destroy();

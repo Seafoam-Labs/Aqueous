@@ -1,0 +1,93 @@
+scene: carry the Windows-scRGB flag on the scene buffer
+
+The fixed 80 cd/m² stimulus mapping for Windows-scRGB was chosen by
+looking up the buffer's scene surface. Snapshot clones made for
+animations have no surface, so on HDR outputs they took the SDR white
+level gain instead (about 2.5x brighter at the default 200 cd/m²), and
+the window went brighter for the length of an animation.
+
+Store the flag on wlr_scene_buffer, set it from the surface image
+description, and expose a setter/getter so compositors can copy it into
+snapshots.
+
+--- a/include/wlr/types/wlr_scene.h
++++ b/include/wlr/types/wlr_scene.h
+@@ -233,6 +233,10 @@ struct wlr_scene_buffer {
+ 	enum wlr_color_encoding color_encoding;
+ 	enum wlr_color_range color_range;
+ 	bool force_blend;
++	// Predefined Windows-scRGB content (1.0 = 80 cd/m², client-managed HDR).
++	// Carried on the buffer so snapshots keep the fixed stimulus mapping after
++	// they lose access to the source surface.
++	bool windows_scrgb;
+ 
+ 	struct {
+ 		uint64_t active_outputs;
+@@ -622,6 +626,16 @@ void wlr_scene_buffer_set_opaque_region(struct wlr_scene_buffer *scene_buffer,
+ void wlr_scene_buffer_set_force_blend(struct wlr_scene_buffer *scene_buffer,
+ 	int force_blend);
+ 
++/**
++ * Mark the buffer as predefined Windows-scRGB content (1.0 = 80 cd/m²), which
++ * bypasses the SDR white level on HDR outputs. Set automatically for surface
++ * buffers; compositors copying a buffer into a snapshot must copy it too.
++ */
++void wlr_scene_buffer_set_windows_scrgb(struct wlr_scene_buffer *scene_buffer,
++	int windows_scrgb);
++
++bool wlr_scene_buffer_get_windows_scrgb(const struct wlr_scene_buffer *scene_buffer);
++
+ /**
+  * Set the source rectangle describing the region of the buffer which will be
+  * sampled to render this node. This allows cropping the buffer.
+
+--- a/types/scene/surface.c
++++ b/types/scene/surface.c
+@@ -387,6 +387,8 @@ static void surface_reconfigure(struct wlr_scene_surface *scene_surface) {
+ 	wlr_scene_buffer_set_primaries(scene_buffer, primaries);
+ 	wlr_scene_buffer_set_color_encoding(scene_buffer, color_encoding);
+ 	wlr_scene_buffer_set_color_range(scene_buffer, color_range);
++	wlr_scene_buffer_set_windows_scrgb(scene_buffer,
++		img_desc != NULL && img_desc->kind == WLR_IMAGE_DESCRIPTION_V1_WINDOWS_SCRGB);
+ 
+ 	scene_buffer_unmark_client_buffer(scene_buffer);
+ 
+
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -1184,6 +1184,20 @@ void wlr_scene_buffer_set_force_blend(struct wlr_scene_buffer *scene_buffer,
+ 	scene_node_update(&scene_buffer->node, NULL);
+ }
+ 
++void wlr_scene_buffer_set_windows_scrgb(struct wlr_scene_buffer *scene_buffer,
++		int windows_scrgb) {
++	if (scene_buffer->windows_scrgb == (windows_scrgb != 0)) {
++		return;
++	}
++
++	scene_buffer->windows_scrgb = windows_scrgb != 0;
++	scene_node_update(&scene_buffer->node, NULL);
++}
++
++bool wlr_scene_buffer_get_windows_scrgb(const struct wlr_scene_buffer *scene_buffer) {
++	return scene_buffer->windows_scrgb;
++}
++
+ void wlr_scene_buffer_set_source_box(struct wlr_scene_buffer *scene_buffer,
+ 		const struct wlr_fbox *box) {
+ 	if (wlr_fbox_equal(&scene_buffer->src_box, box)) {
+@@ -1655,11 +1669,9 @@ static float scene_buffer_luminance(struct wlr_scene_buffer *scene_buffer,
+ 		struct wlr_color_luminances pq_lum;
+ 		wlr_color_transfer_function_get_default_luminance(
+ 			WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ, &pq_lum);
+-		struct wlr_scene_surface *scene_surface = wlr_scene_surface_try_from_buffer(scene_buffer);
+-		bool windows_scrgb =
+-			scene_surface != NULL &&
+-			wlr_surface_has_windows_scrgb_image_description(scene_surface->surface);
+-		if (windows_scrgb) {
++		// Read the buffer's own flag rather than the surface: snapshot
++		// clones have no surface and would otherwise take the SDR-white gain.
++		if (scene_buffer->windows_scrgb) {
+ 			luminance_multiplier *= 80.0f / pq_lum.reference;
+ 		} else if (out_img_desc->sdr_white_level > 0) {
+ 			luminance_multiplier *= (float)(out_img_desc->sdr_white_level / pq_lum.reference);
