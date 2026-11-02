@@ -21,7 +21,7 @@
     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
     DEALINGS IN THE SOFTWARE.
   </copyright>
-  <interface name="aqueous_capture_color_manager_v1" version="1">
+  <interface name="aqueous_capture_color_manager_v1" version="2">
     <description summary="color information for individual captured frames">
       This Aqueous extension describes the pixels delivered by an
       ext_image_copy_capture_frame_v1. It does not grant capture access or
@@ -44,6 +44,44 @@
       <arg name="info" type="new_id" interface="aqueous_capture_color_info_v1"/>
       <arg name="frame" type="object" interface="ext_image_copy_capture_frame_v1"/>
     </request>
+    <request name="get_session_info" since="2">
+      <description summary="describe the encoding of each offered format">
+        Creates an object announcing, for each buffer format of the session's
+        current constraints, the encoding a successful frame in that format
+        is expected to receive. This lets clients label a stream before its
+        first frame, for example in PipeWire format negotiation.
+
+        The first description is sent in response to this request. A new
+        description follows every constraints update of the session, after
+        the session's own done event. Session destruction makes the object
+        inert. Per-frame information from get_frame_info remains
+        authoritative for individual frames.
+      </description>
+      <arg name="info" type="new_id" interface="aqueous_capture_color_session_v1"/>
+      <arg name="session" type="object" interface="ext_image_copy_capture_session_v1"/>
+    </request>
+  </interface>
+  <interface name="aqueous_capture_color_session_v1" version="2">
+    <description summary="per-format encoding of a capture session">
+      A description consists of zero or more format events, then done. Each
+      description replaces the previous one completely. Formats without a
+      format event have unknown encoding. A format code applies to both SHM
+      and DMA-BUF buffers. Primaries, transfer functions and luminances use
+      the meaning and units of aqueous_capture_color_info_v1.encoding.
+    </description>
+    <request name="destroy" type="destructor"/>
+    <event name="format">
+      <description summary="expected encoding of one buffer format">
+        format is a DRM fourcc code, as in ext_image_copy_capture_session_v1
+        dmabuf_format; SHM formats are reported with their DRM fourcc.
+      </description>
+      <arg name="format" type="uint"/>
+      <arg name="primaries" type="uint" enum="aqueous_capture_color_info_v1.primaries"/>
+      <arg name="transfer_function" type="uint" enum="aqueous_capture_color_info_v1.transfer_function"/>
+      <arg name="reference_white" type="uint"/>
+      <arg name="sdr_white" type="uint"/>
+    </event>
+    <event name="done"/>
   </interface>
   <interface name="aqueous_capture_color_info_v1" version="1">
     <description summary="immutable description of delivered capture pixels">

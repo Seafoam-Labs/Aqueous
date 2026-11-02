@@ -18,15 +18,41 @@ Converted SDR frames carry no source HDR mastering or content-light metadata.
 | Pixman scene → SHM, gamma-2.2/sRGB inputs | SDR |
 | Pixman scene with inputs requiring color conversion | `unavailable` |
 | Tagged non-SDR single-pixel buffers using the rectangle fast path | `unavailable` |
-| Output DMA-BUF and separate cursor sources | Existing `unavailable` behavior |
+| Output DMA-BUF, PQ source, 8-bit destination | SDR after PQ decode (renderer with input color transforms) |
+| Output DMA-BUF, native/10-bit destination | Source encoding (PQ/BT.2020 or gamma 2.2/sRGB) |
+| Separate cursor sources | Existing `unavailable` behavior |
+
+## HDR outputs and 8-bit destinations
+
+8-bit cannot usefully carry PQ. When a PQ output's native buffer is 10-bit, every
+8-bit destination (`XRGB8888`/`ARGB8888` and their BGR forms) receives SDR: PQ is
+decoded, the output's SDR white returns to 1.0, BT.2020 maps to sRGB, and gamma 2.2
+is applied. SHM uses the CPU lookup path; DMA-BUF uses the renderer. A renderer
+without input color transforms does not offer 8-bit DMA-BUF formats for PQ
+outputs, leaving those clients the converted SHM format. On a PQ output, SHM lists
+`XRGB8888` before the native format, because first-pick clients such as grim
+cannot describe PQ. 10-bit destinations keep native samples.
+
+## Per-format session description (version 2)
+
+`get_session_info` creates an `aqueous_capture_color_session_v1` for a capture
+session. It announces the expected encoding of every offered format code after
+creation and after each constraints update, following the session's own `done`.
+Output sources report the rules above. Scene sources report SDR when the renderer
+supports input and output color transforms; individual frames may still be
+`unavailable` (see the table). Per-frame information stays authoritative. The
+Aqueous portal uses the session description to set PipeWire `transferFunction`
+and `colorPrimaries` on every offered format.
 
 Pixman does not apply input color transforms. Qualification checks sampled scene
 buffers, including cached textures whose original buffers have been released.
 Disabled nodes and empty buffer nodes do not contribute. Unknown copy paths
 remain unavailable. Scene captures are not native HDR exports.
 
-Protocol `aqueous-capture-color-v1` remains version 1. Its two XML copies are
-identical, and the dependency build checks this. Request frame information before
+Protocol `aqueous-capture-color-v1` is version 2. Its compositor and wlroots
+patch XML copies are identical, and the dependency build checks this. The portal
+patch (`packaging/portal/0001-rename-backend-for-aqueous.patch`) carries a third
+copy, which must be updated with them. Request frame information before
 `capture`. Exactly one `done` or `unavailable` terminates a live metadata object;
 successful frames receive that result before `ready`. Metadata is usable only
 after a successful frame. Frame/source destruction and failed copies preserve
