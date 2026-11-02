@@ -59,9 +59,8 @@ pub fn init(renderer: *wlr.Renderer) !VulkanContext {
     if (!c.wlr_renderer_is_vk(@ptrCast(renderer))) {
         return error.RendererIsNotVulkan;
     }
-    if (!c.wlr_vk_renderer_enable_offscreen(@ptrCast(renderer))) {
-        return error.VulkanOffscreenPathUnavailable;
-    }
+    // Scene passes request sampleable backdrops only for visible blur effects.
+    // Color transforms independently decide whether an FP16 intermediate is needed.
 
     const instance = c.wlr_vk_renderer_get_instance(@ptrCast(renderer));
     const physical_device = c.wlr_vk_renderer_get_physical_device(@ptrCast(renderer));
@@ -164,10 +163,9 @@ pub fn deinit(context: *VulkanContext) void {
     std.log.info("destroyed Vulkan effects context", .{});
 }
 
-/// Retire blur resources which contain borrowed wlroots render-buffer views
-/// before a modeset can replace those views. Waiting for the shared queue is
-/// required before freeing scratch images and descriptor sets referenced by
-/// earlier submissions.
+/// Evict reusable scratch storage across render-target changes. Keep the
+/// existing modeset queue boundary; individual scratch uses additionally own
+/// their resources until wlroots dispatches submission completion.
 pub fn invalidateBlurRenderTargets(context: *VulkanContext) !usize {
     const idle_result = c.vkQueueWaitIdle(context.queue);
     if (idle_result != c.VK_SUCCESS) {

@@ -1,0 +1,425 @@
+diff --git a/include/render/vulkan.h b/include/render/vulkan.h
+index 429ec554..ef8e3a3b 100644
+--- a/include/render/vulkan.h
++++ b/include/render/vulkan.h
+@@ -271,9 +271,14 @@ struct wlr_vk_render_buffer {
+ 		VkDescriptorSet blend_descriptor_set;
+ 		struct wlr_vk_descriptor_pool *blend_attachment_pool;
+ 		bool blend_transitioned;
++		VkDeviceSize allocation_bytes;
++		uint64_t last_used_point;
++		unsigned unused_passes;
+ 	} two_pass;
+ };
+ 
++void vulkan_release_blend_image(struct wlr_vk_render_buffer *buffer);
++
+ bool vulkan_setup_one_pass_framebuffer(struct wlr_vk_render_buffer *buffer,
+ 	const struct wlr_dmabuf_attributes *dmabuf, bool srgb);
+ bool vulkan_setup_two_pass_framebuffer(struct wlr_vk_render_buffer *buffer,
+diff --git a/include/wlr/render/pass.h b/include/wlr/render/pass.h
+index 61ab7713..a29a9bf2 100644
+--- a/include/wlr/render/pass.h
++++ b/include/wlr/render/pass.h
+@@ -46,6 +46,8 @@ struct wlr_buffer_pass_options {
+ 	 */
+ 	struct wlr_drm_syncobj_timeline *signal_timeline;
+ 	uint64_t signal_point;
++	/* Require a sampleable linear backdrop for this pass only. */
++	bool sampleable_backdrop;
+ };
+ 
+ /**
+diff --git a/include/wlr/render/vulkan.h b/include/wlr/render/vulkan.h
+index e6922390..e6d94b56 100644
+--- a/include/wlr/render/vulkan.h
++++ b/include/wlr/render/vulkan.h
+@@ -19,7 +19,7 @@ bool wlr_vk_renderer_requires_copy(struct wlr_renderer *renderer);
+ struct wlr_allocator *wlr_vk_copy_allocator_create(struct wlr_allocator *destination);
+ const struct wlr_drm_format_set *wlr_vk_renderer_get_copy_formats(struct wlr_renderer *renderer);
+ 
+-#define WLR_AQUEOUS_RENDER_HOOK_VERSION 10
++#define WLR_AQUEOUS_RENDER_HOOK_VERSION 11
+ 
+ #define WLR_AQUEOUS_VULKAN_SELECTION_VERSION 1
+ struct wlr_backend;
+@@ -51,6 +51,8 @@ struct wlr_vk_render_pass_attribs {
+ 	VkExtent2D extent;
+ 	uint32_t subpass;
+ 	bool has_signal_timeline;
++	bool uses_fp16_intermediate;
++	uint64_t intermediate_allocation_bytes;
+ };
+ 
+ struct wlr_vk_render_texture_attribs {
+diff --git a/include/wlr/types/wlr_scene.h b/include/wlr/types/wlr_scene.h
+index 30678f03..bc4d737d 100644
+--- a/include/wlr/types/wlr_scene.h
++++ b/include/wlr/types/wlr_scene.h
+@@ -69,6 +69,10 @@ typedef bool (*wlr_scene_rect_render_hook_func_t)(
+ typedef bool (*wlr_scene_buffer_needs_composition_func_t)(
+ 	struct wlr_scene_buffer *scene_buffer, void *data);
+ 
++/* Called for visible render-list nodes before choosing a framebuffer. */
++typedef bool (*wlr_scene_node_needs_backdrop_func_t)(
++    struct wlr_scene_node *node, void *data);
++
+ typedef uint32_t (*wlr_scene_render_begin_hook_func_t)(
+ 	struct wlr_render_pass *render_pass,
+ 	const pixman_region32_t *content_damage, void *data);
+@@ -321,6 +325,8 @@ struct wlr_scene_output {
+ 		unsigned color_pipeline_retry_frames;
+ 		uint64_t color_pipeline_scanout_key;
+ 		unsigned color_pipeline_scanout_retry_frames;
++		wlr_scene_node_needs_backdrop_func_t node_needs_backdrop;
++		bool previous_sampleable_backdrop;
+ 	} WLR_PRIVATE;
+ };
+ 
+@@ -722,6 +728,14 @@ void wlr_scene_output_set_render_hooks(
+ 	wlr_scene_render_begin_hook_func_t begin_hook,
+ 	wlr_scene_node_render_hook_func_t node_hook);
+ 
++/**
++ * Query visible scene nodes before framebuffer selection. Returning true
++ * requires a sampleable linear backdrop for this output's render pass.
++ */
++void wlr_scene_output_set_backdrop_requirement(
++	struct wlr_scene_output *scene_output,
++	wlr_scene_node_needs_backdrop_func_t hook);
++
+ /**
+  * Set a callback invoked when scene content damages this output. The source is
+  * NULL when the damage cannot be attributed to one scene node.
+diff --git a/render/vulkan/pass.c b/render/vulkan/pass.c
+index 5d9b5cdd..409ae4be 100644
+--- a/render/vulkan/pass.c
++++ b/render/vulkan/pass.c
+@@ -1,3 +1,5 @@
++#include <inttypes.h>
++#include "render/vulkan/render_path.h"
+ #include <assert.h>
+ #include <drm_fourcc.h>
+ #include <stdlib.h>
+@@ -39,6 +41,8 @@ bool wlr_vk_render_pass_get_attribs(struct wlr_render_pass *wlr_pass,
+ 		},
+ 		.subpass = 0,
+ 		.has_signal_timeline = pass->signal_timeline != NULL,
++		.uses_fp16_intermediate = pass->two_pass,
++		.intermediate_allocation_bytes = pass->render_buffer->two_pass.allocation_bytes,
+ 	};
+ 	return true;
+ }
+@@ -96,7 +100,7 @@ bool wlr_vk_render_pass_run_offscreen(struct wlr_render_pass *wlr_pass,
+ 
+ 	VkImageMemoryBarrier barrier = {
+ 		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+-		.srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
++		.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+ 		.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+ 			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+ 		.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+@@ -110,7 +114,8 @@ bool wlr_vk_render_pass_run_offscreen(struct wlr_render_pass *wlr_pass,
+ 			.layerCount = 1,
+ 		},
+ 	};
+-	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
++	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
++		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+ 		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+ 		0, 0, NULL, 0, NULL, 1, &barrier);
+ 
+@@ -621,15 +626,17 @@ static bool render_pass_submit(struct wlr_render_pass *wlr_pass) {
+ 			.image = render_buffer->two_pass.blend_image,
+ 			.oldLayout = blend_src_layout,
+ 			.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+-			.srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
+-			.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
++			.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INPUT_ATTACHMENT_READ_BIT |
++				VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
++			.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+ 			.subresourceRange = {
+ 				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+ 				.layerCount = 1,
+ 				.levelCount = 1,
+ 			},
+ 		};
+-		vkCmdPipelineBarrier(stage_cb->vk, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
++		vkCmdPipelineBarrier(stage_cb->vk, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
++			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+ 			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+ 			0, 0, NULL, 0, NULL, 1, &blend_acq_barrier);
+ 	}
+@@ -791,6 +798,7 @@ static bool render_pass_submit(struct wlr_render_pass *wlr_pass) {
+ 	pass->render_buffer_out->transitioned = true;
+ 	if (pass->two_pass) {
+ 		render_buffer->two_pass.blend_transitioned = true;
++		render_buffer->two_pass.last_used_point = render_timeline_point;
+ 	}
+ 	if (pass->transition_dummy) {
+ 		renderer->dummy3d_image_transitioned = true;
+@@ -1453,12 +1461,24 @@ struct wlr_vk_render_pass *vulkan_begin_render_pass(struct wlr_vk_renderer *rend
+ 		inv_eotf = WLR_COLOR_TRANSFER_FUNCTION_GAMMA22;
+ 	}
+ 
+-	bool using_linear_pathway = !renderer->offscreen_enabled &&
+-		inv_eotf == WLR_COLOR_TRANSFER_FUNCTION_EXT_LINEAR;
+-	bool using_srgb_pathway = !renderer->offscreen_enabled &&
+-		inv_eotf == WLR_COLOR_TRANSFER_FUNCTION_SRGB &&
+-		buffer->srgb.out.framebuffer != VK_NULL_HANDLE;
+-	bool using_two_pass_pathway = !using_linear_pathway && !using_srgb_pathway;
++    bool backdrop = renderer->offscreen_enabled || (options && options->sampleable_backdrop);
++    enum wlr_vk_render_path path = vulkan_choose_render_path(inv_eotf, backdrop,
++        buffer->srgb.out.framebuffer != VK_NULL_HANDLE);
++    bool using_linear_pathway = path == WLR_VK_PATH_LINEAR;
++    bool using_srgb_pathway = path == WLR_VK_PATH_SRGB;
++    bool using_two_pass_pathway = !using_linear_pathway && !using_srgb_pathway;
++    if (using_two_pass_pathway) {
++        buffer->two_pass.unused_passes = 0;
++    } else if (buffer->two_pass.blend_image != VK_NULL_HANDLE) {
++        if (buffer->two_pass.unused_passes < 8) buffer->two_pass.unused_passes++;
++        uint64_t completed = 0;
++        VkResult result = renderer->dev->api.vkGetSemaphoreCounterValueKHR(
++            renderer->dev->dev, renderer->timeline_semaphore, &completed);
++        if (result == VK_SUCCESS && vulkan_blend_can_retire(
++                buffer->two_pass.unused_passes, buffer->two_pass.last_used_point, completed)) {
++            vulkan_release_blend_image(buffer);
++        }
++    }
+ 
+ 	if (using_linear_pathway && !buffer->linear.out.image_view) {
+ 		struct wlr_dmabuf_attributes attribs = {
+@@ -1495,6 +1515,14 @@ struct wlr_vk_render_pass *vulkan_begin_render_pass(struct wlr_vk_renderer *rend
+ 		}
+ 	}
+ 
++    const char *metrics = getenv("AQUEOUS_RENDER_METRICS");
++    if (metrics && strcmp(metrics, "0") != 0) {
++        static const char *names[] = { "direct-linear", "direct-srgb", "fp16-backdrop", "fp16-color-transform" };
++        wlr_log(WLR_INFO, "render-metric kind=vulkan-path width=%d height=%d path=%s intermediate_bytes=%" PRIu64,
++            buffer->wlr_buffer->width, buffer->wlr_buffer->height,
++            names[path], (uint64_t)buffer->two_pass.allocation_bytes);
++    }
++
+ 	struct wlr_vk_render_format_setup *render_setup;
+ 	struct wlr_vk_render_buffer_out *buffer_out;
+ 	if (using_two_pass_pathway) {
+diff --git a/render/vulkan/renderer.c b/render/vulkan/renderer.c
+index 171a5670..c82d7522 100644
+--- a/render/vulkan/renderer.c
++++ b/render/vulkan/renderer.c
+@@ -753,6 +753,20 @@ static void finish_render_buffer_out(struct wlr_vk_render_buffer_out *out,
+ 	vkDestroyImageView(dev, out->image_view, NULL);
+ }
+ 
++// Caller must prove the last submission using the intermediate has finished.
++void vulkan_release_blend_image(struct wlr_vk_render_buffer *buffer) {
++    VkDevice dev = buffer->renderer->dev->dev;
++    finish_render_buffer_out(&buffer->two_pass.out, dev);
++    if (buffer->two_pass.blend_attachment_pool) {
++        vulkan_free_ds(buffer->renderer, buffer->two_pass.blend_attachment_pool,
++            buffer->two_pass.blend_descriptor_set);
++    }
++    vkDestroyImageView(dev, buffer->two_pass.blend_image_view, NULL);
++    vkDestroyImage(dev, buffer->two_pass.blend_image, NULL);
++    vkFreeMemory(dev, buffer->two_pass.blend_memory, NULL);
++    memset(&buffer->two_pass, 0, sizeof(buffer->two_pass));
++}
++
+ static void destroy_render_buffer(struct wlr_vk_render_buffer *buffer) {
+ 	wl_list_remove(&buffer->link);
+ 	wlr_addon_finish(&buffer->addon);
+@@ -769,14 +783,7 @@ static void destroy_render_buffer(struct wlr_vk_render_buffer *buffer) {
+ 	finish_render_buffer_out(&buffer->linear.out, dev);
+ 	finish_render_buffer_out(&buffer->srgb.out, dev);
+ 
+-	finish_render_buffer_out(&buffer->two_pass.out, dev);
+-	vkDestroyImage(dev, buffer->two_pass.blend_image, NULL);
+-	vkFreeMemory(dev, buffer->two_pass.blend_memory, NULL);
+-	vkDestroyImageView(dev, buffer->two_pass.blend_image_view, NULL);
+-	if (buffer->two_pass.blend_attachment_pool) {
+-		vulkan_free_ds(buffer->renderer, buffer->two_pass.blend_attachment_pool,
+-			buffer->two_pass.blend_descriptor_set);
+-	}
++	vulkan_release_blend_image(buffer);
+ 
+ 	if (buffer->copy_mapping) vkUnmapMemory(dev, buffer->copy_memory);
+ 	vkDestroyBuffer(dev, buffer->copy_staging, NULL);
+@@ -884,6 +891,7 @@ bool vulkan_setup_two_pass_framebuffer(struct wlr_vk_render_buffer *buffer,
+ 		goto error;
+ 	}
+ 
++	buffer->two_pass.allocation_bytes = mem_reqs.size;
+ 	res = vkBindImageMemory(dev, buffer->two_pass.blend_image, buffer->two_pass.blend_memory, 0);
+ 	if (res != VK_SUCCESS) {
+ 		wlr_vk_error("vkBindMemory failed", res);
+@@ -960,8 +968,8 @@ bool vulkan_setup_two_pass_framebuffer(struct wlr_vk_render_buffer *buffer,
+ 	return true;
+ 
+ error:
+-	// cleaning up everything is the caller's responsibility,
+-	// since it will need to do this anyway if framebuffer setup fails
++	// A lazy setup failure must leave this target retryable.
++	vulkan_release_blend_image(buffer);
+ 	return false;
+ }
+ 
+@@ -1038,8 +1046,8 @@ bool vulkan_setup_one_pass_framebuffer(struct wlr_vk_render_buffer *buffer,
+ 	return true;
+ 
+ error:
+-	// cleaning up everything is the caller's responsibility,
+-	// since it will need to do this anyway if framebuffer setup fails
++	finish_render_buffer_out(out, dev);
++	memset(out, 0, sizeof(*out));
+ 	return false;
+ }
+ 
+@@ -1098,12 +1106,9 @@ static struct wlr_vk_render_buffer *create_render_buffer(
+ 		if (!vulkan_setup_one_pass_framebuffer(buffer, &dmabuf, true)) {
+ 			goto error;
+ 		}
+-	} else {
+-		// Set up the two-pass framebuffer & blending image
+-		if (!vulkan_setup_two_pass_framebuffer(buffer, &dmabuf)) {
+-			goto error;
+-		}
+ 	}
++	// Other attachments, including FP16, are allocated lazily after the pass
++	// requirements and output transfer function have been examined.
+ 
+ 	return buffer;
+ 
+@@ -2551,26 +2556,34 @@ static struct wlr_vk_render_format_setup *find_or_create_render_setup(
+ 				.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT |
+ 					VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
+ 					VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
+-					VK_ACCESS_SHADER_READ_BIT,
++					VK_ACCESS_SHADER_READ_BIT |
++					VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
++					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+ 			},
+ 			{
+ 				.srcSubpass = 0,
+ 				.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+ 				.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+ 				.dstSubpass = 1,
+-				.dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+-				.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
++				// The input attachment is also stored at the end of subpass 1.
++				.dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
++					VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
++				.dstAccessMask = VK_ACCESS_INPUT_ATTACHMENT_READ_BIT |
++					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+ 				.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT,
+ 			},
+ 			{
+ 				.srcSubpass = 1,
+-				.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+-				.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
++				.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
++					VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
++				.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
++					VK_ACCESS_INPUT_ATTACHMENT_READ_BIT,
+ 				.dstSubpass = VK_SUBPASS_EXTERNAL,
+ 				.dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT |
++					VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+ 					VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+ 				.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT |
+-					VK_ACCESS_MEMORY_READ_BIT,
++					VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_MEMORY_READ_BIT,
+ 			},
+ 		};
+ 
+@@ -2665,7 +2678,9 @@ static struct wlr_vk_render_format_setup *find_or_create_render_setup(
+ 				.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT |
+ 					VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
+ 					VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
+-					VK_ACCESS_SHADER_READ_BIT,
++					VK_ACCESS_SHADER_READ_BIT |
++					VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
++					VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+ 			},
+ 			{
+ 				.srcSubpass = 0,
+diff --git a/types/scene/wlr_scene.c b/types/scene/wlr_scene.c
+index 634000db..c38b85b3 100644
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -2205,6 +2205,13 @@ void wlr_scene_output_set_render_hooks(
+ 	wlr_output_schedule_frame(scene_output->output);
+ }
+ 
++void wlr_scene_output_set_backdrop_requirement(struct wlr_scene_output *scene_output,
++        wlr_scene_node_needs_backdrop_func_t hook) {
++    scene_output->node_needs_backdrop = hook;
++    wlr_damage_ring_add_whole(&scene_output->damage_ring);
++    wlr_output_schedule_frame(scene_output->output);
++}
++
+ void wlr_scene_output_set_damage_hook(
+ 		struct wlr_scene_output *scene_output,
+ 		wlr_scene_damage_hook_func_t hook, void *data) {
+@@ -3153,6 +3160,21 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
+ 
+ 	struct render_list_entry *list_data = list_con.render_list->data;
+ 	int list_len = list_con.render_list->size / sizeof(*list_data);
++    bool sampleable_backdrop = false;
++    if (scene_output->node_needs_backdrop != NULL) {
++        for (int i = 0; i < list_len; i++) {
++            if (scene_output->node_needs_backdrop(list_data[i].node,
++                    scene_output->render_hook_data)) {
++                sampleable_backdrop = true;
++                break;
++            }
++        }
++    }
++    // Direct and intermediate attachments do not share preserved contents.
++    if (sampleable_backdrop != scene_output->previous_sampleable_backdrop) {
++        scene_output_damage_whole(scene_output);
++        scene_output->previous_sampleable_backdrop = sampleable_backdrop;
++    }
+ 
+ 	if (debug_damage == WLR_SCENE_DEBUG_DAMAGE_RERENDER) {
+ 		scene_output_damage_whole(scene_output);
+@@ -3355,6 +3377,7 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
+ 											 : scene_output->combined_color_transform,
+ 			.signal_timeline = scene_output->in_timeline,
+ 			.signal_point = scene_output->in_point,
++			.sampleable_backdrop = sampleable_backdrop,
+ 		});
+ 	if (render_pass == NULL) {
+ 		wlr_buffer_unlock(buffer);
+diff --git a/include/render/vulkan/render_path.h b/include/render/vulkan/render_path.h
+new file mode 100644
+index 0000000..641f58d
+--- /dev/null
++++ b/include/render/vulkan/render_path.h
+@@ -0,0 +1,27 @@
++#ifndef RENDER_VULKAN_RENDER_PATH_H
++#define RENDER_VULKAN_RENDER_PATH_H
++#include <stdbool.h>
++#include <stdint.h>
++#include <wlr/render/color.h>
++
++enum wlr_vk_render_path {
++    WLR_VK_PATH_LINEAR,
++    WLR_VK_PATH_SRGB,
++    WLR_VK_PATH_BACKDROP,
++    WLR_VK_PATH_COLOR_TRANSFORM,
++};
++
++static inline enum wlr_vk_render_path vulkan_choose_render_path(
++        uint32_t inverse_eotf, bool backdrop, bool srgb_attachment) {
++    if (backdrop) return WLR_VK_PATH_BACKDROP;
++    if (inverse_eotf == WLR_COLOR_TRANSFER_FUNCTION_EXT_LINEAR) return WLR_VK_PATH_LINEAR;
++    if (inverse_eotf == WLR_COLOR_TRANSFER_FUNCTION_SRGB && srgb_attachment) return WLR_VK_PATH_SRGB;
++    // Gamma 2.2, PQ, BT.1886 and LUTs cannot be replaced with sRGB encoding.
++    return WLR_VK_PATH_COLOR_TRANSFORM;
++}
++
++static inline bool vulkan_blend_can_retire(unsigned unused_passes,
++        uint64_t last_use, uint64_t completed) {
++    return unused_passes >= 8 && last_use <= completed;
++}
++#endif

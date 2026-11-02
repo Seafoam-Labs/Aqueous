@@ -8,6 +8,7 @@ layout(location = 0) out vec4 output_color;
 layout(push_constant) uniform PushConstants {
     vec4 source_data;
     vec4 sample_bounds;
+    vec4 uv_transform;
 } push_data;
 
 // Keep each window's scene-prefix blur isolated without extending one edge
@@ -45,11 +46,12 @@ vec4 sample_source(vec2 position) {
 }
 
 void main() {
+    vec2 source_uv = uv * push_data.uv_transform.xy + push_data.uv_transform.zw;
     vec2 texel = 1.0 / push_data.source_data.xy;
     output_color = (
-        sample_source(uv + texel * vec2(-0.5, -0.5)) +
-        sample_source(uv + texel * vec2(0.5, -0.5)) +
-        sample_source(uv + texel * vec2(-0.5, 0.5)) +
-        sample_source(uv + texel * vec2(0.5, 0.5))
+        sample_source(source_uv + texel * vec2(-0.5, -0.5)) +
+        sample_source(source_uv + texel * vec2(0.5, -0.5)) +
+        sample_source(source_uv + texel * vec2(-0.5, 0.5)) +
+        sample_source(source_uv + texel * vec2(0.5, 0.5))
     ) * 0.25;
 }

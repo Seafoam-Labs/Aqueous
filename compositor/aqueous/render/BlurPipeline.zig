@@ -24,6 +24,7 @@ const composite_fragment_shader align(4) =
 const OffscreenPush = extern struct {
     data: [4]f32,
     sample_bounds: [4]f32,
+    uv_transform: [4]f32 = .{ 1, 1, 0, 0 },
 };
 
 const CompositePush = extern struct {
@@ -32,11 +33,12 @@ const CompositePush = extern struct {
     output_data: [4]f32,
     appearance_data: [4]f32,
     sample_bounds: [4]f32,
+    texture_region: [4]f32,
 };
 
 comptime {
-    std.debug.assert(@sizeOf(OffscreenPush) == 32);
-    std.debug.assert(@sizeOf(CompositePush) == 80);
+    std.debug.assert(@sizeOf(OffscreenPush) == 48);
+    std.debug.assert(@sizeOf(CompositePush) == 96);
 }
 
 pub const Kernel = EffectMetadata.BlurKernel;
@@ -52,30 +54,53 @@ const Image = struct {
     memory: c.VkDeviceMemory,
     view: c.VkImageView,
     framebuffer: c.VkFramebuffer,
+    allocation_bytes: u64,
+    accounting: *DescriptorPool,
+    kind: ImageKind,
+    retired: bool = false,
     initialized: bool = false,
 };
 
+const ImageKind = enum { scratch, cache };
+
+pub const MemoryStats = struct {
+    live_bytes: [2]u64 = .{ 0, 0 },
+    retired_bytes: [2]u64 = .{ 0, 0 },
+    live_images: [2]u64 = .{ 0, 0 },
+    peak_bytes: u64 = 0,
+};
+
 const Resources = struct {
-    width: u32,
-    height: u32,
-    source_view: c.VkImageView,
-    source_descriptor: c.VkDescriptorSet,
+    device: c.VkDevice,
+    descriptor_pool: *DescriptorPool,
     half_extent: c.VkExtent2D,
     ping: Image,
     pong: Image,
     ping_descriptor: c.VkDescriptorSet,
     pong_descriptor: c.VkDescriptorSet,
+    inflight: u32 = 0,
+    retired: bool = false,
+    last_used: u64 = 0,
 
-    fn deinit(resources: *Resources, pipeline: *BlurPipeline) void {
-        const descriptors = [_]c.VkDescriptorSet{
-            resources.source_descriptor,
-            resources.ping_descriptor,
-            resources.pong_descriptor,
-        };
-        pipeline.freeDescriptors(&descriptors);
-        destroyImage(pipeline.device, resources.ping);
-        destroyImage(pipeline.device, resources.pong);
+    fn destroy(resources: *Resources) void {
+        resources.descriptor_pool.free(&.{ resources.ping_descriptor, resources.pong_descriptor });
+        destroyImage(resources.device, resources.ping);
+        destroyImage(resources.device, resources.pong);
+        resources.descriptor_pool.unref();
+        util.gpa.destroy(resources);
     }
+
+    fn retire(resources: *Resources) void {
+        resources.retired = true;
+        retireImage(&resources.ping);
+        retireImage(&resources.pong);
+        if (resources.inflight == 0) resources.destroy();
+    }
+};
+
+const ScratchUse = struct {
+    resource: *Resources,
+    source_descriptor: c.VkDescriptorSet,
 };
 
 const CompositePipeline = struct {
@@ -85,10 +110,12 @@ const CompositePipeline = struct {
 };
 
 const OffscreenCall = struct {
+    render_pass: *c.struct_wlr_render_pass,
     pipeline: *BlurPipeline,
     kernel: Kernel,
     domain: c.struct_wlr_box,
     resources: ?*Resources = null,
+    domain_half: c.struct_wlr_box = undefined,
     failed: bool = false,
 };
 
@@ -109,6 +136,7 @@ const DescriptorPool = struct {
     device: c.VkDevice,
     handle: c.VkDescriptorPool,
     refs: usize = 1,
+    memory: MemoryStats = .{},
 
     fn ref(pool: *DescriptorPool) *DescriptorPool {
         pool.refs += 1;
@@ -242,6 +270,7 @@ pub const OutputCache = struct {
 };
 
 const CachedOffscreenCall = struct {
+    render_pass: *c.struct_wlr_render_pass,
     pipeline: *BlurPipeline,
     kernel: Kernel,
     target: *CacheImage,
@@ -293,7 +322,7 @@ test "blur cache retirement frees descriptors only after every GPU use completes
     const baseline = TestGpu.aqueous_blur_test_live();
     var outputs = [_]OutputCache{ .{}, .{} };
     var heap_baseline: ?usize = null;
-    // The mock permits just eight descriptors, while this creates 6000 cached
+    // The mock permits just sixteen descriptors, while this creates 6000 cached
     // images across two outputs and exercises both visibility and clear paths.
     for (0..3000) |frame| {
         for (&outputs) |*cache| {
@@ -318,15 +347,19 @@ test "blur cache retirement frees descriptors only after every GPU use completes
     try std.testing.expectEqual(@as(usize, 0), TestGpu.aqueous_heap_live_bytes());
 }
 
-test "blur scratch list allocation failure releases all GPU resources" {
-    TestGpu.aqueous_blur_test_reset();
-    var pipeline = try TestGpu.pipeline();
-    const baseline = TestGpu.aqueous_blur_test_live();
-    TestGpu.aqueous_heap_fail_after(0);
-    defer TestGpu.aqueous_heap_allow();
-    try std.testing.expectError(error.OutOfMemory, pipeline.resourcesFor(.{ .width = 64, .height = 64 }, @ptrFromInt(1000)));
-    try std.testing.expectEqual(baseline, TestGpu.aqueous_blur_test_live());
-    pipeline.deinit();
+test "blur scratch host allocation failures release all GPU resources" {
+    for (0..2) |failure| {
+        TestGpu.aqueous_blur_test_reset();
+        var pipeline = try TestGpu.pipeline();
+        const baseline = TestGpu.aqueous_blur_test_live();
+        // Fail either the resource owner or the pool list's first allocation.
+        TestGpu.aqueous_heap_fail_after(failure);
+        try std.testing.expectError(error.OutOfMemory, pipeline.resourcesFor(.{ .width = 32, .height = 32 }));
+        TestGpu.aqueous_heap_allow();
+        try std.testing.expectEqual(baseline, TestGpu.aqueous_blur_test_live());
+        try std.testing.expectEqual(@as(u64, 0), pipeline.memoryStats().live_bytes[0]);
+        pipeline.deinit();
+    }
 }
 
 test "blur cache completion may arrive after effects context teardown" {
@@ -364,17 +397,17 @@ test "blur scratch allocation failures release images and descriptors before ret
     var pipeline = try TestGpu.pipeline();
     const baseline = TestGpu.aqueous_blur_test_live();
     TestGpu.aqueous_blur_test_fail(0);
-    _ = try pipeline.resourcesFor(.{ .width = 64, .height = 64 }, @ptrFromInt(1000));
+    _ = try pipeline.resourcesFor(.{ .width = 32, .height = 32 });
     const attempts = TestGpu.aqueous_blur_test_attempts();
     _ = pipeline.clearScratchResources();
     for (1..attempts + 1) |failure| {
         TestGpu.aqueous_blur_test_fail(@intCast(failure));
-        if (pipeline.resourcesFor(.{ .width = 64, .height = 64 }, @ptrFromInt(1000))) |_| {
+        if (pipeline.resourcesFor(.{ .width = 32, .height = 32 })) |_| {
             return error.ExpectedInjectedFailure;
         } else |_| {}
         try std.testing.expectEqual(baseline, TestGpu.aqueous_blur_test_live());
         TestGpu.aqueous_blur_test_fail(0);
-        _ = try pipeline.resourcesFor(.{ .width = 64, .height = 64 }, @ptrFromInt(1000));
+        _ = try pipeline.resourcesFor(.{ .width = 32, .height = 32 });
         _ = pipeline.clearScratchResources();
     }
     pipeline.deinit();
@@ -403,7 +436,8 @@ pipeline_layout: c.VkPipelineLayout,
 offscreen_render_pass: c.VkRenderPass,
 downsample_pipeline: c.VkPipeline,
 separable_pipeline: c.VkPipeline,
-resources: std.ArrayList(Resources) = .empty,
+resources: std.ArrayList(*Resources) = .empty,
+scratch_clock: u64 = 0,
 composite_pipelines: std.ArrayList(CompositePipeline) = .empty,
 checkpoint_count: u64 = 0,
 offscreen_draw_count: u64 = 0,
@@ -542,14 +576,11 @@ pub fn deinit(pipeline: *BlurPipeline) void {
     );
 }
 
-/// Discard scratch images and descriptors tied to wlroots render-buffer image
-/// views. The caller must ensure that all queue submissions using these
-/// resources have completed before calling this function.
+/// Evict the scratch pool. In-flight uses own the images until completion;
+/// source descriptors are pass-local and never retained in this pool.
 pub fn clearScratchResources(pipeline: *BlurPipeline) usize {
     const count = pipeline.resources.items.len;
-    for (pipeline.resources.items) |*resources| {
-        resources.deinit(pipeline);
-    }
+    for (pipeline.resources.items) |resources| resources.retire();
     pipeline.resources.clearRetainingCapacity();
     return count;
 }
@@ -568,6 +599,7 @@ pub fn render(
     if (effect.box.width <= 0 or effect.box.height <= 0) return false;
 
     var call: OffscreenCall = .{
+        .render_pass = render_pass,
         .pipeline = pipeline,
         .kernel = kernel,
         .domain = effect.box,
@@ -587,6 +619,8 @@ pub fn render(
         effect,
         render_region,
         resources.ping_descriptor,
+        call.domain_half,
+        resources.half_extent,
         appearance,
     )) return false;
     pipeline.checkpoint_count += 1;
@@ -632,9 +666,12 @@ pub fn renderCached(
     };
     entry.last_seen_frame = cache.frame;
 
+    const update_clip = clippedBox(effect.box, attributes.extent);
+    if (update_clip.width <= 0 or update_clip.height <= 0) return false;
+    const domain_half = halfResolutionBox(update_clip, attributes.extent);
     const half_extent: c.VkExtent2D = .{
-        .width = @max(1, (attributes.extent.width + 1) / 2),
-        .height = @max(1, (attributes.extent.height + 1) / 2),
+        .width = @intCast(domain_half.width),
+        .height = @intCast(domain_half.height),
     };
     var full_rebuild = entry.resource == null or
         entry.resource.?.extent.width != half_extent.width or
@@ -660,8 +697,8 @@ pub fn renderCached(
     }
 
     const resource = entry.resource.?;
-    const update_clip = clippedBox(effect.box, attributes.extent);
-    if (update_clip.width <= 0 or update_clip.height <= 0) return false;
+    // Register before recording writes: even a later failure may submit commands.
+    try pipeline.retainForPass(render_pass, resource);
 
     var updates: c.pixman_region32_t = undefined;
     if (full_rebuild) {
@@ -701,12 +738,13 @@ pub fn renderCached(
     if (update_count <= 0) {
         cache.stats.hits += 1;
         pipeline.cache_hit_count += 1;
-        try pipeline.retainForPass(render_pass, resource);
         if (!try pipeline.composite(
             render_pass,
             effect,
             render_region,
             resource.descriptor,
+            domain_half,
+            resource.extent,
             appearance,
         )) return false;
         pipeline.checkpoint_count += 1;
@@ -718,6 +756,7 @@ pub fn renderCached(
     while (update_index < @as(usize, @intCast(update_count))) : (update_index += 1) {
         const rectangle = update_rectangles[update_index];
         var call: CachedOffscreenCall = .{
+            .render_pass = render_pass,
             .pipeline = pipeline,
             .kernel = kernel,
             .target = resource,
@@ -755,12 +794,13 @@ pub fn renderCached(
     cache.stats.pixels_processed += pixels_processed;
     pipeline.cache_pixels_processed += pixels_processed;
 
-    try pipeline.retainForPass(render_pass, resource);
     if (!try pipeline.composite(
         render_pass,
         effect,
         render_region,
         resource.descriptor,
+        domain_half,
+        resource.extent,
         appearance,
     )) return false;
     pipeline.checkpoint_count += 1;
@@ -773,6 +813,8 @@ fn composite(
     effect: Effect,
     render_region: *const c.pixman_region32_t,
     descriptor: c.VkDescriptorSet,
+    domain_half: c.struct_wlr_box,
+    texture_extent: c.VkExtent2D,
     appearance: Appearance,
 ) !bool {
     var attributes = std.mem.zeroes(c.struct_wlr_vk_render_pass_attribs);
@@ -801,9 +843,13 @@ fn composite(
             appearance.vibrancy_darkness,
         },
         .sample_bounds = normalizedSampleBounds(
-            halfResolutionBox(effect.box, attributes.extent),
-            halfExtent(attributes.extent),
+            .{ .x = 0, .y = 0, .width = domain_half.width, .height = domain_half.height },
+            texture_extent,
         ),
+        .texture_region = .{
+            @floatFromInt(domain_half.x),        @floatFromInt(domain_half.y),
+            @floatFromInt(texture_extent.width), @floatFromInt(texture_extent.height),
+        },
     };
 
     c.vkCmdBindPipeline(
@@ -851,6 +897,7 @@ fn offscreenCallback(
         @ptrCast(@alignCast(data orelse return false));
     const attribs = attributes orelse return false;
     const resources = call.pipeline.processOffscreen(
+        call.render_pass,
         attribs,
         call.kernel,
         call.domain,
@@ -863,6 +910,7 @@ fn offscreenCallback(
         return false;
     };
     call.resources = resources;
+    call.domain_half = halfResolutionBox(clippedBox(call.domain, attribs.extent), attribs.extent);
     return true;
 }
 
@@ -873,6 +921,7 @@ fn cachedOffscreenCallback(
     const call: *CachedOffscreenCall =
         @ptrCast(@alignCast(data orelse return false));
     call.pixels_processed = call.pipeline.processCachedOffscreen(
+        call.render_pass,
         attributes orelse return false,
         call.kernel,
         call.target,
@@ -891,200 +940,70 @@ fn cachedOffscreenCallback(
 
 fn processCachedOffscreen(
     pipeline: *BlurPipeline,
+    render_pass: *c.struct_wlr_render_pass,
     attributes: *const c.struct_wlr_vk_render_offscreen_attribs,
     kernel: Kernel,
     target: *CacheImage,
     update: c.struct_wlr_box,
     domain: c.struct_wlr_box,
 ) !u64 {
-    if (attributes.command_buffer == null or
-        attributes.source_image_view == null or
-        attributes.source_format != c.VK_FORMAT_R16G16B16A16_SFLOAT or
-        attributes.extent.width == 0 or attributes.extent.height == 0)
-    {
-        return error.VulkanBlurOffscreenAttributesInvalid;
-    }
-
-    const resources = try pipeline.resourcesFor(
-        attributes.extent,
-        attributes.source_image_view,
-    );
-    if (resources.half_extent.width != target.extent.width or
-        resources.half_extent.height != target.extent.height)
-    {
-        return error.VulkanBlurCacheExtentMismatch;
-    }
-
-    const plan = BlurCache.planUpdate(
-        toCacheBox(update),
-        toCacheExtent(resources.half_extent),
-        kernel.passes,
-        kernel.tap_reach,
-    );
-    const clipped_domain = clippedBox(domain, attributes.extent);
-    if (clipped_domain.width <= 0 or clipped_domain.height <= 0) return 0;
-    const half_domain = halfResolutionBox(
-        clipped_domain,
-        attributes.extent,
-    );
-    const source_bounds = normalizedSampleBounds(
-        clipped_domain,
-        attributes.extent,
-    );
-    const half_bounds = normalizedSampleBounds(
-        half_domain,
-        resources.half_extent,
-    );
-    const final_box = fromCacheBox(plan.final);
-    const downsample_box = fromCacheBox(plan.downsample);
-
-    const downsample_push: OffscreenPush = .{ .data = .{
-        @floatFromInt(attributes.extent.width),
-        @floatFromInt(attributes.extent.height),
-        0,
-        0,
-    }, .sample_bounds = source_bounds };
-    pipeline.drawOffscreen(
-        attributes.command_buffer,
-        resources,
-        &resources.ping,
-        pipeline.downsample_pipeline,
-        resources.source_descriptor,
-        downsample_push,
-        downsample_box,
-    );
-
-    const inverse_width =
-        1.0 / @as(f32, @floatFromInt(resources.half_extent.width));
-    const inverse_height =
-        1.0 / @as(f32, @floatFromInt(resources.half_extent.height));
-    var iteration: u32 = 0;
-    while (iteration < kernel.passes) : (iteration += 1) {
-        pipeline.drawOffscreen(
-            attributes.command_buffer,
-            resources,
-            &resources.pong,
-            pipeline.separable_pipeline,
-            resources.ping_descriptor,
-            .{ .data = .{
-                inverse_width,
-                0,
-                kernel.sample_step,
-                0,
-            }, .sample_bounds = half_bounds },
-            fromCacheBox(plan.horizontal[iteration]),
-        );
-        pipeline.drawOffscreen(
-            attributes.command_buffer,
-            resources,
-            &resources.ping,
-            pipeline.separable_pipeline,
-            resources.pong_descriptor,
-            .{ .data = .{
-                0,
-                inverse_height,
-                kernel.sample_step,
-                0,
-            }, .sample_bounds = half_bounds },
-            fromCacheBox(plan.vertical[iteration]),
-        );
-    }
-    pipeline.copyToCache(
-        attributes.command_buffer,
-        &resources.ping,
-        target,
-        final_box,
-    );
-    return plan.pixels_processed;
+    const result = try pipeline.processRegion(render_pass, attributes, kernel, update, domain);
+    pipeline.copyToCache(attributes.command_buffer, &result.resources.ping, target, result.final);
+    return result.pixels_processed;
 }
 
 fn processOffscreen(
     pipeline: *BlurPipeline,
+    render_pass: *c.struct_wlr_render_pass,
     attributes: *const c.struct_wlr_vk_render_offscreen_attribs,
     kernel: Kernel,
     domain: c.struct_wlr_box,
 ) !*Resources {
-    if (attributes.command_buffer == null or
-        attributes.source_image_view == null or
+    return (try pipeline.processRegion(render_pass, attributes, kernel, domain, domain)).resources;
+}
+
+fn processRegion(
+    pipeline: *BlurPipeline,
+    render_pass: *c.struct_wlr_render_pass,
+    attributes: *const c.struct_wlr_vk_render_offscreen_attribs,
+    kernel: Kernel,
+    update: c.struct_wlr_box,
+    domain: c.struct_wlr_box,
+) !struct { resources: *Resources, final: c.struct_wlr_box, pixels_processed: u64 } {
+    if (attributes.command_buffer == null or attributes.source_image_view == null or
         attributes.source_format != c.VK_FORMAT_R16G16B16A16_SFLOAT or
         attributes.extent.width == 0 or attributes.extent.height == 0)
-    {
         return error.VulkanBlurOffscreenAttributesInvalid;
-    }
-
-    const resources = try pipeline.resourcesFor(
-        attributes.extent,
-        attributes.source_image_view,
-    );
     const clipped_domain = clippedBox(domain, attributes.extent);
-    if (clipped_domain.width <= 0 or clipped_domain.height <= 0) {
-        return error.VulkanBlurOffscreenAttributesInvalid;
+    if (clipped_domain.width <= 0 or clipped_domain.height <= 0) return error.VulkanBlurEmptyDomain;
+    const half_domain = halfResolutionBox(clipped_domain, attributes.extent);
+    const domain_extent: c.VkExtent2D = .{ .width = @intCast(half_domain.width), .height = @intCast(half_domain.height) };
+    const resources = try pipeline.resourcesFor(domain_extent);
+    const source_descriptor = try pipeline.retainScratchForPass(render_pass, resources, attributes.source_image_view);
+    var local_update = update;
+    local_update.x -= half_domain.x * 2;
+    local_update.y -= half_domain.y * 2;
+    const plan = BlurCache.planUpdate(toCacheBox(local_update), toCacheExtent(domain_extent), kernel.passes, kernel.tap_reach);
+    const source_bounds = normalizedSampleBounds(clipped_domain, attributes.extent);
+    const half_bounds = normalizedSampleBounds(fullBox(domain_extent), resources.half_extent);
+    const output_half = halfExtent(attributes.extent);
+    pipeline.drawOffscreen(attributes.command_buffer, resources, &resources.ping, pipeline.downsample_pipeline, source_descriptor, .{
+        .data = .{ @floatFromInt(attributes.extent.width), @floatFromInt(attributes.extent.height), 0, 0 },
+        .sample_bounds = source_bounds,
+        .uv_transform = .{
+            @as(f32, @floatFromInt(resources.half_extent.width)) / @as(f32, @floatFromInt(output_half.width)),
+            @as(f32, @floatFromInt(resources.half_extent.height)) / @as(f32, @floatFromInt(output_half.height)),
+            @as(f32, @floatFromInt(half_domain.x)) / @as(f32, @floatFromInt(output_half.width)),
+            @as(f32, @floatFromInt(half_domain.y)) / @as(f32, @floatFromInt(output_half.height)),
+        },
+    }, fromCacheBox(plan.downsample));
+    const inverse_width = 1.0 / @as(f32, @floatFromInt(resources.half_extent.width));
+    const inverse_height = 1.0 / @as(f32, @floatFromInt(resources.half_extent.height));
+    for (0..kernel.passes) |iteration| {
+        pipeline.drawOffscreen(attributes.command_buffer, resources, &resources.pong, pipeline.separable_pipeline, resources.ping_descriptor, .{ .data = .{ inverse_width, 0, kernel.sample_step, 0 }, .sample_bounds = half_bounds }, fromCacheBox(plan.horizontal[iteration]));
+        pipeline.drawOffscreen(attributes.command_buffer, resources, &resources.ping, pipeline.separable_pipeline, resources.pong_descriptor, .{ .data = .{ 0, inverse_height, kernel.sample_step, 0 }, .sample_bounds = half_bounds }, fromCacheBox(plan.vertical[iteration]));
     }
-    const half_domain = halfResolutionBox(
-        clipped_domain,
-        attributes.extent,
-    );
-    const source_bounds = normalizedSampleBounds(
-        clipped_domain,
-        attributes.extent,
-    );
-    const half_bounds = normalizedSampleBounds(
-        half_domain,
-        resources.half_extent,
-    );
-
-    const downsample_push: OffscreenPush = .{ .data = .{
-        @floatFromInt(attributes.extent.width),
-        @floatFromInt(attributes.extent.height),
-        0,
-        0,
-    }, .sample_bounds = source_bounds };
-    pipeline.drawOffscreen(
-        attributes.command_buffer,
-        resources,
-        &resources.ping,
-        pipeline.downsample_pipeline,
-        resources.source_descriptor,
-        downsample_push,
-        fullBox(resources.half_extent),
-    );
-
-    const inverse_width =
-        1.0 / @as(f32, @floatFromInt(resources.half_extent.width));
-    const inverse_height =
-        1.0 / @as(f32, @floatFromInt(resources.half_extent.height));
-    var iteration: u32 = 0;
-    while (iteration < kernel.passes) : (iteration += 1) {
-        pipeline.drawOffscreen(
-            attributes.command_buffer,
-            resources,
-            &resources.pong,
-            pipeline.separable_pipeline,
-            resources.ping_descriptor,
-            .{ .data = .{
-                inverse_width,
-                0,
-                kernel.sample_step,
-                0,
-            }, .sample_bounds = half_bounds },
-            fullBox(resources.half_extent),
-        );
-        pipeline.drawOffscreen(
-            attributes.command_buffer,
-            resources,
-            &resources.ping,
-            pipeline.separable_pipeline,
-            resources.pong_descriptor,
-            .{ .data = .{
-                0,
-                inverse_height,
-                kernel.sample_step,
-                0,
-            }, .sample_bounds = half_bounds },
-            fullBox(resources.half_extent),
-        );
-    }
-    return resources;
+    return .{ .resources = resources, .final = fromCacheBox(plan.final), .pixels_processed = plan.pixels_processed };
 }
 
 fn drawOffscreen(
@@ -1142,49 +1061,83 @@ fn drawOffscreen(
     pipeline.offscreen_draw_count += 1;
 }
 
-fn resourcesFor(
-    pipeline: *BlurPipeline,
-    extent: c.VkExtent2D,
-    source_view: c.VkImageView,
-) !*Resources {
-    for (pipeline.resources.items) |*resources| {
-        if (resources.width == extent.width and
-            resources.height == extent.height and
-            resources.source_view == source_view)
-        {
+// A small, size-bucketed LRU shared by all outputs. It contains no borrowed
+// swapchain views. Retired entries remain alive only until their GPU uses finish.
+fn resourcesFor(pipeline: *BlurPipeline, extent: c.VkExtent2D) !*Resources {
+    const half_extent: c.VkExtent2D = .{
+        .width = std.mem.alignForward(u32, extent.width, 32),
+        .height = std.mem.alignForward(u32, extent.height, 32),
+    };
+    pipeline.scratch_clock +%= 1;
+    for (pipeline.resources.items) |resources| {
+        if (resources.half_extent.width == half_extent.width and resources.half_extent.height == half_extent.height) {
+            resources.last_used = pipeline.scratch_clock;
             return resources;
         }
     }
-
-    const half_extent: c.VkExtent2D = .{
-        .width = @max(1, (extent.width + 1) / 2),
-        .height = @max(1, (extent.height + 1) / 2),
-    };
-    const ping = try pipeline.createImage(half_extent);
+    const resource = try util.gpa.create(Resources);
+    errdefer util.gpa.destroy(resource);
+    const ping = try pipeline.createImage(half_extent, .scratch);
     errdefer destroyImage(pipeline.device, ping);
-    const pong = try pipeline.createImage(half_extent);
+    const pong = try pipeline.createImage(half_extent, .scratch);
     errdefer destroyImage(pipeline.device, pong);
     const ping_descriptor = try pipeline.allocateDescriptor(ping.view);
     errdefer pipeline.freeDescriptors(&.{ping_descriptor});
     const pong_descriptor = try pipeline.allocateDescriptor(pong.view);
     errdefer pipeline.freeDescriptors(&.{pong_descriptor});
-    const source_descriptor =
-        try pipeline.allocateDescriptor(source_view);
-    errdefer pipeline.freeDescriptors(&.{source_descriptor});
-
-    try pipeline.resources.append(util.gpa, .{
-        .width = extent.width,
-        .height = extent.height,
-        .source_view = source_view,
-        .source_descriptor = source_descriptor,
+    try pipeline.resources.ensureUnusedCapacity(util.gpa, 1);
+    // Keep at most four sets and 64 MiB, except for one intrinsically larger set.
+    const incoming = ping.allocation_bytes + pong.allocation_bytes;
+    while (pipeline.resources.items.len > 0) {
+        var bytes: u64 = incoming;
+        var oldest: usize = 0;
+        for (pipeline.resources.items, 0..) |item, i| {
+            bytes += item.ping.allocation_bytes + item.pong.allocation_bytes;
+            if (item.last_used < pipeline.resources.items[oldest].last_used) oldest = i;
+        }
+        if (pipeline.resources.items.len < 4 and bytes <= 64 * 1024 * 1024) break;
+        const old = pipeline.resources.swapRemove(oldest);
+        old.retire();
+    }
+    resource.* = .{
+        .device = pipeline.device,
+        .descriptor_pool = pipeline.descriptor_pool.ref(),
         .half_extent = half_extent,
         .ping = ping,
         .pong = pong,
         .ping_descriptor = ping_descriptor,
         .pong_descriptor = pong_descriptor,
-    });
+        .last_used = pipeline.scratch_clock,
+    };
+    pipeline.resources.appendAssumeCapacity(resource);
     pipeline.scratch_resource_create_count += 1;
-    return &pipeline.resources.items[pipeline.resources.items.len - 1];
+    return resource;
+}
+
+fn retainScratchForPass(pipeline: *BlurPipeline, pass: *c.struct_wlr_render_pass, resource: *Resources, source: c.VkImageView) !c.VkDescriptorSet {
+    const descriptor = try pipeline.allocateDescriptor(source);
+    errdefer pipeline.freeDescriptors(&.{descriptor});
+    const use = try util.gpa.create(ScratchUse);
+    errdefer util.gpa.destroy(use);
+    use.* = .{ .resource = resource, .source_descriptor = descriptor };
+    if (!c.wlr_vk_render_pass_add_completion(pass, scratchUseComplete, use))
+        return error.VulkanBlurCompletionRegistrationFailed;
+    resource.inflight += 1;
+    return descriptor;
+}
+
+fn scratchUseComplete(data: ?*anyopaque) callconv(.c) void {
+    const use: *ScratchUse = @ptrCast(@alignCast(data orelse return));
+    const resource = use.resource;
+    resource.descriptor_pool.free(&.{use.source_descriptor});
+    std.debug.assert(resource.inflight > 0);
+    resource.inflight -= 1;
+    util.gpa.destroy(use);
+    if (resource.retired and resource.inflight == 0) resource.destroy();
+}
+
+pub fn memoryStats(pipeline: *const BlurPipeline) MemoryStats {
+    return pipeline.descriptor_pool.memory;
 }
 
 fn allocateDescriptor(
@@ -1233,6 +1186,7 @@ fn freeDescriptors(
 fn createImage(
     pipeline: *BlurPipeline,
     extent: c.VkExtent2D,
+    kind: ImageKind,
 ) !Image {
     var image_info = std.mem.zeroes(c.VkImageCreateInfo);
     image_info.sType = c.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -1322,12 +1276,19 @@ fn createImage(
     );
     if (result != c.VK_SUCCESS) return error.VulkanBlurFramebufferCreateFailed;
     pipeline.image_allocation_count += 1;
+    const memory_stats = &pipeline.descriptor_pool.memory;
+    memory_stats.live_bytes[@backingInt(kind)] += requirements.size;
+    memory_stats.live_images[@backingInt(kind)] += 1;
+    memory_stats.peak_bytes = @max(memory_stats.peak_bytes, memory_stats.live_bytes[0] + memory_stats.live_bytes[1]);
 
     return .{
         .image = image,
         .memory = memory,
         .view = view,
         .framebuffer = framebuffer,
+        .allocation_bytes = requirements.size,
+        .accounting = pipeline.descriptor_pool.ref(),
+        .kind = kind,
     };
 }
 
@@ -1337,7 +1298,7 @@ fn createCacheImage(
 ) !*CacheImage {
     const resource = try util.gpa.create(CacheImage);
     errdefer util.gpa.destroy(resource);
-    const image = try pipeline.createImage(extent);
+    const image = try pipeline.createImage(extent, .cache);
     errdefer destroyImage(pipeline.device, image);
     const descriptor = try pipeline.allocateDescriptor(image.view);
     resource.* = .{
@@ -1358,6 +1319,7 @@ fn retireCacheImage(
     _ = pipeline;
     const resource = optional orelse return;
     resource.retired = true;
+    retireImage(&resource.image);
     if (resource.inflight == 0) destroyCacheImage(resource);
 }
 
@@ -2226,7 +2188,18 @@ fn findMemoryType(
     return null;
 }
 
+fn retireImage(image: *Image) void {
+    std.debug.assert(!image.retired);
+    image.retired = true;
+    image.accounting.memory.retired_bytes[@backingInt(image.kind)] += image.allocation_bytes;
+}
+
 fn destroyImage(device: c.VkDevice, image: Image) void {
+    const stats = &image.accounting.memory;
+    stats.live_bytes[@backingInt(image.kind)] -= image.allocation_bytes;
+    stats.live_images[@backingInt(image.kind)] -= 1;
+    if (image.retired) stats.retired_bytes[@backingInt(image.kind)] -= image.allocation_bytes;
+    defer image.accounting.unref();
     c.vkDestroyFramebuffer(device, image.framebuffer, null);
     c.vkDestroyImageView(device, image.view, null);
     c.vkDestroyImage(device, image.image, null);
@@ -2258,4 +2231,68 @@ fn resultName(result: c.VkResult) []const u8 {
         c.VK_ERROR_DEVICE_LOST => "VK_ERROR_DEVICE_LOST",
         else => "unknown Vulkan result",
     };
+}
+
+test "blur scratch eviction keeps GPU uses alive through context teardown" {
+    TestGpu.aqueous_blur_test_reset();
+    var pipeline = try TestGpu.pipeline();
+    const scratch = try pipeline.resourcesFor(.{ .width = 500, .height = 400 });
+    _ = try pipeline.retainScratchForPass(@ptrFromInt(1), scratch, @ptrFromInt(1000));
+    _ = try pipeline.retainScratchForPass(@ptrFromInt(1), scratch, @ptrFromInt(1001));
+    const bytes = pipeline.memoryStats().live_bytes[0];
+    try std.testing.expect(bytes >= 500 * 400 * 8 * 2);
+    _ = pipeline.clearScratchResources();
+    try std.testing.expectEqual(bytes, pipeline.memoryStats().retired_bytes[0]);
+    pipeline.deinit();
+    TestGpu.aqueous_blur_test_complete();
+    try std.testing.expectEqual(@as(c_uint, 0), TestGpu.aqueous_blur_test_live());
+    try std.testing.expectEqual(@as(usize, 0), TestGpu.aqueous_heap_live_bytes());
+}
+
+test "blur scratch reuses size buckets and bounds retained allocation bytes" {
+    TestGpu.aqueous_blur_test_reset();
+    var pipeline = try TestGpu.pipeline();
+    defer pipeline.deinit();
+    const first = try pipeline.resourcesFor(.{ .width = 500, .height = 400 });
+    try std.testing.expectEqual(first, try pipeline.resourcesFor(.{ .width = 501, .height = 401 }));
+    // A single 64 MiB pair displaces all previous retained sets.
+    _ = try pipeline.resourcesFor(.{ .width = 2048, .height = 2048 });
+    try std.testing.expectEqual(@as(usize, 1), pipeline.resources.items.len);
+    try std.testing.expectEqual(@as(u64, 64 * 1024 * 1024), pipeline.memoryStats().live_bytes[0]);
+    _ = try pipeline.resourcesFor(.{ .width = 32, .height = 32 });
+    try std.testing.expectEqual(@as(usize, 1), pipeline.resources.items.len);
+    for (0..10) |i| {
+        _ = try pipeline.resourcesFor(.{ .width = @intCast(64 + i * 32), .height = 32 });
+        try std.testing.expect(pipeline.resources.items.len <= 4);
+    }
+    _ = pipeline.clearScratchResources();
+    try std.testing.expectEqual(@as(u64, 0), pipeline.memoryStats().live_bytes[0]);
+    try std.testing.expectEqual(@as(u64, 0), pipeline.memoryStats().live_images[0]);
+}
+
+test "blur scratch completion registration failure retains no descriptor or use" {
+    TestGpu.aqueous_blur_test_reset();
+    var pipeline = try TestGpu.pipeline();
+    defer pipeline.deinit();
+    const scratch = try pipeline.resourcesFor(.{ .width = 32, .height = 32 });
+    const baseline = TestGpu.aqueous_blur_test_live();
+    TestGpu.aqueous_blur_test_reject_completion(true);
+    try std.testing.expectError(error.VulkanBlurCompletionRegistrationFailed, pipeline.retainScratchForPass(@ptrFromInt(1), scratch, @ptrFromInt(1000)));
+    try std.testing.expectEqual(@as(u32, 0), scratch.inflight);
+    try std.testing.expectEqual(baseline, TestGpu.aqueous_blur_test_live());
+}
+
+test "cropped cache allocation reflects actual Vulkan requirements" {
+    TestGpu.aqueous_blur_test_reset();
+    var pipeline = try TestGpu.pipeline();
+    defer pipeline.deinit();
+    const domain = halfResolutionBox(.{ .x = 101, .y = 51, .width = 1000, .height = 800 }, .{ .width = 7680, .height = 2160 });
+    const resource = try pipeline.createCacheImage(.{ .width = @intCast(domain.width), .height = @intCast(domain.height) });
+    try std.testing.expectEqual(@as(u64, 501 * 401 * 8), pipeline.memoryStats().live_bytes[1]);
+    try pipeline.retainForPass(@ptrFromInt(1), resource);
+    pipeline.retireCacheImage(resource);
+    try std.testing.expectEqual(pipeline.memoryStats().live_bytes[1], pipeline.memoryStats().retired_bytes[1]);
+    TestGpu.aqueous_blur_test_complete();
+    try std.testing.expectEqual(@as(u64, 0), pipeline.memoryStats().live_bytes[1]);
+    try std.testing.expectEqual(@as(u64, 0), pipeline.memoryStats().retired_bytes[1]);
 }

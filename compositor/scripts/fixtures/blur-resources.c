@@ -11,6 +11,7 @@
 enum kind { FREE, SAMPLER, LAYOUT, POOL, PIPELINE_LAYOUT, PASS, SHADER,
     PIPELINE, IMAGE, MEMORY, VIEW, FRAMEBUFFER, DESCRIPTOR };
 static enum kind handles[128];
+static VkDeviceSize image_bytes[128];
 static uintptr_t descriptor_pool[128];
 static unsigned live, descriptors, attempts, fail_at;
 static void (*callbacks[32])(void *);
@@ -31,7 +32,7 @@ void aqueous_blur_test_reject_completion(bool reject) { fail_completion = reject
 
 static uintptr_t make(enum kind kind) {
     if (++attempts == fail_at) return 0;
-    if (kind == DESCRIPTOR && descriptors == 8) return 0;
+    if (kind == DESCRIPTOR && descriptors == 16) return 0;
     for (uintptr_t i = 1; i < 128; ++i) {
         if (handles[i] != FREE) continue;
         handles[i] = kind;
@@ -73,7 +74,14 @@ DESTROY(RenderPass, PASS)
 CREATE(ShaderModule, SHADER)
 DESTROY(ShaderModule, SHADER)
 DESTROY(Pipeline, PIPELINE)
-CREATE(Image, IMAGE)
+VkResult vkCreateImage(VkDevice device, const VkImageCreateInfo *info,
+        const VkAllocationCallbacks *allocator, VkImage *out) {
+    (void)device; (void)allocator;
+    *out = (VkImage)make(IMAGE);
+    if (!*out) return VK_ERROR_OUT_OF_HOST_MEMORY;
+    image_bytes[(uintptr_t)*out] = (VkDeviceSize)info->extent.width * info->extent.height * 8;
+    return VK_SUCCESS;
+}
 DESTROY(Image, IMAGE)
 CREATE(ImageView, VIEW)
 DESTROY(ImageView, VIEW)
@@ -95,7 +103,7 @@ VkResult vkCreateGraphicsPipelines(VkDevice device, VkPipelineCache cache, uint3
 }
 void vkGetImageMemoryRequirements(VkDevice device, VkImage image, VkMemoryRequirements *out) {
     (void)device; (void)image;
-    *out = (VkMemoryRequirements){ .size = 4096, .alignment = 256, .memoryTypeBits = 1 };
+    *out = (VkMemoryRequirements){ .size = image_bytes[(uintptr_t)image], .alignment = 256, .memoryTypeBits = 1 };
 }
 void vkGetPhysicalDeviceMemoryProperties(VkPhysicalDevice device, VkPhysicalDeviceMemoryProperties *out) {
     (void)device;

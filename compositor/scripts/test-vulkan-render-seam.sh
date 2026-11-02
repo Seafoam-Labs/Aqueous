@@ -111,13 +111,13 @@ if [ "$REQUIRE_EXPLICIT_SYNC" = auto ]; then
     REQUIRE_EXPLICIT_SYNC=$([ "$TEST_BACKEND" = wayland ] && echo 1 || echo 0)
 fi
 
-validation_manifest=$(
+validation_manifest=${AQUEOUS_VULKAN_VALIDATION_MANIFEST:-$(
     find /usr/share/vulkan /etc/vulkan -type f \
         -name 'VkLayer_khronos_validation.json' -print -quit 2>/dev/null || true
-)
+)}
 VALIDATION_ENV=()
 if [ "$REQUIRE_VALIDATION" = 1 ]; then
-    [ -n "$validation_manifest" ] ||
+    [ -n "$validation_manifest" ] && [ -r "$validation_manifest" ] ||
         die "VK_LAYER_KHRONOS_validation is required"
     VALIDATION_ENV=(VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation)
 fi
@@ -886,12 +886,12 @@ scratch_retirements=$(
         "$COMPOSITOR_LOG" || true
 )
 [ "$scratch_retirements" -gt 0 ] ||
-    die "output changes did not retire borrowed blur render targets"
+    die "output changes did not retire blur scratch resources"
 [ "$blur_image_allocations" -eq \
     $((blur_scratch_sets * 2 + blur_cache_images)) ] ||
     die "blur image allocation accounting is inconsistent"
 [ "$blur_descriptor_allocations" -eq \
-    $((blur_scratch_sets * 3 + blur_cache_images)) ] ||
+    $((blur_scratch_sets * 2 + blur_cache_images + blur_offscreen_draws / 17)) ] ||
     die "blur descriptor allocation accounting is inconsistent"
 [ "$blur_composite_pipelines" -lt "$blur_composites" ] ||
     die "blur composite pipelines were created once per draw"
@@ -922,7 +922,7 @@ if [ "$REQUIRE_EXPLICIT_SYNC" = 1 ] &&
     die "not every rounded-effects draw used wlroots' explicit-sync timeline"
 fi
 if grep -Eiq \
-    'VUID-|validation error|Validation Error|validation layer.*error|UNASSIGNED-' \
+    'SYNC-HAZARD-|VUID-|validation error|Validation Error|validation layer.*error|UNASSIGNED-' \
     "$COMPOSITOR_LOG"; then
     tail -160 "$COMPOSITOR_LOG" >&2
     die "Vulkan validation reported an error"

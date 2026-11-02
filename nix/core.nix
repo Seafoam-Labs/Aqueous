@@ -146,6 +146,7 @@ let
       "${src}/compositor/patches/wlroots/0039-output-copy-fallback-policy.patch"
       "${src}/compositor/patches/wlroots/0040-hidden-fifo-pacing.patch"
       "${src}/compositor/patches/wlroots/0041-vulkan-semaphore-import-lifecycle.patch"
+      "${src}/compositor/patches/wlroots/0042-vulkan-pass-requirements.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending

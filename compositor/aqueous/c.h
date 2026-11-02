@@ -57,7 +57,7 @@ void aqueous_scene_node_set_enabled(struct wlr_scene_node *node, int enabled);
 #error "Vulkan effects require the pinned Aqueous Vulkan candidate API"
 #endif
 #include <wlr/util/region.h>
-#if !defined(WLR_AQUEOUS_RENDER_HOOK_VERSION) || WLR_AQUEOUS_RENDER_HOOK_VERSION != 10
+#if !defined(WLR_AQUEOUS_RENDER_HOOK_VERSION) || WLR_AQUEOUS_RENDER_HOOK_VERSION != 11
 #error "Vulkan effects require the pinned Aqueous wlroots render hook"
 #endif
 #endif

@@ -48,6 +48,7 @@ patch_files=(
     "$here/patches/wlroots/0039-output-copy-fallback-policy.patch"
     "$here/patches/wlroots/0040-hidden-fifo-pacing.patch"
     "$here/patches/wlroots/0041-vulkan-semaphore-import-lifecycle.patch"
+    "$here/patches/wlroots/0042-vulkan-pass-requirements.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -251,6 +252,8 @@ cc "$here/scripts/fixtures/wlroots-commit-timing-api.c" \
 LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     "$build_root/commit-timing-api" || die "commit timing API probe failed"
 
+"$here/scripts/test-vulkan-render-path.sh" "$source_dir" "$prefix" ||
+    die "Vulkan render path policy failed"
 python3 "$here/scripts/test-xdg-output.py" "$prefix" ||
     die "xdg-output change detection or client isolation failed"
 

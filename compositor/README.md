@@ -129,6 +129,40 @@ against the same pinned wlroots dependency. Production builds run integrated
 policy by default. For legacy protocol compatibility testing only,
 `-Dexternal-policy=true` enables the `external` and `compare` policy modes.
 
+Blur images use each effect's clipped half-resolution bounds, including odd
+pixel origins. Scratch ping/pong images are shared across outputs in 32-texel
+size buckets. The retained pool holds at most four sets and 64 MiB (one larger
+set is allowed when a single effect requires it). Images still in GPU use may
+exceed that retention budget until completion; eviction never frees a pending
+submission's images. Source descriptors belong to individual submissions, not
+to retained swapchain views. Disabling blur evicts the scratch pool.
+
+Patch 0042 and render-hook API 11 make sampleable backdrops a per-pass
+requirement determined from visible scene nodes before choosing the framebuffer.
+Eligible linear/sRGB passes render directly; visible blur, gamma-2.2, HDR/PQ,
+LUTs and unsupported direct attachment formats retain the FP16 intermediate.
+Turning HDR off alone therefore does not guarantee a direct path. After eight
+direct uses of a render target, its old intermediate is freed once the renderer
+timeline proves its last use has completed; no queue-idle wait is added to the
+frame path. Rendering-path changes invalidate preserved scene damage. Failed
+lazy framebuffer allocation releases partial state so the next pass can retry.
+
+`AQUEOUS_RENDER_METRICS=1` logs `kind=vulkan-path` with the selection reason and
+actual intermediate allocation bytes, plus `kind=blur-memory` with renderer-wide
+scratch/cache allocation bytes, retired bytes, image count and peak bytes.
+Retired bytes are included in live allocation totals until GPU completion.
+
+Validate with `zig build test-blur-resources`, `scripts/test-vulkan-effects.sh`,
+and `scripts/test-vulkan-dwindle-blur-effects.sh`. The latter compares full and
+partial cache updates, sibling isolation and focus changes. Run
+`scripts/test-vulkan-render-path.sh WLROOTS_SOURCE` for path-selection policy,
+and `AQUEOUS_TEST_RENDER_NODE=/dev/dri/renderD… scripts/test-vulkan-intermediate.sh`
+for real direct/FP16 transitions, alpha blending and memory reclamation. Select
+the intended GPU's render node; device numbering varies by machine. For a local
+validation layer, set `VK_LAYER_PATH`, its library search path, and
+`AQUEOUS_VULKAN_VALIDATION_MANIFEST` when running the render-seam harness. Use
+`VK_LAYER_VALIDATE_SYNC=1` to check image access hazards as well as API validity.
+
 Rounded window content uses one mask aligned with window geometry, shared by
 the main surface and its subsurfaces. Client-side shadow padding and buffer
 transforms do not move the corners. Animation snapshots preserve the mask, and

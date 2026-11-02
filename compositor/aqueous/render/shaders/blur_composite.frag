@@ -8,6 +8,7 @@ layout(push_constant) uniform PushConstants {
     vec4 output_data;
     vec4 appearance_data;
     vec4 sample_bounds;
+    vec4 texture_region;
 } push_data;
 
 layout(location = 0) in vec2 uv;
@@ -90,7 +91,7 @@ void main() {
         );
     }
     if (push_data.output_data.z > 0.0) {
-        color.rgb += vec3(stable_noise(uv) * push_data.output_data.z);
+        color.rgb += vec3(stable_noise(gl_FragCoord.xy / push_data.output_data.xy) * push_data.output_data.z);
     }
     if (brightness != 1.0) {
         color.rgb *= brightness;

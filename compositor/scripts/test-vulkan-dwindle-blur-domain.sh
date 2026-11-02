@@ -293,6 +293,7 @@ scene_text() {
 
 wait_settled() {
     local expected_focus=$1 json scene active_snapshots
+    # windows --json reports content bounds, inset by the two-pixel borders.
     for _ in $(seq 1 300); do
         json=$(windows_json 2>/dev/null || echo '[]')
         if ! jq -e --arg focus "$expected_focus" '
@@ -301,8 +302,8 @@ wait_settled() {
                 (.states | index("focused") != null)) and
             ([.[] | .geometry] | sort_by(.x)) ==
                 [
-                    {"x":8,"y":8,"width":774,"height":884},
-                    {"x":786,"y":8,"width":774,"height":884}
+                    {"x":10,"y":10,"width":770,"height":880},
+                    {"x":788,"y":10,"width":770,"height":880}
                 ]
         ' >/dev/null <<<"$json"; then
             sleep 0.04
@@ -506,7 +507,7 @@ analyze_domain focus-left 0
 analyze_domain focus-right-roundtrip 1
 
 if grep -Eiq \
-    'VUID-|validation error|Validation Error|validation layer.*error|UNASSIGNED-' \
+    'SYNC-HAZARD-|VUID-|validation error|Validation Error|validation layer.*error|UNASSIGNED-' \
     "$COMPOSITOR_LOG"; then
     tail -160 "$COMPOSITOR_LOG" >&2
     die "Vulkan validation reported an error"

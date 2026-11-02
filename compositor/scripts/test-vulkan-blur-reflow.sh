@@ -272,7 +272,7 @@ awk -v difference="$oracle_difference" \
     die "tiled blur reflow retained pixels outside the current blur footprint"
 
 if grep -Eq \
-    'Vulkan (blur|rounded).*failed|validation error|Validation Error' \
+    'SYNC-HAZARD-|Vulkan (blur|rounded).*failed|validation error|Validation Error' \
     "$COMPOSITOR_LOG"; then
     tail -120 "$COMPOSITOR_LOG" >&2
     die "Vulkan effects reported an error during tiled reflow"

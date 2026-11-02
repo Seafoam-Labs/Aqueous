@@ -360,6 +360,7 @@ pub fn syncBlur(output: *Output, force_dirty: bool) void {
         if (output.blur_node) |node| fx.setOptimizedBlurEnabled(node, false);
         if (comptime build_options.vulkan_effects) {
             output.blur_cache.clear(&server.vulkan_context.blur_pipeline);
+            if (!server.wm.blur.enabled) _ = server.vulkan_context.blur_pipeline.clearScratchResources();
         }
         // Re-enabling must regenerate the cached backdrop even if the output
         // returns with identical geometry.
@@ -861,6 +862,19 @@ pub fn damageBufferEffects(output: *Output, buffer: *wlr.SceneBuffer) void {
     _ = c.pixman_region32_union(&pending.pending_effect_damage, &pending.pending_effect_damage, @ptrCast(&region));
     effectsDamage(@ptrCast(&buffer.node), @ptrCast(&region), output);
     if (output.wlr_output) |wlr_output| wlr_output.scheduleFrame();
+}
+
+fn effectsNodeNeedsBackdrop(c_node: ?*c.struct_wlr_scene_node, data: ?*anyopaque) callconv(.c) bool {
+    if (comptime !build_options.vulkan_effects) return false;
+    const output: *Output = @ptrCast(@alignCast(data orelse return false));
+    const node: *wlr.SceneNode = @ptrCast(@alignCast(c_node orelse return false));
+    const owner = blurOwnerForNode(node) orelse return false;
+    if (node != &blurOwnerMarker(owner).node) return false;
+    const blur = blurOwnerData(owner) orelse return false;
+    const state = output.effectRenderState();
+    const config = server.effect_metadata.blurConfig();
+    _ = BlurPipeline.resolveKernel(config.radius, config.passes, state.scale) orelse return false;
+    return blurOwnerEffect(owner, blur, state) != null;
 }
 
 fn effectsRenderBegin(
@@ -1435,7 +1449,13 @@ pub fn setFullBlurDamage(
 
 pub fn recordVulkanEffectsMetric(output: *const Output) void {
     if (comptime !build_options.vulkan_effects) return;
-    if (!render_metrics.enabled() or uncachedBlurRequested()) return;
+    if (!render_metrics.enabled()) return;
+    const memory = server.vulkan_context.blur_pipeline.memoryStats();
+    log.info("render-metric kind=blur-memory scope=renderer scratch_bytes={d} cache_bytes={d} retired_bytes={d} images={d} peak_bytes={d}", .{
+        memory.live_bytes[0],                          memory.live_bytes[1], memory.retired_bytes[0] + memory.retired_bytes[1],
+        memory.live_images[0] + memory.live_images[1], memory.peak_bytes,
+    });
+    if (uncachedBlurRequested()) return;
     const stats = output.blur_cache.stats;
     if (stats.hits == 0 and stats.partial_rebuilds == 0 and
         stats.full_rebuilds == 0)
@@ -1965,6 +1985,7 @@ fn installSceneHooks(output: *Output) void {
             @ptrCast(scene_output),
             roundedRectHook,
         );
+        c.wlr_scene_output_set_backdrop_requirement(@ptrCast(scene_output), effectsNodeNeedsBackdrop);
         c.wlr_scene_output_set_render_hooks(
             @ptrCast(scene_output),
             effectsRenderBegin,
