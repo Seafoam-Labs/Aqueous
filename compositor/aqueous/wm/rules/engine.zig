@@ -269,16 +269,23 @@ pub fn reloadSnapshot(
     engine.game_mode = game_mode;
 }
 
+/// True when `rule`'s matchers accept `identity`. A rule with no matcher never
+/// matches; each present matcher must match its corresponding identity field.
+fn matchesIdentity(rule: Rule, identity: Identity) bool {
+    if (rule.scope != identity.scope) return false;
+    if (rule.window_type) |kind| if (identity.window_types & (@as(u16, 1) << @intCast(@intFromEnum(kind))) == 0) return false;
+    if (rule.app_id == null and rule.class == null and rule.title == null and rule.tag == null and rule.content_type == null and rule.window_type == null) return false;
+    if (rule.app_id != null and !glob.matches(rule.app_id, identity.app_id)) return false;
+    if (rule.class != null and !glob.matches(rule.class, identity.class)) return false;
+    if (rule.title != null and !glob.matches(rule.title, identity.title)) return false;
+    if (rule.tag) |pattern| if (!glob.matchesTag(pattern, identity.tag)) return false;
+    if (rule.content_type) |expected| if (expected != identity.content_type) return false;
+    return true;
+}
+
 pub fn resolve(engine: *const Engine, identity: Identity) ?Rule {
     for (engine.rules) |rule| {
-        if (rule.scope != identity.scope) continue;
-        if (rule.window_type) |kind| if (identity.window_types & (@as(u16, 1) << @intCast(@intFromEnum(kind))) == 0) continue;
-        if (rule.app_id == null and rule.class == null and rule.title == null and rule.tag == null and rule.content_type == null and rule.window_type == null) continue;
-        if (rule.app_id != null and !glob.matches(rule.app_id, identity.app_id)) continue;
-        if (rule.class != null and !glob.matches(rule.class, identity.class)) continue;
-        if (rule.title != null and !glob.matches(rule.title, identity.title)) continue;
-        if (rule.tag) |pattern| if (!glob.matchesTag(pattern, identity.tag)) continue;
-        if (rule.content_type) |expected| if (expected != identity.content_type) continue;
+        if (!matchesIdentity(rule, identity)) continue;
         if (rule.content_type == null) return rule;
         // Content-type rules are visual-only: drop every layout and placement
         // edit so a late-arriving content type can never move a window.
@@ -299,6 +306,12 @@ pub fn resolve(engine: *const Engine, identity: Identity) ?Rule {
         visual.skip_switcher = false;
         visual.skip_taskbar = false;
         return visual;
+    }
+    // No user rule claimed this window. Fall back to the built-in picker
+    // default, which is intentionally absent from engine.rules and therefore
+    // never listed nor able to override a user rule.
+    for (picker_fallback) |rule| {
+        if (matchesIdentity(rule, identity)) return rule;
     }
     return null;
 }
@@ -328,6 +341,18 @@ fn freeRules(allocator: std.mem.Allocator, rules: []Rule) void {
     }
     if (rules.len > 0) allocator.free(rules);
 }
+
+/// Built-in fallback: present the screen-sharing picker as a centered floating
+/// overlay. It is deliberately kept OUT of `engine.rules` and consulted by
+/// resolve() only after no user rule matched, so any user `[[window]]` rule for
+/// the picker fully replaces it and it never appears in the user ruleset or rule
+/// inspection. The glob covers every instance channel
+/// (org.aqueous[.Git|.IntelGit].PortalPicker).
+const picker_fallback = [_]Rule{.{
+    .app_id = "*PortalPicker",
+    .placement = .{ .floating = true },
+    .placement_policy = .center,
+}};
 
 fn cloneRules(allocator: std.mem.Allocator, rules: []const Rule) ![]Rule {
     const result = try allocator.alloc(Rule, rules.len);
@@ -609,4 +634,38 @@ test "unmanaged rules are explicit, first-match and match any advertised X11 typ
     const before = popup.fingerprint();
     popup.position_x = 0;
     try std.testing.expect(before != popup.fingerprint());
+}
+
+test "built-in picker fallback floats centered unless a user rule replaces it" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+
+    // No user rules: the picker still floats and centers, and the fallback is
+    // not part of the enumerable ruleset.
+    try engine.reload(&.{});
+    try std.testing.expectEqual(@as(usize, 0), engine.rules.len);
+    const picker = engine.resolve(.{
+        .app_id = "org.aqueous.PortalPicker",
+        .title = "Select a source to share",
+    }).?;
+    try std.testing.expect(picker.placement.floating);
+    try std.testing.expectEqual(PlacementPolicy.center, picker.placement_policy.?);
+    // Every instance channel matches; unrelated windows never do.
+    try std.testing.expect(engine.resolve(.{ .app_id = "org.aqueous.Git.PortalPicker" }).?.placement.floating);
+    try std.testing.expect(engine.resolve(.{ .app_id = "org.aqueous.IntelGit.PortalPicker" }).?.placement.floating);
+    try std.testing.expect(engine.resolve(.{ .app_id = "org.aqueous.Editor", .title = "Select a source to share" }) == null);
+
+    // A user rule keyed on the app id fully replaces the fallback.
+    try engine.reload(&.{.{ .app_id = "org.aqueous.PortalPicker", .placement = .{ .workspace = 2 } }});
+    const custom = engine.resolve(.{ .app_id = "org.aqueous.PortalPicker" }).?;
+    try std.testing.expect(!custom.placement.floating);
+    try std.testing.expectEqual(@as(u32, 2), custom.placement.workspace);
+    try std.testing.expectEqual(@as(?PlacementPolicy, null), custom.placement_policy);
+
+    // A rule keyed on the title also replaces it, covering every channel.
+    try engine.reload(&.{.{ .title = "Select a source to share", .placement = .{ .floating = true, .workspace = 5 } }});
+    try std.testing.expectEqual(
+        @as(u32, 5),
+        engine.resolve(.{ .app_id = "org.aqueous.IntelGit.PortalPicker", .title = "Select a source to share" }).?.placement.workspace,
+    );
 }
