@@ -1,5 +1,5 @@
 diff --git a/include/render/vulkan.h b/include/render/vulkan.h
-index 429ec554..ef8e3a3b 100644
+index 56a181a..2769c32 100644
 --- a/include/render/vulkan.h
 +++ b/include/render/vulkan.h
 @@ -271,9 +271,14 @@ struct wlr_vk_render_buffer {
@@ -18,7 +18,7 @@ index 429ec554..ef8e3a3b 100644
  	const struct wlr_dmabuf_attributes *dmabuf, bool srgb);
  bool vulkan_setup_two_pass_framebuffer(struct wlr_vk_render_buffer *buffer,
 diff --git a/include/wlr/render/pass.h b/include/wlr/render/pass.h
-index 61ab7713..a29a9bf2 100644
+index 61ab771..a29a9bf 100644
 --- a/include/wlr/render/pass.h
 +++ b/include/wlr/render/pass.h
 @@ -46,6 +46,8 @@ struct wlr_buffer_pass_options {
@@ -31,7 +31,7 @@ index 61ab7713..a29a9bf2 100644
  
  /**
 diff --git a/include/wlr/render/vulkan.h b/include/wlr/render/vulkan.h
-index e6922390..e6d94b56 100644
+index 42bbe13..fa35436 100644
 --- a/include/wlr/render/vulkan.h
 +++ b/include/wlr/render/vulkan.h
 @@ -19,7 +19,7 @@ bool wlr_vk_renderer_requires_copy(struct wlr_renderer *renderer);
@@ -53,7 +53,7 @@ index e6922390..e6d94b56 100644
  
  struct wlr_vk_render_texture_attribs {
 diff --git a/include/wlr/types/wlr_scene.h b/include/wlr/types/wlr_scene.h
-index 30678f03..bc4d737d 100644
+index c1ef6cb..c2afbf8 100644
 --- a/include/wlr/types/wlr_scene.h
 +++ b/include/wlr/types/wlr_scene.h
 @@ -69,6 +69,10 @@ typedef bool (*wlr_scene_rect_render_hook_func_t)(
@@ -67,7 +67,7 @@ index 30678f03..bc4d737d 100644
  typedef uint32_t (*wlr_scene_render_begin_hook_func_t)(
  	struct wlr_render_pass *render_pass,
  	const pixman_region32_t *content_damage, void *data);
-@@ -321,6 +325,8 @@ struct wlr_scene_output {
+@@ -323,6 +327,8 @@ struct wlr_scene_output {
  		unsigned color_pipeline_retry_frames;
  		uint64_t color_pipeline_scanout_key;
  		unsigned color_pipeline_scanout_retry_frames;
@@ -76,7 +76,7 @@ index 30678f03..bc4d737d 100644
  	} WLR_PRIVATE;
  };
  
-@@ -722,6 +728,14 @@ void wlr_scene_output_set_render_hooks(
+@@ -724,6 +730,14 @@ void wlr_scene_output_set_render_hooks(
  	wlr_scene_render_begin_hook_func_t begin_hook,
  	wlr_scene_node_render_hook_func_t node_hook);
  
@@ -92,7 +92,7 @@ index 30678f03..bc4d737d 100644
   * Set a callback invoked when scene content damages this output. The source is
   * NULL when the damage cannot be attributed to one scene node.
 diff --git a/render/vulkan/pass.c b/render/vulkan/pass.c
-index 5d9b5cdd..409ae4be 100644
+index 17faf51..f3e271a 100644
 --- a/render/vulkan/pass.c
 +++ b/render/vulkan/pass.c
 @@ -1,3 +1,5 @@
@@ -100,8 +100,8 @@ index 5d9b5cdd..409ae4be 100644
 +#include "render/vulkan/render_path.h"
  #include <assert.h>
  #include <drm_fourcc.h>
- #include <stdlib.h>
-@@ -39,6 +41,8 @@ bool wlr_vk_render_pass_get_attribs(struct wlr_render_pass *wlr_pass,
+ #include <errno.h>
+@@ -43,6 +45,8 @@ bool wlr_vk_render_pass_get_attribs(struct wlr_render_pass *wlr_pass,
  		},
  		.subpass = 0,
  		.has_signal_timeline = pass->signal_timeline != NULL,
@@ -110,7 +110,7 @@ index 5d9b5cdd..409ae4be 100644
  	};
  	return true;
  }
-@@ -96,7 +100,7 @@ bool wlr_vk_render_pass_run_offscreen(struct wlr_render_pass *wlr_pass,
+@@ -100,7 +104,7 @@ bool wlr_vk_render_pass_run_offscreen(struct wlr_render_pass *wlr_pass,
  
  	VkImageMemoryBarrier barrier = {
  		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -119,7 +119,7 @@ index 5d9b5cdd..409ae4be 100644
  		.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
  			VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
  		.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-@@ -110,7 +114,8 @@ bool wlr_vk_render_pass_run_offscreen(struct wlr_render_pass *wlr_pass,
+@@ -114,7 +118,8 @@ bool wlr_vk_render_pass_run_offscreen(struct wlr_render_pass *wlr_pass,
  			.layerCount = 1,
  		},
  	};
@@ -129,7 +129,7 @@ index 5d9b5cdd..409ae4be 100644
  		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
  		0, 0, NULL, 0, NULL, 1, &barrier);
  
-@@ -621,15 +626,17 @@ static bool render_pass_submit(struct wlr_render_pass *wlr_pass) {
+@@ -687,15 +692,17 @@ static bool render_pass_submit(struct wlr_render_pass *wlr_pass) {
  			.image = render_buffer->two_pass.blend_image,
  			.oldLayout = blend_src_layout,
  			.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -150,7 +150,7 @@ index 5d9b5cdd..409ae4be 100644
  			VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
  			0, 0, NULL, 0, NULL, 1, &blend_acq_barrier);
  	}
-@@ -791,6 +798,7 @@ static bool render_pass_submit(struct wlr_render_pass *wlr_pass) {
+@@ -866,6 +873,7 @@ static bool render_pass_submit(struct wlr_render_pass *wlr_pass) {
  	pass->render_buffer_out->transitioned = true;
  	if (pass->two_pass) {
  		render_buffer->two_pass.blend_transitioned = true;
@@ -158,7 +158,7 @@ index 5d9b5cdd..409ae4be 100644
  	}
  	if (pass->transition_dummy) {
  		renderer->dummy3d_image_transitioned = true;
-@@ -1453,12 +1461,24 @@ struct wlr_vk_render_pass *vulkan_begin_render_pass(struct wlr_vk_renderer *rend
+@@ -1534,12 +1542,24 @@ struct wlr_vk_render_pass *vulkan_begin_render_pass(struct wlr_vk_renderer *rend
  		inv_eotf = WLR_COLOR_TRANSFER_FUNCTION_GAMMA22;
  	}
  
@@ -189,7 +189,7 @@ index 5d9b5cdd..409ae4be 100644
  
  	if (using_linear_pathway && !buffer->linear.out.image_view) {
  		struct wlr_dmabuf_attributes attribs = {
-@@ -1495,6 +1515,14 @@ struct wlr_vk_render_pass *vulkan_begin_render_pass(struct wlr_vk_renderer *rend
+@@ -1576,6 +1596,14 @@ struct wlr_vk_render_pass *vulkan_begin_render_pass(struct wlr_vk_renderer *rend
  		}
  	}
  
@@ -205,10 +205,10 @@ index 5d9b5cdd..409ae4be 100644
  	struct wlr_vk_render_buffer_out *buffer_out;
  	if (using_two_pass_pathway) {
 diff --git a/render/vulkan/renderer.c b/render/vulkan/renderer.c
-index 171a5670..c82d7522 100644
+index 0642d39..733371a 100644
 --- a/render/vulkan/renderer.c
 +++ b/render/vulkan/renderer.c
-@@ -753,6 +753,20 @@ static void finish_render_buffer_out(struct wlr_vk_render_buffer_out *out,
+@@ -820,6 +820,20 @@ static void finish_render_buffer_out(struct wlr_vk_render_buffer_out *out,
  	vkDestroyImageView(dev, out->image_view, NULL);
  }
  
@@ -229,7 +229,7 @@ index 171a5670..c82d7522 100644
  static void destroy_render_buffer(struct wlr_vk_render_buffer *buffer) {
  	wl_list_remove(&buffer->link);
  	wlr_addon_finish(&buffer->addon);
-@@ -769,14 +783,7 @@ static void destroy_render_buffer(struct wlr_vk_render_buffer *buffer) {
+@@ -836,14 +850,7 @@ static void destroy_render_buffer(struct wlr_vk_render_buffer *buffer) {
  	finish_render_buffer_out(&buffer->linear.out, dev);
  	finish_render_buffer_out(&buffer->srgb.out, dev);
  
@@ -245,7 +245,7 @@ index 171a5670..c82d7522 100644
  
  	if (buffer->copy_mapping) vkUnmapMemory(dev, buffer->copy_memory);
  	vkDestroyBuffer(dev, buffer->copy_staging, NULL);
-@@ -884,6 +891,7 @@ bool vulkan_setup_two_pass_framebuffer(struct wlr_vk_render_buffer *buffer,
+@@ -951,6 +958,7 @@ bool vulkan_setup_two_pass_framebuffer(struct wlr_vk_render_buffer *buffer,
  		goto error;
  	}
  
@@ -253,7 +253,7 @@ index 171a5670..c82d7522 100644
  	res = vkBindImageMemory(dev, buffer->two_pass.blend_image, buffer->two_pass.blend_memory, 0);
  	if (res != VK_SUCCESS) {
  		wlr_vk_error("vkBindMemory failed", res);
-@@ -960,8 +968,8 @@ bool vulkan_setup_two_pass_framebuffer(struct wlr_vk_render_buffer *buffer,
+@@ -1027,8 +1035,8 @@ bool vulkan_setup_two_pass_framebuffer(struct wlr_vk_render_buffer *buffer,
  	return true;
  
  error:
@@ -264,7 +264,7 @@ index 171a5670..c82d7522 100644
  	return false;
  }
  
-@@ -1038,8 +1046,8 @@ bool vulkan_setup_one_pass_framebuffer(struct wlr_vk_render_buffer *buffer,
+@@ -1105,8 +1113,8 @@ bool vulkan_setup_one_pass_framebuffer(struct wlr_vk_render_buffer *buffer,
  	return true;
  
  error:
@@ -275,7 +275,7 @@ index 171a5670..c82d7522 100644
  	return false;
  }
  
-@@ -1098,12 +1106,9 @@ static struct wlr_vk_render_buffer *create_render_buffer(
+@@ -1165,12 +1173,9 @@ static struct wlr_vk_render_buffer *create_render_buffer(
  		if (!vulkan_setup_one_pass_framebuffer(buffer, &dmabuf, true)) {
  			goto error;
  		}
@@ -290,7 +290,7 @@ index 171a5670..c82d7522 100644
  
  	return buffer;
  
-@@ -2551,26 +2556,34 @@ static struct wlr_vk_render_format_setup *find_or_create_render_setup(
+@@ -2619,26 +2624,34 @@ static struct wlr_vk_render_format_setup *find_or_create_render_setup(
  				.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT |
  					VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
  					VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
@@ -331,7 +331,7 @@ index 171a5670..c82d7522 100644
  			},
  		};
  
-@@ -2665,7 +2678,9 @@ static struct wlr_vk_render_format_setup *find_or_create_render_setup(
+@@ -2733,7 +2746,9 @@ static struct wlr_vk_render_format_setup *find_or_create_render_setup(
  				.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT |
  					VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT |
  					VK_ACCESS_INDIRECT_COMMAND_READ_BIT |
@@ -343,10 +343,10 @@ index 171a5670..c82d7522 100644
  			{
  				.srcSubpass = 0,
 diff --git a/types/scene/wlr_scene.c b/types/scene/wlr_scene.c
-index 634000db..c38b85b3 100644
+index 070b34b..bba47c3 100644
 --- a/types/scene/wlr_scene.c
 +++ b/types/scene/wlr_scene.c
-@@ -2205,6 +2205,13 @@ void wlr_scene_output_set_render_hooks(
+@@ -2274,6 +2274,13 @@ void wlr_scene_output_set_render_hooks(
  	wlr_output_schedule_frame(scene_output->output);
  }
  
@@ -360,7 +360,7 @@ index 634000db..c38b85b3 100644
  void wlr_scene_output_set_damage_hook(
  		struct wlr_scene_output *scene_output,
  		wlr_scene_damage_hook_func_t hook, void *data) {
-@@ -3153,6 +3160,21 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
+@@ -3222,6 +3229,21 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
  
  	struct render_list_entry *list_data = list_con.render_list->data;
  	int list_len = list_con.render_list->size / sizeof(*list_data);
@@ -382,7 +382,7 @@ index 634000db..c38b85b3 100644
  
  	if (debug_damage == WLR_SCENE_DEBUG_DAMAGE_RERENDER) {
  		scene_output_damage_whole(scene_output);
-@@ -3355,6 +3377,7 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
+@@ -3424,6 +3446,7 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
  											 : scene_output->combined_color_transform,
  			.signal_timeline = scene_output->in_timeline,
  			.signal_point = scene_output->in_point,

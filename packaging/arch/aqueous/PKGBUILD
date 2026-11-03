@@ -1,4 +1,4 @@
-# Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
+t# Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
 # Minimal stable compositor for consumers such as pearl-greeter.
 pkgname=aqueous
 pkgver=1.0.17

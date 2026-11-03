@@ -80,7 +80,7 @@ build_dir="$build_root/build"
 mkdir -p "$source_dir"
 tar -xzf "$archive" --strip-components=1 -C "$source_dir"
 for patch_file in "${patch_files[@]}"; do
-    patch -d "$source_dir" -p1 <"$patch_file"
+    patch --batch --forward --fuzz=0 -d "$source_dir" -p1 <"$patch_file"
 done
 cmp "$source_dir/protocol/aqueous-capture-color-v1.xml" \
     "$here/protocol/aqueous-capture-color-v1.xml" ||

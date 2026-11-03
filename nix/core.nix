@@ -76,7 +76,7 @@
         ])
       );
   },
-  version ? "1.0.17",
+  version ? "1.0.18",
 }:
 
 assert lib.assertMsg (lib.versionAtLeast wayland-protocols.version "1.49")
@@ -97,6 +97,11 @@ let
   aqueousWlroots = wlroots_0_20.overrideAttrs (old: {
     pname = "aqueous-wlroots";
     version = "0.20.2";
+    patchFlags = (old.patchFlags or [ "-p1" ]) ++ [
+      "--batch"
+      "--forward"
+      "--fuzz=0"
+    ];
     buildInputs = (old.buildInputs or [ ]) ++ [ libliftoff ];
     src = fetchurl {
       url = "https://gitlab.freedesktop.org/wlroots/wlroots/-/archive/0.20.2/wlroots-0.20.2.tar.gz";

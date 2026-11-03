@@ -7,13 +7,13 @@ per-client output projection callback and a scene-surface destination scale so
 compositors can implement that policy without changing global output state.
 
 diff --git a/include/wlr/types/wlr_output.h b/include/wlr/types/wlr_output.h
+index e2f49dd..46356f7 100644
 --- a/include/wlr/types/wlr_output.h
 +++ b/include/wlr/types/wlr_output.h
-@@ -325,6 +325,24 @@ struct wlr_output_event_bind {
- 	struct wlr_output *output;
- 	struct wl_resource *resource;
+@@ -325,6 +325,24 @@ enum wlr_output_present_flag {
+ 	WLR_OUTPUT_PRESENT_ZERO_COPY = 0x8,
  };
-+
+ 
 +/** Client-specific logical output projection. */
 +struct wlr_output_client_projection {
 +	int32_t x, y;
@@ -31,13 +31,16 @@ diff --git a/include/wlr/types/wlr_output.h b/include/wlr/types/wlr_output.h
 +bool wlr_output_get_client_projection(struct wlr_output *output,
 +	struct wl_client *client,
 +	struct wlr_output_client_projection *projection);
- 
- enum wlr_output_present_flag {
- 	// The presentation was synchronized with the vertical retrace
++
+ struct wlr_output_event_present {
+ 	struct wlr_output *output;
+ 	// Frame submission for which this presentation event is for (see
 diff --git a/include/wlr/types/wlr_scene.h b/include/wlr/types/wlr_scene.h
+index ba921bd..590b5a7 100644
 --- a/include/wlr/types/wlr_scene.h
 +++ b/include/wlr/types/wlr_scene.h
-@@ -449,5 +452,20 @@ struct wlr_scene_surface *wlr_scene_surface_try_from_buffer(
+@@ -502,6 +502,21 @@ struct wlr_scene_surface *wlr_scene_surface_try_from_buffer(
+  */
  void wlr_scene_surface_send_frame_done(struct wlr_scene_surface *scene_surface,
  	const struct timespec *when);
 +/**
@@ -59,21 +62,24 @@ diff --git a/include/wlr/types/wlr_scene.h b/include/wlr/types/wlr_scene.h
  /**
   * Add a node displaying a solid-colored rectangle to the scene-graph.
 diff --git a/include/wlr/types/wlr_xdg_output_v1.h b/include/wlr/types/wlr_xdg_output_v1.h
+index 4ee8ec3..09ee2d8 100644
 --- a/include/wlr/types/wlr_xdg_output_v1.h
 +++ b/include/wlr/types/wlr_xdg_output_v1.h
 @@ -48,4 +48,8 @@ struct wlr_xdg_output_manager_v1 {
  struct wlr_xdg_output_manager_v1 *wlr_xdg_output_manager_v1_create(
  	struct wl_display *display, struct wlr_output_layout *layout);
-+
+ 
 +/** Refresh changed client-specific geometry; logical clients use layout events. */
 +void wlr_xdg_output_manager_v1_update(
 +	struct wlr_xdg_output_manager_v1 *manager);
- 
++
  #endif
 diff --git a/types/output/output.c b/types/output/output.c
+index a3cc501..fc20bb3 100644
 --- a/types/output/output.c
 +++ b/types/output/output.c
-@@ -15,5 +15,24 @@
+@@ -14,6 +14,25 @@
+ 
  #define OUTPUT_VERSION 4
  
 +static wlr_output_client_projection_func_t client_projection_handler = NULL;
@@ -98,7 +104,7 @@ diff --git a/types/output/output.c b/types/output/output.c
  static void send_geometry(struct wl_resource *resource) {
  	struct wlr_output *output = wlr_output_from_resource(resource);
  	wl_output_send_geometry(resource, 0, 0,
-@@ -37,7 +56,13 @@ static void send_scale(struct wl_resource *resource) {
+@@ -38,7 +57,13 @@ static void send_scale(struct wl_resource *resource) {
  	struct wlr_output *output = wlr_output_from_resource(resource);
  	uint32_t version = wl_resource_get_version(resource);
  	if (version >= WL_OUTPUT_SCALE_SINCE_VERSION) {
@@ -114,6 +120,7 @@ diff --git a/types/output/output.c b/types/output/output.c
  }
  
 diff --git a/types/scene/surface.c b/types/scene/surface.c
+index 89c54a9..64a83a5 100644
 --- a/types/scene/surface.c
 +++ b/types/scene/surface.c
 @@ -1,4 +1,5 @@
@@ -122,16 +129,14 @@ diff --git a/types/scene/surface.c b/types/scene/surface.c
  #include <stdlib.h>
  #include <wlr/types/wlr_alpha_modifier_v1.h>
  #include <wlr/types/wlr_color_management_v1.h>
-@@ -9,6 +10,7 @@
- #include <wlr/types/wlr_linux_drm_syncobj_v1.h>
+@@ -10,9 +11,40 @@
  #include <wlr/types/wlr_output.h>
  #include <wlr/types/wlr_presentation_time.h>
  #include <wlr/types/wlr_single_pixel_buffer_v1.h>
 +#include <wlr/util/region.h>
  #include <wlr/util/transform.h>
  #include "types/wlr_scene.h"
-@@ -15,3 +17,33 @@
-+
+ 
 +struct scene_surface_destination_scale {
 +	struct wlr_addon addon;
 +	double scale;
@@ -161,10 +166,11 @@ diff --git a/types/scene/surface.c b/types/scene/surface.c
 +		wl_container_of(addon, state, addon);
 +	return state->scale;
 +}
- 
++
  static double get_surface_preferred_buffer_scale(struct wlr_surface *surface) {
  	double scale = 1;
-@@ -143,7 +174,9 @@ static void handle_scene_buffer_outputs_update(
+ 	struct wlr_surface_output *surface_output;
+@@ -143,7 +175,9 @@ static void handle_scene_buffer_outputs_update(
  		wlr_surface_send_enter(surface->surface, event->active[i]->output);
  	}
  
@@ -175,7 +181,7 @@ diff --git a/types/scene/surface.c b/types/scene/surface.c
  	wlr_fractional_scale_v1_notify_scale(surface->surface, scale);
  	wlr_surface_set_preferred_buffer_scale(surface->surface, ceil(scale));
  
-@@ -309,14 +342,33 @@ static void surface_reconfigure(struct wlr_scene_surface *scene_surface) {
+@@ -309,9 +343,28 @@ static void surface_reconfigure(struct wlr_scene_surface *scene_surface) {
  		}
  	}
  
@@ -206,12 +212,7 @@ diff --git a/types/scene/surface.c b/types/scene/surface.c
  	wlr_scene_buffer_set_transform(scene_buffer, state->transform);
  	wlr_scene_buffer_set_opacity(scene_buffer, opacity);
  	wlr_scene_buffer_set_transfer_function(scene_buffer, tf);
- 	wlr_scene_buffer_set_primaries(scene_buffer, primaries);
- 	wlr_scene_buffer_set_color_encoding(scene_buffer, color_encoding);
- 	wlr_scene_buffer_set_color_range(scene_buffer, color_range);
- 
- 	scene_buffer_unmark_client_buffer(scene_buffer);
-@@ -354,6 +376,7 @@ static void surface_reconfigure(struct wlr_scene_surface *scene_surface) {
+@@ -355,6 +408,7 @@ static void surface_reconfigure(struct wlr_scene_surface *scene_surface) {
  	}
  
  	pixman_region32_fini(&opaque);
@@ -219,7 +220,7 @@ diff --git a/types/scene/surface.c b/types/scene/surface.c
  }
  
  static void handle_scene_surface_surface_commit(
-@@ -383,8 +436,9 @@ static bool scene_buffer_point_accepts_input(struct wlr_scene_buffer *scene_buffer,
+@@ -383,8 +437,9 @@ static bool scene_buffer_point_accepts_input(struct wlr_scene_buffer *scene_buff
  	struct wlr_scene_surface *scene_surface =
  		wlr_scene_surface_try_from_buffer(scene_buffer);
  
@@ -231,7 +232,7 @@ diff --git a/types/scene/surface.c b/types/scene/surface.c
  
  	return wlr_surface_point_accepts_input(scene_surface->surface, *sx, *sy);
  }
-@@ -462,6 +516,50 @@ struct wlr_scene_surface *wlr_scene_surface_create(struct wlr_scene_tree *parent,
+@@ -462,6 +517,50 @@ struct wlr_scene_surface *wlr_scene_surface_create(struct wlr_scene_tree *parent
  	return surface;
  }
  
@@ -283,6 +284,7 @@ diff --git a/types/scene/surface.c b/types/scene/surface.c
  	if (wlr_box_equal(clip, &surface->clip)) {
  		return;
 diff --git a/types/wlr_xdg_output_v1.c b/types/wlr_xdg_output_v1.c
+index 2621239..7150a86 100644
 --- a/types/wlr_xdg_output_v1.c
 +++ b/types/wlr_xdg_output_v1.c
 @@ -11,6 +11,14 @@
@@ -300,16 +302,14 @@ diff --git a/types/wlr_xdg_output_v1.c b/types/wlr_xdg_output_v1.c
  static void output_handle_destroy(struct wl_client *client,
  		struct wl_resource *resource) {
  	wl_resource_destroy(resource);
-@@ -22,17 +30,43 @@
+@@ -22,17 +30,43 @@ static const struct zxdg_output_v1_interface output_implementation = {
  
  static void output_handle_resource_destroy(struct wl_resource *resource) {
  	wl_list_remove(wl_resource_get_link(resource));
--}
--
--static void output_send_details(struct wlr_xdg_output_v1 *xdg_output,
 +	free(wl_resource_get_user_data(resource));
-+}
-+
+ }
+ 
+-static void output_send_details(struct wlr_xdg_output_v1 *xdg_output,
 +static bool output_send_details(struct wlr_xdg_output_v1 *xdg_output,
  		struct wl_resource *resource) {
 -	zxdg_output_v1_send_logical_position(resource,
@@ -351,7 +351,7 @@ diff --git a/types/wlr_xdg_output_v1.c b/types/wlr_xdg_output_v1.c
  }
  
  static void output_update(struct wlr_xdg_output_v1 *xdg_output) {
-@@ -101,8 +135,14 @@
+@@ -101,8 +135,14 @@ static void output_manager_handle_get_xdg_output(struct wl_client *client,
  		wl_client_post_no_memory(client);
  		return;
  	}
@@ -367,7 +367,7 @@ diff --git a/types/wlr_xdg_output_v1.c b/types/wlr_xdg_output_v1.c
  
  	if (output == NULL) {
  		wl_list_init(wl_resource_get_link(xdg_output_resource));
-@@ -216,6 +256,45 @@
+@@ -216,6 +256,45 @@ static void output_manager_send_details(
  	}
  }
  

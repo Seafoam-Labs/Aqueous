@@ -1,3 +1,5 @@
+diff --git a/include/wlr/types/wlr_scene.h b/include/wlr/types/wlr_scene.h
+index 590b5a7..24c0608 100644
 --- a/include/wlr/types/wlr_scene.h
 +++ b/include/wlr/types/wlr_scene.h
 @@ -9,6 +9,8 @@
@@ -17,7 +19,7 @@
  #include <wlr/util/addon.h>
  #include <wlr/util/box.h>
  
-@@ -742,6 +745,56 @@
+@@ -742,8 +745,58 @@ struct wlr_scene_output_state_options {
  	 * wlr_output_state or output size if not specified.
  	 */
  	struct wlr_swapchain *swapchain;
@@ -69,18 +71,21 @@
 +	// Internal output state. Callers must not modify this while a state is live.
 +	struct wlr_output_layer_state state;
  };
-+
+ 
 +void wlr_scene_output_layer_candidate_finish(
 +	struct wlr_scene_output_layer_candidate *candidate, bool committed);
- 
++
  /**
+  * Returns true if scene wants to render a new frame. False, if no new frame
+  * is needed and an output commit can be skipped for the current frame.
+diff --git a/types/scene/wlr_scene.c b/types/scene/wlr_scene.c
+index ef363d0..d137a43 100644
 --- a/types/scene/wlr_scene.c
 +++ b/types/scene/wlr_scene.c
-@@ -2023,6 +2023,24 @@
- 
+@@ -2366,6 +2366,24 @@ static void scene_buffer_send_dmabuf_feedback(const struct wlr_scene *scene,
  	wlr_linux_dmabuf_feedback_v1_finish(&feedback);
  }
-+
+ 
 +struct scene_output_layer_feedback_context {
 +	struct wl_listener listener;
 +	struct wlr_scene_output *scene_output;
@@ -98,10 +103,11 @@
 +	scene_buffer_send_dmabuf_feedback(context->scene_output->scene,
 +		context->buffer, &options);
 +}
- 
++
  static bool color_management_is_scanout_allowed(const struct wlr_output_image_description *img_desc,
  		const struct wlr_scene_buffer *buffer) {
-@@ -2400,6 +2400,17 @@
+ 	// Disallow scanout if the output has colorimetry information but buffer
+@@ -2400,6 +2418,17 @@ enum scene_direct_scanout_result {
  	SCANOUT_SUCCESS,
  };
  
@@ -119,7 +125,7 @@
  static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
  		struct render_list_entry *entry, struct wlr_output_state *state,
  		const struct render_data *data) {
-@@ -2488,11 +2499,7 @@
+@@ -2488,11 +2517,7 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
  	scene_node_get_size(node, &width, &height);
  	transform_output_fbox(&pending.buffer_dst_box, x, y, width, height, data);
  
@@ -132,7 +138,7 @@
  
  	wlr_output_state_set_buffer(&pending, wlr_buffer);
  	if (buffer->wait_timeline != NULL) {
-@@ -2522,6 +2529,174 @@
+@@ -2522,6 +2547,174 @@ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
  	return SCANOUT_SUCCESS;
  }
  
@@ -307,7 +313,7 @@
  bool wlr_scene_output_needs_frame(struct wlr_scene_output *scene_output) {
  	return scene_output->output->needs_frame ||
  		!pixman_region32_empty(&scene_output->pending_commit_damage) ||
-@@ -2658,6 +2833,20 @@
+@@ -2658,6 +2851,20 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
  	if (!options) {
  		options = &default_options;
  	}
@@ -328,7 +334,7 @@
  	struct wlr_scene_timer *timer = options->timer;
  	struct timespec start_time;
  	if (timer) {
-@@ -2826,6 +2967,9 @@
+@@ -2826,6 +3033,9 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
  	}
  
  	if (scanout) {
@@ -338,7 +344,7 @@
  		scene_output_state_attempt_gamma(scene_output, state);
  
  		if (timer) {
-@@ -2852,6 +3060,39 @@
+@@ -2852,6 +3062,39 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
  	}
  
  	assert(buffer->width == resolution_width && buffer->height == resolution_height);
@@ -378,7 +384,7 @@
  
  	if (timer) {
  		timer->render_timer = wlr_render_timer_create(output->renderer);
-@@ -2961,6 +3135,12 @@
+@@ -2961,6 +3204,12 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
  
  	for (int i = list_len - 1; i >= 0; i--) {
  		struct render_list_entry *entry = &list_data[i];
@@ -391,7 +397,7 @@
  		scene_entry_render(entry, &render_data);
  
  		if (entry->node->type == WLR_SCENE_NODE_BUFFER) {
-@@ -3046,6 +3263,21 @@
+@@ -3027,6 +3276,21 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
  	return true;
  }
  
