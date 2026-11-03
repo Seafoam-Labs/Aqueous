@@ -146,8 +146,6 @@ jobs:
           nm -D --defined-only "$library" |
             grep ' wlr_vk_render_pass_get_attribs$'
           nm -D --defined-only "$library" |
-            grep ' wlr_vk_renderer_enable_offscreen$'
-          nm -D --defined-only "$library" |
             grep ' wlr_vk_render_pass_run_offscreen$'
           nm -D --defined-only "$library" |
             grep ' wlr_vk_render_pass_add_completion$'
@@ -167,8 +165,6 @@ jobs:
             grep ' wlr_scene_rect_set_force_blend$'
           nm -D --undefined-only compositor/zig-out/bin/aqueous |
             grep ' wlr_vk_render_pass_get_attribs$'
-          nm -D --undefined-only compositor/zig-out/bin/aqueous |
-            grep ' wlr_vk_renderer_enable_offscreen$'
           nm -D --undefined-only compositor/zig-out/bin/aqueous |
             grep ' wlr_vk_render_pass_run_offscreen$'
           nm -D --undefined-only compositor/zig-out/bin/aqueous |
