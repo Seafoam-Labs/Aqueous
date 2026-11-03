@@ -1357,27 +1357,94 @@
  	spa_pod_builder_add(b, SPA_FORMAT_VIDEO_size,
  		SPA_POD_Rectangle(&SPA_RECTANGLE(width, height)),
  		0);
-@@ -173,7 +188,8 @@ static void build_formats(struct spa_pod_builder *builder, struct xdpw_screencas
- 			if (modifier_count > 0) {
- 				add_pod(params, build_format(builder, pw_format,
- 						cast->current_constraints.width, cast->current_constraints.height,
--						cast->framerate, modifiers, modifier_count));
-+						cast->framerate, modifiers, modifier_count,
-+						xdpw_format_color_lookup(cast, fm_pair->fourcc)));
+@@ -152,40 +167,59 @@ static void add_pod(struct wl_array *params, const struct spa_pod *pod) {
+ 	}
+ }
+ 
++static bool format_is_pq(struct xdpw_screencast_instance *cast, uint32_t fourcc) {
++	const struct xdpw_format_color *color = xdpw_format_color_lookup(cast, fourcc);
++	return color != NULL && color->transfer_function == SPA_VIDEO_TRANSFER_SMPTE2084;
++}
++
++// PipeWire takes the first producer format the consumer accepts. Many
++// consumers (OBS, browsers) accept 10-bit RGB but ignore colorimetry and would
++// read PQ as sRGB, so SDR formats come first. Consumers that require
++// SMPTE 2084 in their own EnumFormat reject the SDR formats and still get PQ.
+ static void build_formats(struct spa_pod_builder *builder, struct xdpw_screencast_instance *cast,
+ 		struct wl_array *params) {
+-	if (!cast->avoid_dmabufs) {
+-		uint32_t last_format = DRM_FORMAT_INVALID;
+-		struct xdpw_format_modifier_pair *fm_pair;
+-		wl_array_for_each(fm_pair, &cast->current_constraints.dmabuf_format_modifier_pairs) {
+-			if (last_format == fm_pair->fourcc) {
+-				continue;
++	for (int pq = 0; pq < 2; pq++) {
++		if (!cast->avoid_dmabufs) {
++			uint32_t last_format = DRM_FORMAT_INVALID;
++			struct xdpw_format_modifier_pair *fm_pair;
++			wl_array_for_each(fm_pair, &cast->current_constraints.dmabuf_format_modifier_pairs) {
++				if (last_format == fm_pair->fourcc) {
++					continue;
++				}
++				if (format_is_pq(cast, fm_pair->fourcc) != pq) {
++					continue;
++				}
++				enum spa_video_format pw_format = xdpw_format_pw_from_drm_fourcc(fm_pair->fourcc);
++				if (pw_format == SPA_VIDEO_FORMAT_UNKNOWN) {
++					continue;
++				}
++				last_format = fm_pair->fourcc;
++
++				uint32_t modifier_count;
++				uint64_t *modifiers = NULL;
++				build_modifierlist(cast, fm_pair->fourcc, &modifiers, &modifier_count);
++				if (modifier_count > 0) {
++					add_pod(params, build_format(builder, pw_format,
++							cast->current_constraints.width, cast->current_constraints.height,
++							cast->framerate, modifiers, modifier_count,
++							xdpw_format_color_lookup(cast, fm_pair->fourcc)));
++				}
++				free(modifiers);
  			}
- 			free(modifiers);
- 		}
-@@ -185,7 +201,8 @@ static void build_formats(struct spa_pod_builder *builder, struct xdpw_screencas
- 		if (pw_format != SPA_VIDEO_FORMAT_UNKNOWN) {
- 			add_pod(params, build_format(builder, pw_format,
- 						cast->current_constraints.width, cast->current_constraints.height,
+-			enum spa_video_format pw_format = xdpw_format_pw_from_drm_fourcc(fm_pair->fourcc);
+-			if (pw_format == SPA_VIDEO_FORMAT_UNKNOWN) {
++		}
++
++		uint32_t *format;
++		wl_array_for_each(format, &cast->current_constraints.shm_formats) {
++			if (format_is_pq(cast, *format) != pq) {
+ 				continue;
+ 			}
+-			last_format = fm_pair->fourcc;
+-
+-			uint32_t modifier_count;
+-			uint64_t *modifiers = NULL;
+-			build_modifierlist(cast, fm_pair->fourcc, &modifiers, &modifier_count);
+-			if (modifier_count > 0) {
++			enum spa_video_format pw_format = xdpw_format_pw_from_drm_fourcc(*format);
++			if (pw_format != SPA_VIDEO_FORMAT_UNKNOWN) {
+ 				add_pod(params, build_format(builder, pw_format,
+-						cast->current_constraints.width, cast->current_constraints.height,
+-						cast->framerate, modifiers, modifier_count));
++							cast->current_constraints.width, cast->current_constraints.height,
++							cast->framerate, NULL, 0,
++							xdpw_format_color_lookup(cast, *format)));
+ 			}
+-			free(modifiers);
+-		}
+-	}
+-
+-	uint32_t *format;
+-	wl_array_for_each(format, &cast->current_constraints.shm_formats) {
+-		enum spa_video_format pw_format = xdpw_format_pw_from_drm_fourcc(*format);
+-		if (pw_format != SPA_VIDEO_FORMAT_UNKNOWN) {
+-			add_pod(params, build_format(builder, pw_format,
+-						cast->current_constraints.width, cast->current_constraints.height,
 -						cast->framerate, NULL, 0));
-+						cast->framerate, NULL, 0,
-+						xdpw_format_color_lookup(cast, *format)));
  		}
  	}
  }
-@@ -466,7 +483,8 @@ static void pwr_handle_stream_param_changed(void *data, uint32_t id,
+@@ -466,7 +500,8 @@ static void pwr_handle_stream_param_changed(void *data, uint32_t id,
  fixate_format:
  
  			add_pod(&params, fixate_format(&builder.b, cast->pwr_format.format,

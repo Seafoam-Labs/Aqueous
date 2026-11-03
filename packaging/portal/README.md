@@ -14,7 +14,10 @@ backend requests each capture session's per-format encoding and adds PipeWire
 `transferFunction` and `colorPrimaries` to every offered format: SMPTE 2084/BT.2020
 for native HDR (PQ) formats, gamma 2.2/BT.709 for SDR and converted 8-bit formats.
 Stream parameters are updated after the matching color description, so HDR
-toggles renegotiate with current labels. Without the global, formats carry no
+toggles renegotiate with current labels. On HDR outputs, SDR formats are offered before PQ
+ones: PipeWire picks the first producer format a consumer accepts, and consumers
+such as OBS accept 10-bit RGB while ignoring colorimetry. A consumer that requires
+SMPTE 2084 in its own format list still negotiates PQ. Without the global, formats carry no
 colorimetry, as upstream. PipeWire capture cancels pending
 Wayland frames and capture timers on pause or buffer removal. A paused buffer is
 retained for resume without publishing an incomplete image, preventing overlapping
