@@ -47,6 +47,7 @@
         "usr/lib/tmpfiles.d/aqueous.conf",
         "usr/share/aqueous/wm.toml",
         "usr/share/aqueous/outputs.toml",
+        "usr/share/aqueous/input.toml",
         "usr/share/aqueous/ghostty/*",
         "usr/share/aqueous/wallpapers/*",
         "usr/share/doc/aqueous-session/*",
@@ -54,6 +55,7 @@
         "etc/xdg/menus/aqueous-applications.menu",
         "etc/xdg/aqueous/wm.toml",
         "etc/xdg/aqueous/outputs.toml",
+        "etc/xdg/aqueous/input.toml",
         "etc/xdg/xdg-desktop-portal-aqueous/config"
       ],
       "required": [

@@ -202,6 +202,13 @@ fn writeSnapshot(
 
     try json.objectField("warnings");
     try json.beginArray();
+    for (files.items) |file_item| {
+        if (std.mem.startsWith(u8, file_item.path, "/etc/xdg/")) try json.write(try std.fmt.allocPrint(
+            files.allocator,
+            "{s} currently resolves to the system default at {s}; saving from a user session creates a personal copy in the user configuration directory.",
+            .{ file_item.name, file_item.path },
+        ));
+    }
     if (hasLegacyDisplayPolicy(&files.items[@backingInt(schema.FileId.wm)].document)) {
         try json.write("Display policy inherited from wm.toml remains active until the corresponding setting is written to outputs.toml.");
     }

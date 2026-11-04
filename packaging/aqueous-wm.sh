@@ -79,8 +79,16 @@ if [ ! -f "$outputs_cfg" ] && [ -f /etc/xdg/aqueous/outputs.toml ]; then
     install -Dm644 /etc/xdg/aqueous/outputs.toml "$outputs_cfg" 2>/dev/null || true
 fi
 
-# Input configuration (pointer acceleration, tap-to-click, natural scroll,
-# and XKB policy) is applied directly by Aqueous.
+# Seed the inert input template too. Without a user-owned input.toml, input
+# settings (pointer acceleration, tap-to-click, natural scroll, and XKB
+# policy) resolve to the read-only packaged default under /etc/xdg, where the
+# configuration helper must refuse to write them. The seeded file is fully
+# commented, so behavior is unchanged until a key is uncommented or a desktop
+# settings tool writes it.
+input_cfg="${XDG_CONFIG_HOME:-$HOME/.config}/aqueous/input.toml"
+if [ ! -f "$input_cfg" ] && [ -f /etc/xdg/aqueous/input.toml ]; then
+    install -Dm644 /etc/xdg/aqueous/input.toml "$input_cfg" 2>/dev/null || true
+fi
 
 # Aqueous runs the compositor, window-management policy, input, and output
 # configuration in one process. aqueous-init is its short-lived `-c` child and

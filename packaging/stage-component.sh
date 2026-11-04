@@ -57,6 +57,9 @@ packaging/greetd/config.toml.example|$prefix/share/doc/aqueous-session/greetd-co
 EOF
     tree "$root/packaging/wallpapers" "$prefix/share/aqueous/wallpapers"
     for path in "$prefix/share/aqueous/outputs.toml" "$sysconfdir/xdg/aqueous/outputs.toml"; do copy "$root/outputs.toml" "$path"; done
+    # Inert input template; the session launcher seeds it so input settings
+    # such as tap-to-click never persist through the read-only system default.
+    for path in "$prefix/share/aqueous/input.toml" "$sysconfdir/xdg/aqueous/input.toml"; do copy "$root/input.toml" "$path"; done
     # Package defaults only; never parse or edit a user's compositor TOML here.
     awk '
         /^\[actions\]$/ {

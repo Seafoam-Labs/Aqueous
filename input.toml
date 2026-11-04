@@ -1,0 +1,60 @@
+# =============================================================================
+# Aqueous input configuration
+# Path: ~/.config/aqueous/input.toml
+# Override: $AQUEOUS_INPUT (`~/...` is expanded)
+#
+# This sidecar overlays matching [input] settings from wm.toml and is
+# hot-reloaded. Every key is optional: omitted keys retain the wm.toml value or
+# the libinput default, so this template is inert as shipped and copying or
+# seeding it never changes current behavior. Uncomment only what you want to
+# manage here. The session seeds this file once when missing so desktop
+# settings such as tap-to-click always persist to this user-owned copy instead
+# of the packaged default under the system configuration directory.
+# =============================================================================
+
+# [input]
+# focus_follows_mouse = false
+# mouse_follows_focus = false
+# focus_new_windows = false
+# raise_on_focus = true
+# raise_on_focus_delay_ms = 0
+# pointer_acceleration = false
+# pointer_acceleration_factor = 0.0  # libinput speed, -1.0 through 1.0
+# xkb_layout = "us"                  # comma-separated layouts, e.g. "us,de"
+# xkb_variant = ""                   # e.g. "dvorak"
+# xkb_options = ""                   # e.g. "caps:escape,grp:alt_shift_toggle"
+# repeat_rate = 40                   # characters per second; 0 disables repeat
+# repeat_delay = 400                 # milliseconds before repeat begins
+
+# Mouse and other non-touchpad pointer devices.
+# [input.mouse]
+# accel_profile = "flat"             # flat | adaptive
+# accel_speed = 0.0                  # -1.0 through 1.0
+# natural_scroll = false
+# left_handed = false
+# middle_emulation = false
+# dwt = false                        # disable-while-typing, when supported
+
+# Touchpads. tap, click_method, and scroll_method are accepted in every device
+# section but are only applied to devices detected as touchpads.
+# [input.touchpad]
+# accel_profile = "adaptive"         # flat | adaptive
+# accel_speed = 0.0                  # -1.0 through 1.0
+# natural_scroll = true
+# tap = true
+# dwt = true
+# left_handed = false
+# middle_emulation = false
+# click_method = "clickfinger"       # clickfinger | button-areas
+# scroll_method = "two-finger"       # two-finger | edge | no-scroll
+
+# Trackpoints are accepted and retained by the parser; [input.mouse] is
+# presently the effective policy for them.
+# [input.trackpoint]
+# accel_profile = "adaptive"
+# accel_speed = 0.0
+# natural_scroll = false
+
+# Tablets, gestures, and every other key in this file are documented in full
+# in the input.toml reference shipped with Aqueous and online at
+# https://www.seafoam-labs.org/aqueous/docs/toml/input/ .

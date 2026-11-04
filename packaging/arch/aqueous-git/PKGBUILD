@@ -61,7 +61,7 @@ package_aqueous-session-git() {
     conflicts=('aqueous-welcome-git')
     depends=("aqueous-core-$_channel=$pkgver-$pkgrel" 'bash' 'jq' 'coreutils' 'uwsm' 'dbus' 'systemd'
              'ghostty' 'grim' 'slurp' 'wl-clipboard' 'libnotify' 'xdg-desktop-portal')
-    backup=('etc/xdg/aqueous-git/wm.toml' 'etc/xdg/aqueous-git/outputs.toml'
+    backup=('etc/xdg/aqueous-git/wm.toml' 'etc/xdg/aqueous-git/outputs.toml' 'etc/xdg/aqueous-git/input.toml'
             'etc/xdg/uwsm/env-aqueous-git' 'etc/xdg/menus/aqueous-git-applications.menu'
             'etc/xdg/xdg-desktop-portal-aqueous-git/config')
     _stage session
