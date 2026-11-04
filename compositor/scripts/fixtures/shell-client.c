@@ -278,6 +278,27 @@ int main(int argc, char **argv) {
                     zwp_virtual_keyboard_v1_key(virtual_keyboard, 2 * i + 2, code, WL_KEYBOARD_KEY_STATE_RELEASED);
                 }
                 zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, 0, 0, 0, 0);
+            } else if (!strncmp(command, "chord-hold ", 11)) {
+                unsigned code, mods, count = 1;
+                assert(sscanf(command + 11, "%u %u %u", &code, &mods, &count) >= 2);
+                assert(count > 0 && count <= 100);
+                zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, mods, 0, 0, 0);
+                for (unsigned i = 0; i < count; ++i) {
+                    zwp_virtual_keyboard_v1_key(virtual_keyboard, 2 * i + 1, code, WL_KEYBOARD_KEY_STATE_PRESSED);
+                    zwp_virtual_keyboard_v1_key(virtual_keyboard, 2 * i + 2, code, WL_KEYBOARD_KEY_STATE_RELEASED);
+                }
+            } else if (!strncmp(command, "mods ", 5)) {
+                unsigned mods;
+                assert(sscanf(command + 5, "%u", &mods) == 1);
+                zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, mods, 0, 0, 0);
+            } else if (!strncmp(command, "key ", 4)) {
+                unsigned code, count = 1;
+                assert(sscanf(command + 4, "%u %u", &code, &count) >= 1);
+                assert(count > 0 && count <= 100);
+                for (unsigned i = 0; i < count; ++i) {
+                    zwp_virtual_keyboard_v1_key(virtual_keyboard, 2 * i + 1, code, WL_KEYBOARD_KEY_STATE_PRESSED);
+                    zwp_virtual_keyboard_v1_key(virtual_keyboard, 2 * i + 2, code, WL_KEYBOARD_KEY_STATE_RELEASED);
+                }
             } else if (!strcmp(command, "pointer-lock\n") || !strcmp(command, "pointer-lock-no-commit\n")) {
                 assert(window && pointer && constraints && !pointer_lock);
                 pointer_lock = zwp_pointer_constraints_v1_lock_pointer(constraints, window, pointer, NULL, ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT);

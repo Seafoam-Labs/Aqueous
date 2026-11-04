@@ -386,10 +386,11 @@ Unknown scopes and global requests containing workspace are rejected.
 
 Global selection visits non-minimized, activatable windows on all exposed
 outputs/workspaces. The deck stays on its original output; activation selects
-the window's own output/workspace. Finishing by timeout, Escape, typing, or
-explicit dismiss restores the normal scene and moves the initiating seat's
-cursor into the selected content. Physical pointer motion/click and lifecycle
-cancellation suppress this handoff. The explicit handoff is independent of
+the window's own output/workspace. Finishing by releasing the initiating
+modifier, timeout, Escape, typing, or explicit dismiss restores the normal
+scene and moves the initiating seat's cursor into the selected content.
+Physical pointer motion/click and lifecycle cancellation suppress this handoff.
+The explicit handoff is independent of
 `mouse_follows_focus`. Native `window_switcher_next`/`previous` bindings use
 global scope; bindings remain unassigned by default.
 

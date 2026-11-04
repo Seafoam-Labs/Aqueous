@@ -12,6 +12,10 @@ const Workspace = @import("Workspace.zig");
 const model = @import("wm/switcher/model.zig");
 const overview = @import("wm/overview/model.zig");
 
+/// Modifier bits which can form a binding chord: Shift, Control, Alt and Logo.
+const shift_modifier_mask: u32 = 1;
+const binding_modifier_mask: u32 = shift_modifier_mask | 4 | 8 | 64;
+
 rings: std.AutoHashMapUnmanaged(u32, model.Ring) = .empty,
 global_rings: std.AutoHashMapUnmanaged(*Seat, model.Ring) = .empty,
 all: bool = false,
@@ -30,6 +34,10 @@ total: usize = 0,
 serial: u64 = 0,
 reduced_motion: bool = false,
 timer: ?*wl.EventSource = null,
+/// Set when a keybinding opened the current presentation; cleared on dismiss.
+key_initiated: bool = false,
+/// Modifier bits held when that binding fired.
+initiating_modifiers: u32 = 0,
 
 pub fn init(self: *Self) !void {
     self.* = .{};
@@ -52,8 +60,31 @@ fn timeout(self: *Self) c_int {
     self.finish();
     return 0;
 }
+/// Whether a binding advances the switcher instead of dismissing it.
+pub fn isCycleVerb(_: *const Self, verb: []const u8) bool {
+    return std.mem.startsWith(u8, verb, "builtin:window_switcher_") or
+        std.mem.eql(u8, verb, "builtin:cycle_focus") or
+        std.mem.eql(u8, verb, "builtin:cycle_focus_reverse");
+}
+/// Remember the chord that opened the deck so releasing it can commit the
+/// selection immediately instead of waiting for the idle timeout.
+pub fn noteKeyInvocation(self: *Self, modifiers: u32) void {
+    if (self.output == null) return;
+    self.key_initiated = true;
+    self.initiating_modifiers = modifiers & binding_modifier_mask;
+}
+/// Commit when the initiating modifier is released. Shift is ignored so a
+/// reverse-cycle chord can release Shift without ending the presentation.
+pub fn modifiersChanged(self: *Self, seat: *Seat, modifiers: u32) void {
+    if (self.output == null or self.seat != seat or !self.key_initiated) return;
+    const required = self.initiating_modifiers & ~shift_modifier_mask;
+    const watched = if (required != 0) required else self.initiating_modifiers;
+    if (watched != 0 and (modifiers & watched) != watched) self.finish();
+}
 pub fn dismiss(self: *Self) void {
     self.handoff = null;
+    self.key_initiated = false;
+    self.initiating_modifiers = 0;
     if (self.output == null) return;
     self.output = null;
     self.owner = null;

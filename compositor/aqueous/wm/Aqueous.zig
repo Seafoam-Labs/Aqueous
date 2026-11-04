@@ -1326,11 +1326,9 @@ pub fn handleKey(aqueous: *Aqueous, keysym: u32, modifiers: u32, pressed: bool) 
             return true;
         }
         const binding = aqueous.keyBindingVerb(keysym, modifiers) orelse "";
-        // Modifier transitions alone do not end presentation.
-        const cycling = std.mem.startsWith(u8, binding, "builtin:window_switcher_") or
-            std.mem.eql(u8, binding, "builtin:cycle_focus") or
-            std.mem.eql(u8, binding, "builtin:cycle_focus_reverse");
-        if (!(keysym >= 0xffe1 and keysym <= 0xffee) and !cycling) switcher.finish();
+        // Modifier transitions alone do not end presentation; releasing the
+        // initiating modifier is handled by WindowSwitcher.modifiersChanged().
+        if (!(keysym >= 0xffe1 and keysym <= 0xffee) and !switcher.isCycleVerb(binding)) switcher.finish();
     }
     if (aqueous.overview != null) return aqueous.handleOverviewKey(keysym, modifiers, pressed);
     if (!pressed and aqueous.untrap_keysym == keysym) {
@@ -1346,7 +1344,11 @@ pub fn handleKey(aqueous: *Aqueous, keysym: u32, modifiers: u32, pressed: bool) 
     }
     if (pressed) {
         log.debug("key binding keysym=0x{x} modifiers=0x{x} verb={s}", .{ keysym, modifiers & (1 | 4 | 8 | 64), verb });
+        const cycle = switcher.isCycleVerb(verb);
         aqueous.runVerb(verb);
+        // Record after dispatch: opening a new deck may first dismiss the old
+        // presentation, which clears the previous latch.
+        if (cycle) switcher.noteKeyInvocation(modifiers);
     }
     return true;
 }

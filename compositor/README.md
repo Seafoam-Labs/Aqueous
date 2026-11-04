@@ -77,8 +77,9 @@ current workspace; Shift reverses the order. `cycle_focus` and
 and dismissal. New or restored windows append; closed, moved, minimized, and
 `skip_switcher` windows leave the ring. Modal parents are skipped in favor of
 their active dialog. The stack displays three cards, but every eligible window
-is reachable. Escape or 1.5 seconds of inactivity dismisses the stack and keeps
-the selected window focused. Reduced motion uses the same selection order.
+is reachable. Releasing the initiating modifier, Escape, or 1.5 seconds of
+inactivity dismisses the stack and keeps the selected window focused. Reduced
+motion uses the same selection order.
 With `mouse_follows_focus`, the pointer moves into the selected window after
 the stack closes; physical pointer input cancels that pending move.
 

@@ -45,8 +45,8 @@ def main():
         children.append(child)
         return child
 
-    def wait(predicate, description):
-        deadline = time.monotonic() + 8
+    def wait(predicate, description, timeout=8):
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             assert compositor.poll() is None, f'compositor exited; see {work}'
             value = predicate()
@@ -88,20 +88,32 @@ def main():
         command(f'create {number} {parent} {modal}')
         return wait(lambda: window(number), f'window {number} did not map')['id']
 
-    def key(code, modifiers=0, count=1):
-        keyboard.stdin.write(f'chord {code} {modifiers} {count}\n'.encode())
+    def send_key(command):
+        keyboard.stdin.write((command + '\n').encode())
         keyboard.stdin.flush()
+
+    def key(code, modifiers=0, count=1):
+        send_key(f'chord {code} {modifiers} {count}')
+
+    def cycle_key(code, modifiers, count=1):
+        # Keep the modifiers held so the deck stays open between presses.
+        send_key(f'chord-hold {code} {modifiers} {count}')
+
+    def release_modifiers():
+        send_key('mods 0')
 
     def step(modifiers, count=1):
         serial = session()['switcher_serial']
-        key(15, modifiers, count)
+        cycle_key(15, modifiers, count)
         wait(lambda: session()['switcher_serial'] == serial + count, 'every Tab press must advance once')
         wait(lambda: not session()['switcher_pending'], 'focus commit')
         return focused()
 
     def dismiss():
-        key(1)
+        # Escape with the held chord still down, then release it.
+        send_key('key 1')
         wait(lambda: session()['switcher_window'] is None, 'Escape dismissal')
+        release_modifiers()
 
     def move(number, workspace):
         ctl('window', 'move', '--id', window(number)['id'], '--workspace-id', workspace)
@@ -224,7 +236,10 @@ def main():
             assert step(64) == order[(order.index(selected)+1) % 4]
         focus(2)
         assert step(64) == order[(order.index(ids[2])+1) % 4]
-        print('PASS animation, rapid presses, idle dismissal, external focus and geometry restoration', flush=True)
+        # Releasing the initiating modifier commits without waiting for the timer.
+        release_modifiers()
+        wait(lambda: session()['switcher_window'] is None, 'modifier release dismissal', timeout=1)
+        print('PASS animation, rapid presses, idle and modifier-release dismissal, external focus and geometry restoration', flush=True)
 
         # Workspace transfer removes an entry; returning appends after survivors.
         dismiss()
@@ -296,7 +311,7 @@ def main():
         # Existing opt-in global shortcuts still cross workspace/output boundaries.
         (work / 'config.toml').write_text(preamble + migrated + 'window_switcher_next = "Super+G"\n')
         ctl('session', 'reload')
-        serial = session()['switcher_serial']; key(34, 64)
+        serial = session()['switcher_serial']; cycle_key(34, 64)
         wait(lambda: session()['switcher_serial'] == serial+1, 'global action')
         assert session()['switcher_scope'] == 'all' and session()['switcher_total'] == 6
         dismiss()

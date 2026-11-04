@@ -470,6 +470,8 @@ fn handleModifiers(listener: *wl.Listener(*wlr.Keyboard), _: *wlr.Keyboard) void
         group.seat.wlr_seat.keyboardNotifyModifiers(&group.state.modifiers);
     }
     group.sendState();
+    // Releasing the modifier that opened the switcher commits its selection.
+    server.window_switcher.modifiersChanged(group.seat, @bitCast(group.state.getModifiers()));
 }
 
 /// Handle any builtin, hardcoded compositor keybindings such as VT switching.
