@@ -134,6 +134,7 @@ pkgname = aqueous-session
 	backup = etc/xdg/aqueous/wm.toml
 	backup = etc/xdg/aqueous/outputs.toml
 	backup = etc/xdg/aqueous/input.toml
+	backup = etc/xdg/aqueous/layout.toml
 	backup = etc/xdg/uwsm/env-aqueous
 	backup = etc/xdg/menus/aqueous-applications.menu
 	backup = etc/xdg/xdg-desktop-portal-aqueous/config

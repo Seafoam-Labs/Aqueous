@@ -90,6 +90,28 @@ if [ ! -f "$input_cfg" ] && [ -f /etc/xdg/aqueous/input.toml ]; then
     install -Dm644 /etc/xdg/aqueous/input.toml "$input_cfg" 2>/dev/null || true
 fi
 
+# Seed the inert layout template as well. A root-owned system layout.toml is
+# still common on managed and upgraded systems, and the layout sidecar is
+# discovered ahead of $AQUEOUS_LAYOUT and [layout].path, so layout edits
+# (gaps, borders, slots, stacking and snap zones) would otherwise persist
+# through a file the configuration helper must refuse to write. Skip the seed
+# when an explicit sidecar is configured, because the user file would shadow
+# it; an active path assignment is one whose line is not commented out.
+layout_seed=true
+if [ -n "${AQUEOUS_LAYOUT:-}" ]; then
+    layout_seed=false
+elif [ -f "$cfg" ] && awk '
+    /^[[:space:]]*\[/ { in_layout = ($0 ~ /^[[:space:]]*\[layout\][[:space:]]*$/) }
+    in_layout && /^[[:space:]]*path[[:space:]]*=/ { found = 1; exit }
+    END { exit !found }
+' "$cfg"; then
+    layout_seed=false
+fi
+layout_cfg="${XDG_CONFIG_HOME:-$HOME/.config}/aqueous/layout.toml"
+if $layout_seed && [ ! -f "$layout_cfg" ] && [ -f /etc/xdg/aqueous/layout.toml ]; then
+    install -Dm644 /etc/xdg/aqueous/layout.toml "$layout_cfg" 2>/dev/null || true
+fi
+
 # Aqueous runs the compositor, window-management policy, input, and output
 # configuration in one process. aqueous-init is its short-lived `-c` child and
 # exports the live session environment.

@@ -14,7 +14,7 @@
 #   AQUEOUS_DIST         build output dir (default: <repo>/dist)
 #   AQUEOUS_ZIG_VERSION  zig to fetch when PATH has none >= required (0.17.0)
 #
-# /etc config files (wm.toml, outputs.toml, input.toml, uwsm/env-aqueous) are never
+# /etc config files (wm.toml, outputs.toml, input.toml, layout.toml, uwsm/env-aqueous) are never
 # clobbered: an existing file is kept and the shipped default is dropped
 # next to it as <file>.aqnew.
 set -euo pipefail
@@ -378,8 +378,9 @@ Aqueous is installed.
     Select "Aqueous" from your display manager's Wayland session list.
     The session runs through uwsm; no user unit needs enabling.
 
-    Per-user config: ~/.config/aqueous/ (wm.toml, the outputs.toml, and the
-    input.toml template are copied there on first login only when missing).
+    Per-user config: ~/.config/aqueous/ (wm.toml, the outputs.toml, the
+    input.toml, and the layout.toml template are copied there on first login
+    only when missing).
 
     Useful commands:
         aqueous-config snapshot --shell none

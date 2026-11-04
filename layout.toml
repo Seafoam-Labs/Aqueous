@@ -1,0 +1,65 @@
+# =============================================================================
+# Aqueous layout configuration
+# Path: ~/.config/aqueous/layout.toml
+# Override: $AQUEOUS_LAYOUT (`~/...` is expanded)
+#
+# This sidecar keeps layout selection and geometry separate from wm.toml and
+# is hot-reloaded. Recognized values merge one key at a time, so omitted keys
+# retain their wm.toml or default value and this template is inert as shipped:
+# copying or seeding it never changes current behavior. Uncomment only what
+# you want to manage here. When this file exists it is the discovered layout
+# source, ahead of $AQUEOUS_LAYOUT and [layout].path from wm.toml. The session
+# seeds it once when missing so layout settings written by desktop tools
+# always persist to this user-owned copy instead of a read-only file under the
+# system configuration directory.
+# =============================================================================
+
+# [layout]
+# default = "tile"                   # tile | monocle | grid | rows | dwindle |
+#                                    # reverse-dwindle | scrolling | stacking |
+#                                    # game-mode | composable
+# gaps_outer = 8
+# gaps_inner = 4
+# master_ratio = 0.55                # 0.01 through 0.99
+# master_count = 1
+# border_width = 2
+# border_focused = "0xFF88C0D0"      # ARGB
+# border_normal = "0xFF3B4252"
+# border_urgent = "0xFFBF616A"
+# force_ssd = false
+# center_single_window = false
+# single_window_aspect_ratio = 1.7777777777777777
+
+# Layout slots selected by the layout actions.
+# [layout.slots]
+# primary = "tile"
+# secondary = "scrolling"
+# tertiary = "monocle"
+# quaternary = "grid"
+
+# Per-layout options, e.g.:
+# [layout.options.scrolling]
+# column_fraction = 0.5              # 0.01 through 0.99
+# center_focused = true
+# follow_new_windows = true
+# open_new_windows_to_right = false
+# prefer_vertical_on_portrait = false
+# snap_to_columns = false
+# allow_overscroll = true
+# focus_follows_mouse_delay_ms = 0
+#
+# [layout.options.stacking]
+# placement = "cascade"              # cascade | center | under-pointer | minimal-overlap
+# cascade_step = 32
+# move_step = 10
+# move_step_coarse = 50
+# resize_step = 10
+# snap_gap = 0
+# snap_threshold = 24
+# resistance = 12
+# top_edge_maximize = true
+
+# Output and workspace layout mappings, [[output]] and [[workspace]], are
+# accepted here; define each mapping in only wm.toml or this file. The full
+# reference is shipped as layout.toml.example and online at
+# https://www.seafoam-labs.org/aqueous/docs/toml/layout/ .

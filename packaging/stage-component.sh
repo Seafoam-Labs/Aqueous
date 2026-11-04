@@ -60,6 +60,8 @@ EOF
     # Inert input template; the session launcher seeds it so input settings
     # such as tap-to-click never persist through the read-only system default.
     for path in "$prefix/share/aqueous/input.toml" "$sysconfdir/xdg/aqueous/input.toml"; do copy "$root/input.toml" "$path"; done
+    # Inert layout template, seeded for the same reason as input.toml.
+    for path in "$prefix/share/aqueous/layout.toml" "$sysconfdir/xdg/aqueous/layout.toml"; do copy "$root/layout.toml" "$path"; done
     # Package defaults only; never parse or edit a user's compositor TOML here.
     awk '
         /^\[actions\]$/ {

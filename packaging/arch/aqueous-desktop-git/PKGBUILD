@@ -154,7 +154,7 @@ package_aqueous-session-git() {
     depends=("aqueous-core-git=$pkgver-$pkgrel" "bash" "jq" "coreutils" "uwsm" "dbus" "systemd" "ghostty" "grim" "slurp" "wl-clipboard" "libnotify" "xdg-desktop-portal")
     provides=("aqueous-session=$pkgver-$pkgrel")
     conflicts=('aqueous-session' 'aqueous-welcome-git' 'aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-session-bin' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
-    backup=('etc/xdg/aqueous/wm.toml' 'etc/xdg/aqueous/outputs.toml' 'etc/xdg/aqueous/input.toml' 'etc/xdg/uwsm/env-aqueous' 'etc/xdg/menus/aqueous-applications.menu' 'etc/xdg/xdg-desktop-portal-aqueous/config')
+    backup=('etc/xdg/aqueous/wm.toml' 'etc/xdg/aqueous/outputs.toml' 'etc/xdg/aqueous/input.toml' 'etc/xdg/aqueous/layout.toml' 'etc/xdg/uwsm/env-aqueous' 'etc/xdg/menus/aqueous-applications.menu' 'etc/xdg/xdg-desktop-portal-aqueous/config')
     DESTDIR="$pkgdir" PREFIX=/usr bash "$srcdir/aqueous/packaging/stage-component.sh" session
     # Pearl Git remains a separate package with its own command/service names.
     sed -i -e 's/^pearl_binary=pearl$/pearl_binary=pearl-git/' \

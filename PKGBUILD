@@ -171,7 +171,7 @@ package_aqueous-session() {
     pkgdesc="Aqueous session"
     depends=("aqueous-core=$pkgver-$pkgrel" "bash" "jq" "coreutils" "uwsm" "dbus" "systemd" "ghostty" "grim" "slurp" "wl-clipboard" "libnotify" "xdg-desktop-portal" "xdg-desktop-portal-gtk")
     conflicts=('aqueous-welcome' 'aqueous-welcome-bin' 'aqueous-git<1.0.2.r6' 'aqueous-git-intel' 'aqueous-git-dms' 'aqueous-session-bin' 'aqueous<0.7.0-2' 'aqueous-bin<0.7.0-2')
-    backup=('etc/xdg/aqueous/wm.toml' 'etc/xdg/aqueous/outputs.toml' 'etc/xdg/aqueous/input.toml' 'etc/xdg/uwsm/env-aqueous' 'etc/xdg/menus/aqueous-applications.menu' 'etc/xdg/xdg-desktop-portal-aqueous/config')
+    backup=('etc/xdg/aqueous/wm.toml' 'etc/xdg/aqueous/outputs.toml' 'etc/xdg/aqueous/input.toml' 'etc/xdg/aqueous/layout.toml' 'etc/xdg/uwsm/env-aqueous' 'etc/xdg/menus/aqueous-applications.menu' 'etc/xdg/xdg-desktop-portal-aqueous/config')
     _stage_component session
 }
 
