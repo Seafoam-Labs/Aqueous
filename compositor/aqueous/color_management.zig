@@ -48,6 +48,13 @@ pub fn windowsHdrFeatureMask(
     return mask;
 }
 
+/// Vulkan WSI requires this capability to enumerate EXTENDED_SRGB_LINEAR.
+/// Advertise it with our scRGB-capable Vulkan path; this does not select an
+/// image description or change the fixed Windows-scRGB luminance mapping.
+pub fn supportsExtendedTargetVolume(windows_hdr_features: u32) bool {
+    return windows_hdr_features & windows_scrgb_bit != 0;
+}
+
 /// Enable the wlroots extensions immediately after creating the manager,
 /// before the Wayland display starts accepting client connections.
 pub fn enableWindowsHdr(manager: *wlr.ColorManagerV1, features: u32) void {
@@ -82,4 +89,13 @@ test "partial encodings are never advertised" {
     try std.testing.expectEqual(@as(u32, 0), windowsHdrFeatureMask(&.{.ext_linear}, &.{.bt2020}));
     try std.testing.expectEqual(@as(u32, 0), windowsHdrFeatureMask(&.{.st2084_pq}, &.{.srgb}));
     try std.testing.expectEqual(@as(u32, 0), windowsHdrFeatureMask(&.{}, &.{}));
+}
+
+test "extended target volume requires the scRGB-capable path" {
+    try std.testing.expect(supportsExtendedTargetVolume(windows_scrgb_bit));
+    try std.testing.expect(supportsExtendedTargetVolume(windows_scrgb_bit | windows_bt2100_bit));
+    try std.testing.expect(!supportsExtendedTargetVolume(windows_bt2100_bit));
+    // Server passes zero when Vulkan effects are disabled.
+    try std.testing.expect(!supportsExtendedTargetVolume(0));
+    try std.testing.expect(!supportsExtendedTargetVolume(windowsHdrFeatureMask(&.{.ext_linear}, &.{.bt2020})));
 }

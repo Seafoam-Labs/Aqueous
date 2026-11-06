@@ -153,6 +153,7 @@ let
       "${src}/compositor/patches/wlroots/0041-vulkan-semaphore-import-lifecycle.patch"
       "${src}/compositor/patches/wlroots/0042-vulkan-pass-requirements.patch"
       "${src}/compositor/patches/wlroots/0043-scene-buffer-windows-scrgb.patch"
+      "${src}/compositor/patches/wlroots/0044-color-management-extended-target-volume.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending

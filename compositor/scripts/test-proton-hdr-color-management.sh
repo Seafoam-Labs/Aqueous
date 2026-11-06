@@ -9,6 +9,7 @@ set -euo pipefail
 # reference white and therefore does not falsely signal HDR. Proton's strict
 # target/reference headroom predicate and its rounding boundaries are covered
 # by test-color-management-luminance.sh.
+# Set AQUEOUS_EXPECT_WINDOWS_HDR=0 when testing a -Dvulkan-effects=false build.
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 compositor_bin=${AQUEOUS_COMPOSITOR_BIN:-"$here/zig-out/bin/aqueous"}
@@ -55,6 +56,8 @@ env --default-signal=INT --default-signal=TERM -u LD_PRELOAD \
     WLR_HEADLESS_OUTPUTS=1 \
     XDG_RUNTIME_DIR="$runtime" \
     XDG_CONFIG_HOME="$runtime/config" \
+    XDG_STATE_HOME="$runtime/state" \
+    XDG_CACHE_HOME="$runtime/cache" \
     HOME="$runtime/home" \
     "$compositor_bin" -no-xwayland -policy internal -log-level debug -c true \
     >"$compositor_log" 2>&1 &
@@ -72,8 +75,14 @@ for _ in $(seq 1 240); do
 done
 [ -n "$socket" ] || die "compositor did not create a Wayland socket"
 
+probe_args=()
+case "${AQUEOUS_EXPECT_WINDOWS_HDR:-1}" in
+    1) ;;
+    0) probe_args+=(--no-windows-hdr) ;;
+    *) die "AQUEOUS_EXPECT_WINDOWS_HDR must be 0 or 1" ;;
+esac
 if ! env -u LD_PRELOAD XDG_RUNTIME_DIR="$runtime" WAYLAND_DISPLAY="$socket" \
-        "$probe_bin" >"$client_log" 2>&1; then
+        "$probe_bin" "${probe_args[@]}" >"$client_log" 2>&1; then
     cat "$client_log" >&2
     tail -120 "$compositor_log" >&2
     die "color-management-v1 client probe failed"

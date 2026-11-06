@@ -1,0 +1,23 @@
+color-management-v1: allow extended target volumes
+
+The parametric creator already accepts target volumes outside the primary
+color volume. Allow compositors whose renderer supports that content to
+advertise it. Aqueous's Vulkan linear texture path preserves extended values
+through luminance scaling and the primary conversion matrix, without clipping
+to the primary color volume.
+
+Mesa's Wayland WSI requires this capability, in addition to extended-linear
+transfer and sRGB primaries, to enumerate EXTENDED_SRGB_LINEAR. This is separate
+from the predefined Windows-scRGB request and its fixed 80-nit mapping.
+Based on kode54's draft in Seafoam-Labs/Aqueous#130.
+
+--- a/types/wlr_color_management_v1.c
++++ b/types/wlr_color_management_v1.c
+@@ -1162,7 +1162,6 @@
+ 	assert(!options->features.set_primaries);
+ 	assert(!options->features.set_tf_power);
+ 	assert(!options->features.set_luminances);
+-	assert(!options->features.extended_target_volume);
+ 
+ 	struct wlr_color_manager_v1 *manager = calloc(1, sizeof(*manager));
+ 	if (manager == NULL) {

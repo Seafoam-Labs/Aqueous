@@ -50,6 +50,7 @@ patch_files=(
     "$here/patches/wlroots/0041-vulkan-semaphore-import-lifecycle.patch"
     "$here/patches/wlroots/0042-vulkan-pass-requirements.patch"
     "$here/patches/wlroots/0043-scene-buffer-windows-scrgb.patch"
+    "$here/patches/wlroots/0044-color-management-extended-target-volume.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}

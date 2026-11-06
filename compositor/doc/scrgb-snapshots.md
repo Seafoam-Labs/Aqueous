@@ -48,6 +48,36 @@ to identifying scRGB exclusively through `wlr_scene_surface_try_from_buffer`.
 
 ## Physical HDR acceptance
 
+### Vulkan discovery
+
+Windows-scRGB support and `extended_target_volume` are separate capabilities.
+The latter permits a parametric target volume to extend beyond the primary
+volume; it does not change the predefined Windows descriptor's 80-nit mapping.
+Aqueous advertises it only with its scRGB-capable Vulkan-effects path. Mesa's
+Wayland WSI requires it to enumerate `VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT`.
+
+`bash scripts/test-proton-hdr-color-management.sh` checks the advertisement at
+versions 1, 2 and 3 and creates/commits extended-linear parametric descriptions
+with a 1000-nit target above the default 80-nit primary maximum at v1 and v3.
+For a separately built `-Dvulkan-effects=false` compositor, run:
+
+```sh
+AQUEOUS_EXPECT_WINDOWS_HDR=0 AQUEOUS_COMPOSITOR_BIN=/path/to/no-effects/aqueous \
+  bash scripts/test-proton-hdr-color-management.sh
+```
+
+For driver-level verification, build the `vulkan-fallback-demo` branch of
+[scRGB-test](https://github.com/kode54/scRGB-test/tree/vulkan-fallback-demo).
+Compare `scrgb-test --vulkan` with `scrgb-test --vulkan --assume-scrgb` against
+the compositor under test. Both must report FP16 + EXTENDED_SRGB_LINEAR as
+available and take the tagged path without needing the workaround. The demo
+models Wine's selection: enumeration gates a pass-through swapchain with an
+explicit `create_windows_scrgb` description. It does not test every Vulkan
+driver's parametric color mapping. Record the driver and whether the output
+is SDR or physical HDR when reporting results.
+
+### HDR brightness
+
 Use [scRGB-test](https://github.com/kode54/scRGB-test) on a PQ/HDR output:
 
 1. Compare settled content with snapshot-driven resize, layout/workspace

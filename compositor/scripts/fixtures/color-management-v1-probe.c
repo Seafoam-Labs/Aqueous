@@ -50,6 +50,7 @@ struct probe {
 	bool perceptual;
 	bool windows_scrgb;
 	bool windows_bt2100;
+	bool extended_target_volume;
 	bool ext_linear;
 	bool pq;
 	bool srgb;
@@ -91,6 +92,8 @@ static void manager_supported_feature(void *data,
 		probe->windows_scrgb = true;
 	} else if (feature == WP_COLOR_MANAGER_V1_FEATURE_WINDOWS_BT2100) {
 		probe->windows_bt2100 = true;
+	} else if (feature == WP_COLOR_MANAGER_V1_FEATURE_EXTENDED_TARGET_VOLUME) {
+		probe->extended_target_volume = true;
 	}
 }
 
@@ -321,7 +324,44 @@ static const struct wp_image_description_info_v1_listener information_listener =
 	.target_max_fall = information_target_max_fall,
 };
 
-int main(void) {
+/* Unlike the predefined Windows descriptor, this exercises the parametric
+ * extended-volume contract used by Vulkan WSI. The default primary maximum is
+ * 80 nits; a 1000-nit target must be accepted at both v1 and v3. */
+static void check_extended_description(struct probe *probe,
+		struct wp_color_manager_v1 *manager) {
+	struct wp_image_description_creator_params_v1 *creator =
+		wp_color_manager_v1_create_parametric_creator(manager);
+	wp_image_description_creator_params_v1_set_tf_named(creator,
+		WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_EXT_LINEAR);
+	wp_image_description_creator_params_v1_set_primaries_named(creator,
+		WP_COLOR_MANAGER_V1_PRIMARIES_SRGB);
+	wp_image_description_creator_params_v1_set_mastering_luminance(creator, 0, 1000);
+	struct wp_image_description_v1 *description =
+		wp_image_description_creator_params_v1_create(creator);
+	struct description_result result = {0};
+	wp_image_description_v1_add_listener(description, &description_listener, &result);
+	checked_roundtrip(probe, "extended parametric target volume");
+	require_condition(result.ready && !result.failed,
+		"target volume beyond primary luminance range was rejected");
+	struct wl_surface *surface = wl_compositor_create_surface(probe->compositor);
+	struct wp_color_management_surface_v1 *color =
+		wp_color_manager_v1_get_surface(manager, surface);
+	wp_color_management_surface_v1_set_image_description(color, description,
+		WP_COLOR_MANAGER_V1_RENDER_INTENT_PERCEPTUAL);
+	wl_surface_commit(surface);
+	checked_roundtrip(probe, "extended parametric surface commit");
+	wp_color_management_surface_v1_destroy(color);
+	wl_surface_destroy(surface);
+	wp_image_description_v1_destroy(description);
+}
+
+int main(int argc, char **argv) {
+	bool expect_windows_hdr = true;
+	if (argc == 2 && strcmp(argv[1], "--no-windows-hdr") == 0) {
+		expect_windows_hdr = false;
+	} else {
+		require_condition(argc == 1, "usage: color-management-v1-probe [--no-windows-hdr]");
+	}
 	struct probe probe = {0};
 	probe.display = wl_display_connect(NULL);
 	require_condition(probe.display != NULL, "could not connect to Wayland display");
@@ -333,12 +373,35 @@ int main(void) {
 	require_condition(probe.compositor != NULL, "wl_compositor was not advertised");
 	require_condition(probe.output != NULL, "wl_output was not advertised");
 	require_condition(probe.manager != NULL, "wp_color_manager_v1 was not advertised");
+	if (!expect_windows_hdr) {
+		require_condition(!probe.windows_scrgb && !probe.windows_bt2100 &&
+			!probe.extended_target_volume && probe.manager_done,
+			"non-effects build advertised Windows HDR or extended target volume");
+		struct probe version1 = {.display = probe.display};
+		version1.manager = wl_registry_bind(probe.registry, probe.manager_global_name,
+			&wp_color_manager_v1_interface, 1);
+		wp_color_manager_v1_add_listener(version1.manager, &manager_listener, &version1);
+		checked_roundtrip(&probe, "version 1 non-effects capabilities");
+		require_condition(!version1.windows_scrgb && !version1.windows_bt2100 &&
+			!version1.extended_target_volume && version1.manager_done,
+			"non-effects version 1 binding advertised extended HDR capabilities");
+		wp_color_manager_v1_destroy(version1.manager);
+		wp_color_manager_v1_destroy(probe.manager);
+		wl_output_destroy(probe.output);
+		wl_compositor_destroy(probe.compositor);
+		wl_registry_destroy(probe.registry);
+		wl_display_disconnect(probe.display);
+		puts("PASS: non-effects build omits Windows HDR and extended target volume at v1/v2");
+		return EXIT_SUCCESS;
+	}
 	require_condition(probe.manager_global_version >= 3,
 		"wp_color_manager_v1 global is older than version 3");
 	require_condition(probe.manager_done, "color-manager capability list was incomplete");
 	require_condition(probe.perceptual, "perceptual rendering intent is missing");
 	require_condition(probe.windows_scrgb, "Windows-scRGB feature is missing");
 	require_condition(probe.windows_bt2100, "Windows-BT.2100 feature is missing");
+	require_condition(probe.extended_target_volume,
+		"Windows-scRGB was advertised without extended target volume");
 	require_condition(probe.ext_linear && probe.srgb,
 		"Windows-scRGB was advertised without its renderer encoding");
 	require_condition(probe.pq && probe.bt2020,
@@ -362,10 +425,14 @@ int main(void) {
 		"version 1 client lost the perceptual rendering intent");
 	require_condition(version1.windows_scrgb,
 		"version 1 client lost Windows-scRGB compatibility");
+	require_condition(version1.extended_target_volume,
+		"version 1 client lost extended target volume required by Vulkan WSI");
 	require_condition(!version1.windows_bt2100,
 		"version 1 client received a version 3-only feature");
 	require_condition(version1.ext_linear && version1.srgb,
 		"version 1 Windows-scRGB encoding capabilities were incomplete");
+	check_extended_description(&probe, version1.manager);
+	check_extended_description(&probe, probe.manager);
 
 	struct description_result version1_scrgb_result = {0};
 	struct wp_image_description_v1 *version1_scrgb =
@@ -434,6 +501,8 @@ int main(void) {
 		"version 2 color-manager capability list was incomplete");
 	require_condition(version2.windows_scrgb,
 		"version 2 client lost Windows-scRGB compatibility");
+	require_condition(version2.extended_target_volume,
+		"version 2 client lost extended target volume");
 	require_condition(!version2.windows_bt2100,
 		"version 2 client received a version 3-only feature");
 	struct description_result version2_scrgb_result = {0};
