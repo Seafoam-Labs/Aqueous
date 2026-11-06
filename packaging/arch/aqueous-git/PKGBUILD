@@ -99,7 +99,6 @@ package_aqueous-shell-pearl-git() {
     depends=("pearl-capture-picker-git>=1" "xdg-desktop-portal-aqueous-git=$pkgver-$pkgrel" "aqueous-integration-pearl-$_channel=$pkgver-$pkgrel" 'pearl-git')
 }
 package_aqueous-git() {
-    replaces=('aqueous-desktop-git')
     conflicts=('aqueous-desktop-git')
     provides=("aqueous-desktop-git=$pkgver-$pkgrel")
     pkgdesc='Aqueous Git desktop with optional shell presets'
