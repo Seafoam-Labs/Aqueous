@@ -950,3 +950,575 @@
  	zwlr_screencopy_frame_v1_add_listener(frame, &wlr_frame_listener, cast);
  	logprint(TRACE, "wlroots: callbacks registered");
  }
+--- a/include/screencast_common.h
++++ b/include/screencast_common.h
+@@ -117,6 +117,7 @@ struct xdpw_screencast_context {
+ 	struct ext_output_image_capture_source_manager_v1 *ext_output_image_capture_source_manager;
+ 	struct ext_foreign_toplevel_image_capture_source_manager_v1 *ext_foreign_toplevel_image_capture_source_manager;
+ 	struct ext_image_copy_capture_manager_v1 *ext_image_copy_capture_manager;
++	struct aqueous_capture_color_manager_v1 *capture_color_manager;
+ 	struct ext_foreign_toplevel_list_v1 *ext_foreign_toplevel_list;
+ 	struct wl_shm *shm;
+ 	struct zwp_linux_dmabuf_v1 *linux_dmabuf;
+@@ -156,6 +157,13 @@ struct xdpw_format_modifier_pair {
+ 	uint64_t modifier;
+ };
+ 
++// Encoding the compositor announced for one buffer format.
++struct xdpw_format_color {
++	uint32_t fourcc;
++	enum spa_video_transfer_function transfer_function;
++	enum spa_video_color_primaries color_primaries;
++};
++
+ struct xdpw_shm_format {
+ 	uint32_t fourcc;
+ 	uint32_t stride;
+@@ -164,6 +172,7 @@ struct xdpw_shm_format {
+ struct xdpw_buffer_constraints {
+ 	struct wl_array dmabuf_format_modifier_pairs;
+ 	struct wl_array shm_formats;
++	struct wl_array format_colors; // struct xdpw_format_color
+ 	uint32_t width, height;
+ 	dev_t dmabuf_device;
+ 	bool dirty;
+@@ -172,6 +181,9 @@ struct xdpw_buffer_constraints {
+ struct xdpw_screencast_ext_session {
+ 	struct ext_image_copy_capture_session_v1 *capture_session;
+ 	struct ext_image_copy_capture_frame_v1 *frame;
++	struct aqueous_capture_color_session_v1 *color_session;
++	// The session's done arrived; constraints wait for the color description.
++	bool constraints_done;
+ };
+ 
+ struct xdpw_screencast_wlr_session {
+@@ -248,6 +260,8 @@ void xdpw_buffer_destroy(struct xdpw_buffer *buffer);
+ void xdpw_buffer_constraints_init(struct xdpw_buffer_constraints *constraints);
+ void xdpw_buffer_constraints_finish(struct xdpw_buffer_constraints *constraints);
+ bool xdpw_buffer_constraints_move(struct xdpw_buffer_constraints *dst, struct xdpw_buffer_constraints *src);
++const struct xdpw_format_color *xdpw_format_color_lookup(
++	struct xdpw_screencast_instance *cast, uint32_t fourcc);
+ uint32_t xdpw_count_dmabuf_modifiers(struct xdpw_screencast_instance *cast, uint32_t drm_format);
+ void xdpw_query_dmabuf_modifiers(struct xdpw_screencast_instance *cast, uint32_t drm_format,
+ 		uint64_t *modifiers, uint32_t num_modifiers);
+--- /dev/null
++++ b/protocols/aqueous-capture-color-v1.xml
+@@ -0,0 +1,148 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<protocol name="aqueous_capture_color_v1">
++  <copyright>
++    Copyright © 2026 Seafoam Labs
++
++    Permission is hereby granted, free of charge, to any person obtaining a
++    copy of this software and associated documentation files (the "Software"),
++    to deal in the Software without restriction, including without limitation
++    the rights to use, copy, modify, merge, publish, distribute, sublicense,
++    and/or sell copies of the Software, and to permit persons to whom the
++    Software is furnished to do so, subject to the following conditions:
++
++    The above copyright notice and this permission notice shall be included
++    in all copies or substantial portions of the Software.
++
++    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
++    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
++    THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
++    DEALINGS IN THE SOFTWARE.
++  </copyright>
++  <interface name="aqueous_capture_color_manager_v1" version="2">
++    <description summary="color information for individual captured frames">
++      This Aqueous extension describes the pixels delivered by an
++      ext_image_copy_capture_frame_v1. It does not grant capture access or
++      modify the standard capture protocol. Color information is associated
++      with the actual copied buffer, not the output state at request time.
++    </description>
++    <request name="destroy" type="destructor"/>
++    <enum name="error">
++      <entry name="invalid_frame" value="0" summary="frame is inert or capture has started"/>
++      <entry name="duplicate" value="1" summary="frame already has a color info object"/>
++    </enum>
++    <request name="get_frame_info">
++      <description summary="describe the pixels of a pending frame">
++        Call before the frame's capture request. At most one live info object
++        may be associated with a frame. Destroying the manager does not affect
++        its info objects. A successful frame receives a complete description
++        or unavailable before its ready event. Failed or destroyed frames may
++        receive unavailable; no description is usable unless the frame succeeds.
++      </description>
++      <arg name="info" type="new_id" interface="aqueous_capture_color_info_v1"/>
++      <arg name="frame" type="object" interface="ext_image_copy_capture_frame_v1"/>
++    </request>
++    <request name="get_session_info" since="2">
++      <description summary="describe the encoding of each offered format">
++        Creates an object announcing, for each buffer format of the session's
++        current constraints, the encoding a successful frame in that format
++        is expected to receive. This lets clients label a stream before its
++        first frame, for example in PipeWire format negotiation.
++
++        The first description is sent in response to this request. A new
++        description follows every constraints update of the session, after
++        the session's own done event. Session destruction makes the object
++        inert. Per-frame information from get_frame_info remains
++        authoritative for individual frames.
++      </description>
++      <arg name="info" type="new_id" interface="aqueous_capture_color_session_v1"/>
++      <arg name="session" type="object" interface="ext_image_copy_capture_session_v1"/>
++    </request>
++  </interface>
++  <interface name="aqueous_capture_color_session_v1" version="2">
++    <description summary="per-format encoding of a capture session">
++      A description consists of zero or more format events, then done. Each
++      description replaces the previous one completely. Formats without a
++      format event have unknown encoding. A format code applies to both SHM
++      and DMA-BUF buffers. Primaries, transfer functions and luminances use
++      the meaning and units of aqueous_capture_color_info_v1.encoding.
++    </description>
++    <request name="destroy" type="destructor"/>
++    <event name="format">
++      <description summary="expected encoding of one buffer format">
++        format is a DRM fourcc code, as in ext_image_copy_capture_session_v1
++        dmabuf_format; SHM formats are reported with their DRM fourcc.
++      </description>
++      <arg name="format" type="uint"/>
++      <arg name="primaries" type="uint" enum="aqueous_capture_color_info_v1.primaries"/>
++      <arg name="transfer_function" type="uint" enum="aqueous_capture_color_info_v1.transfer_function"/>
++      <arg name="reference_white" type="uint"/>
++      <arg name="sdr_white" type="uint"/>
++    </event>
++    <event name="done"/>
++  </interface>
++  <interface name="aqueous_capture_color_info_v1" version="1">
++    <description summary="immutable description of delivered capture pixels">
++      A description consists of encoding, optional mastering_display and
++      content_light events, then done. Alternatively, unavailable is sent.
++      Exactly one of done or unavailable is sent unless this object is destroyed.
++      Events describe destination pixels: an SDR conversion has SDR metadata,
++      while native SHM capture retains its source encoding. Information remains
++      valid after the frame is destroyed. Destroy this object when done with it.
++      Scene captures describe the rendered destination, including conversion of
++      HDR inputs to SDR. A described SDR scene frame uses sRGB primaries and
++      gamma22, not the transfer function of its original surface buffers.
++      Unsupported input conversion or unproven copy paths yield unavailable.
++      This version does not guarantee metadata for every renderer, DMA-BUF or
++      cursor path; clients must handle unavailable and must not infer encoding
++      from buffer bit depth. All luminances use 0.0001 cd/m² units.
++    </description>
++    <request name="destroy" type="destructor"/>
++    <enum name="primaries">
++      <entry name="srgb" value="1" summary="sRGB/BT.709 primaries, D65"/>
++      <entry name="bt2020" value="2" summary="BT.2020 primaries, D65"/>
++    </enum>
++    <enum name="transfer_function">
++      <entry name="gamma22" value="1" summary="power-law gamma 2.2"/>
++      <entry name="srgb" value="2" summary="sRGB piecewise transfer function"/>
++      <entry name="pq" value="3" summary="ST 2084 PQ, 1.0 is 10000 cd/m²"/>
++      <entry name="linear" value="4" summary="linear light"/>
++      <entry name="bt1886" value="5" summary="BT.1886 transfer function"/>
++    </enum>
++    <event name="encoding">
++      <description summary="destination encoding and white levels">
++        reference_white is the nominal reference luminance of the transfer
++        function (203 cd/m² for PQ, 80 for SDR). sdr_white is the diffuse white
++        used to place SDR content in the source HDR image, or 80 for SDR output.
++        Neither value is a peak luminance. They are distinct from optional
++        mastering metadata. SDR fallback pixels are gamma22 with sRGB primaries.
++      </description>
++      <arg name="primaries" type="uint" enum="primaries"/>
++      <arg name="transfer_function" type="uint" enum="transfer_function"/>
++      <arg name="reference_white" type="uint"/>
++      <arg name="sdr_white" type="uint"/>
++    </event>
++    <event name="mastering_display">
++      <description summary="optional mastering display metadata">
++        Chromaticities are CIE 1931 xy values in millionths. This event is
++        omitted when the source has no usable mastering primaries/luminances.
++      </description>
++      <arg name="red_x" type="uint"/><arg name="red_y" type="uint"/>
++      <arg name="green_x" type="uint"/><arg name="green_y" type="uint"/>
++      <arg name="blue_x" type="uint"/><arg name="blue_y" type="uint"/>
++      <arg name="white_x" type="uint"/><arg name="white_y" type="uint"/>
++      <arg name="min_luminance" type="uint"/><arg name="max_luminance" type="uint"/>
++    </event>
++    <event name="content_light">
++      <description summary="optional content light metadata">
++        A zero value indicates that the corresponding value is unspecified.
++        This event is omitted if both values are unspecified.
++      </description>
++      <arg name="max_cll" type="uint"/><arg name="max_fall" type="uint"/>
++    </event>
++    <event name="done"/>
++    <event name="unavailable"/>
++  </interface>
++</protocol>
+--- a/protocols/meson.build
++++ b/protocols/meson.build
+@@ -13,6 +13,7 @@ client_protocols = [
+ 	wl_protocol_dir / 'staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml',
+ 	wl_protocol_dir / 'staging/ext-foreign-toplevel-list/ext-foreign-toplevel-list-v1.xml',
+ 	'wlr-screencopy-unstable-v1.xml',
++	'aqueous-capture-color-v1.xml',
+ ]
+ 
+ wl_proto_files = []
+--- a/src/screencast/ext_image_copy.c
++++ b/src/screencast/ext_image_copy.c
+@@ -3,6 +3,7 @@
+ #include "linux-dmabuf-unstable-v1-client-protocol.h"
+ #include "ext-image-capture-source-v1-client-protocol.h"
+ #include "ext-image-copy-capture-v1-client-protocol.h"
++#include "aqueous-capture-color-v1-client-protocol.h"
+ #include <drm_fourcc.h>
+ #include <fcntl.h>
+ #include <limits.h>
+@@ -117,11 +118,7 @@ static void ext_session_dmabuf_format(void *data,
+ 	free(fmt_name);
+ }
+ 
+-static void ext_session_done(void *data,
+-		struct ext_image_copy_capture_session_v1 *ext_image_copy_capture_session_v1) {
+-	struct xdpw_screencast_instance *cast = data;
+-
+-	logprint(TRACE, "ext: done handler");
++static void ext_apply_constraints(struct xdpw_screencast_instance *cast) {
+ 
+ 	// We can only calculate the stride now we have both formats and width
+ 	struct xdpw_shm_format *fmt;
+@@ -143,6 +140,19 @@ static void ext_session_done(void *data,
+ 	}
+ }
+ 
++static void ext_session_done(void *data,
++		struct ext_image_copy_capture_session_v1 *ext_image_copy_capture_session_v1) {
++	struct xdpw_screencast_instance *cast = data;
++
++	logprint(TRACE, "ext: done handler");
++	if (cast->ext_session.color_session) {
++		// The compositor describes formats right after each session done.
++		cast->ext_session.constraints_done = true;
++		return;
++	}
++	ext_apply_constraints(cast);
++}
++
+ static void ext_session_stopped(void *data,
+ 		struct ext_image_copy_capture_session_v1 *ext_image_copy_capture_session_v1) {
+ 	struct xdpw_screencast_instance *cast = data;
+@@ -160,6 +170,75 @@ static const struct ext_image_copy_capture_session_v1_listener ext_session_liste
+ 	.stopped = ext_session_stopped,
+ };
+ 
++static void ext_color_format(void *data,
++		struct aqueous_capture_color_session_v1 *color_session, uint32_t format,
++		uint32_t primaries, uint32_t transfer_function,
++		uint32_t reference_white, uint32_t sdr_white) {
++	struct xdpw_screencast_instance *cast = data;
++
++	struct xdpw_format_color color = { .fourcc = format };
++	switch (primaries) {
++	case AQUEOUS_CAPTURE_COLOR_INFO_V1_PRIMARIES_SRGB:
++		color.color_primaries = SPA_VIDEO_COLOR_PRIMARIES_BT709;
++		break;
++	case AQUEOUS_CAPTURE_COLOR_INFO_V1_PRIMARIES_BT2020:
++		color.color_primaries = SPA_VIDEO_COLOR_PRIMARIES_BT2020;
++		break;
++	default:
++		return;
++	}
++	switch (transfer_function) {
++	case AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_GAMMA22:
++		color.transfer_function = SPA_VIDEO_TRANSFER_GAMMA22;
++		break;
++	case AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_SRGB:
++		color.transfer_function = SPA_VIDEO_TRANSFER_SRGB;
++		break;
++	case AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_PQ:
++		color.transfer_function = SPA_VIDEO_TRANSFER_SMPTE2084;
++		break;
++	case AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_LINEAR:
++		color.transfer_function = SPA_VIDEO_TRANSFER_GAMMA10;
++		break;
++	case AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_BT1886:
++		color.transfer_function = SPA_VIDEO_TRANSFER_BT709;
++		break;
++	default:
++		return;
++	}
++
++	struct xdpw_format_color *entry = wl_array_add(&cast->pending_constraints.format_colors,
++		sizeof(*entry));
++	if (entry == NULL) {
++		logprint(WARN, "ext: allocation for format color failed");
++		return;
++	}
++	*entry = color;
++	cast->pending_constraints.dirty = true;
++	char *fmt_name = drmGetFormatName(format);
++	logprint(DEBUG, "ext: format %s (%X): transfer %u, primaries %u, reference white %u, sdr white %u",
++		fmt_name, format, color.transfer_function, color.color_primaries,
++		reference_white, sdr_white);
++	free(fmt_name);
++}
++
++static void ext_color_done(void *data,
++		struct aqueous_capture_color_session_v1 *color_session) {
++	struct xdpw_screencast_instance *cast = data;
++
++	logprint(TRACE, "ext: color done handler");
++	if (!cast->ext_session.constraints_done) {
++		return;
++	}
++	cast->ext_session.constraints_done = false;
++	ext_apply_constraints(cast);
++}
++
++static const struct aqueous_capture_color_session_v1_listener ext_color_listener = {
++	.format = ext_color_format,
++	.done = ext_color_done,
++};
++
+ static void ext_frame_transform(void *data,
+ 		struct ext_image_copy_capture_frame_v1 *ext_image_copy_capture_frame_v1,
+ 		uint32_t transform) {
+@@ -283,6 +362,13 @@ static int ext_register_session_cb(struct xdpw_screencast_instance *cast) {
+ 			cast->target->with_cursor ? EXT_IMAGE_COPY_CAPTURE_MANAGER_V1_OPTIONS_PAINT_CURSORS : 0);
+ 	ext_image_copy_capture_session_v1_add_listener(cast->ext_session.capture_session,
+ 			&ext_session_listener, cast);
++	if (cast->ctx->capture_color_manager) {
++		cast->ext_session.constraints_done = false;
++		cast->ext_session.color_session = aqueous_capture_color_manager_v1_get_session_info(
++			cast->ctx->capture_color_manager, cast->ext_session.capture_session);
++		aqueous_capture_color_session_v1_add_listener(cast->ext_session.color_session,
++			&ext_color_listener, cast);
++	}
+ 	logprint(TRACE, "ext: session callbacks registered");
+ 	return 0;
+ }
+@@ -326,6 +412,11 @@ void xdpw_ext_ic_session_close(struct xdpw_screencast_instance *cast) {
+ 		ext_image_copy_capture_frame_v1_destroy(cast->ext_session.frame);
+ 		cast->ext_session.frame = NULL;
+ 	}
++	if (cast->ext_session.color_session) {
++		aqueous_capture_color_session_v1_destroy(cast->ext_session.color_session);
++		cast->ext_session.color_session = NULL;
++	}
++	cast->ext_session.constraints_done = false;
+ 	if (cast->ext_session.capture_session) {
+ 		ext_image_copy_capture_session_v1_destroy(cast->ext_session.capture_session);
+ 		cast->ext_session.capture_session = NULL;
+--- a/src/screencast/pipewire_screencast.c
++++ b/src/screencast/pipewire_screencast.c
+@@ -40,8 +40,21 @@ static struct spa_pod *build_buffer(struct spa_pod_builder *b, uint32_t blocks,
+ 	return spa_pod_builder_pop(b, &f[0]);
+ }
+ 
++// Without these properties consumers assume SDR, so HDR (PQ) and 10-bit
++// SDR streams are described whenever the compositor announced the encoding.
++static void add_colorimetry(struct spa_pod_builder *b, const struct xdpw_format_color *color) {
++	if (color == NULL) {
++		return;
++	}
++	spa_pod_builder_add(b,
++		SPA_FORMAT_VIDEO_transferFunction, SPA_POD_Id(color->transfer_function),
++		SPA_FORMAT_VIDEO_colorPrimaries, SPA_POD_Id(color->color_primaries),
++		0);
++}
++
+ static struct spa_pod *fixate_format(struct spa_pod_builder *b, enum spa_video_format format,
+-		uint32_t width, uint32_t height, uint32_t framerate, uint64_t *modifier)
++		uint32_t width, uint32_t height, uint32_t framerate, uint64_t *modifier,
++		const struct xdpw_format_color *color)
+ {
+ 	struct spa_pod_frame f[1];
+ 
+@@ -63,6 +76,7 @@ static struct spa_pod *fixate_format(struct spa_pod_builder *b, enum spa_video_f
+ 		spa_pod_builder_prop(b, SPA_FORMAT_VIDEO_modifier, SPA_POD_PROP_FLAG_MANDATORY);
+ 		spa_pod_builder_long(b, *modifier);
+ 	}
++	add_colorimetry(b, color);
+ 	spa_pod_builder_add(b, SPA_FORMAT_VIDEO_size,
+ 		SPA_POD_Rectangle(&SPA_RECTANGLE(width, height)),
+ 		0);
+@@ -82,7 +96,7 @@ static struct spa_pod *fixate_format(struct spa_pod_builder *b, enum spa_video_f
+ 
+ static struct spa_pod *build_format(struct spa_pod_builder *b, enum spa_video_format format,
+ 		uint32_t width, uint32_t height, uint32_t framerate,
+-		uint64_t *modifiers, int modifier_count) {
++		uint64_t *modifiers, int modifier_count, const struct xdpw_format_color *color) {
+ 	struct spa_pod_frame f[2];
+ 	int i, c;
+ 
+@@ -113,6 +127,7 @@ static struct spa_pod *build_format(struct spa_pod_builder *b, enum spa_video_fo
+ 		}
+ 		spa_pod_builder_pop(b, &f[1]);
+ 	}
++	add_colorimetry(b, color);
+ 	spa_pod_builder_add(b, SPA_FORMAT_VIDEO_size,
+ 		SPA_POD_Rectangle(&SPA_RECTANGLE(width, height)),
+ 		0);
+@@ -152,40 +167,59 @@ static void add_pod(struct wl_array *params, const struct spa_pod *pod) {
+ 	}
+ }
+ 
++static bool format_is_pq(struct xdpw_screencast_instance *cast, uint32_t fourcc) {
++	const struct xdpw_format_color *color = xdpw_format_color_lookup(cast, fourcc);
++	return color != NULL && color->transfer_function == SPA_VIDEO_TRANSFER_SMPTE2084;
++}
++
++// PipeWire takes the first producer format the consumer accepts. Many
++// consumers (OBS, browsers) accept 10-bit RGB but ignore colorimetry and would
++// read PQ as sRGB, so SDR formats come first. Consumers that require
++// SMPTE 2084 in their own EnumFormat reject the SDR formats and still get PQ.
+ static void build_formats(struct spa_pod_builder *builder, struct xdpw_screencast_instance *cast,
+ 		struct wl_array *params) {
+-	if (!cast->avoid_dmabufs) {
+-		uint32_t last_format = DRM_FORMAT_INVALID;
+-		struct xdpw_format_modifier_pair *fm_pair;
+-		wl_array_for_each(fm_pair, &cast->current_constraints.dmabuf_format_modifier_pairs) {
+-			if (last_format == fm_pair->fourcc) {
+-				continue;
++	for (int pq = 0; pq < 2; pq++) {
++		if (!cast->avoid_dmabufs) {
++			uint32_t last_format = DRM_FORMAT_INVALID;
++			struct xdpw_format_modifier_pair *fm_pair;
++			wl_array_for_each(fm_pair, &cast->current_constraints.dmabuf_format_modifier_pairs) {
++				if (last_format == fm_pair->fourcc) {
++					continue;
++				}
++				if (format_is_pq(cast, fm_pair->fourcc) != pq) {
++					continue;
++				}
++				enum spa_video_format pw_format = xdpw_format_pw_from_drm_fourcc(fm_pair->fourcc);
++				if (pw_format == SPA_VIDEO_FORMAT_UNKNOWN) {
++					continue;
++				}
++				last_format = fm_pair->fourcc;
++
++				uint32_t modifier_count;
++				uint64_t *modifiers = NULL;
++				build_modifierlist(cast, fm_pair->fourcc, &modifiers, &modifier_count);
++				if (modifier_count > 0) {
++					add_pod(params, build_format(builder, pw_format,
++							cast->current_constraints.width, cast->current_constraints.height,
++							cast->framerate, modifiers, modifier_count,
++							xdpw_format_color_lookup(cast, fm_pair->fourcc)));
++				}
++				free(modifiers);
+ 			}
+-			enum spa_video_format pw_format = xdpw_format_pw_from_drm_fourcc(fm_pair->fourcc);
+-			if (pw_format == SPA_VIDEO_FORMAT_UNKNOWN) {
++		}
++
++		uint32_t *format;
++		wl_array_for_each(format, &cast->current_constraints.shm_formats) {
++			if (format_is_pq(cast, *format) != pq) {
+ 				continue;
+ 			}
+-			last_format = fm_pair->fourcc;
+-
+-			uint32_t modifier_count;
+-			uint64_t *modifiers = NULL;
+-			build_modifierlist(cast, fm_pair->fourcc, &modifiers, &modifier_count);
+-			if (modifier_count > 0) {
++			enum spa_video_format pw_format = xdpw_format_pw_from_drm_fourcc(*format);
++			if (pw_format != SPA_VIDEO_FORMAT_UNKNOWN) {
+ 				add_pod(params, build_format(builder, pw_format,
+-						cast->current_constraints.width, cast->current_constraints.height,
+-						cast->framerate, modifiers, modifier_count));
++							cast->current_constraints.width, cast->current_constraints.height,
++							cast->framerate, NULL, 0,
++							xdpw_format_color_lookup(cast, *format)));
+ 			}
+-			free(modifiers);
+-		}
+-	}
+-
+-	uint32_t *format;
+-	wl_array_for_each(format, &cast->current_constraints.shm_formats) {
+-		enum spa_video_format pw_format = xdpw_format_pw_from_drm_fourcc(*format);
+-		if (pw_format != SPA_VIDEO_FORMAT_UNKNOWN) {
+-			add_pod(params, build_format(builder, pw_format,
+-						cast->current_constraints.width, cast->current_constraints.height,
+-						cast->framerate, NULL, 0));
+ 		}
+ 	}
+ }
+@@ -466,7 +500,8 @@ static void pwr_handle_stream_param_changed(void *data, uint32_t id,
+ fixate_format:
+ 
+ 			add_pod(&params, fixate_format(&builder.b, cast->pwr_format.format,
+-						cast->current_constraints.width, cast->current_constraints.height, cast->framerate, &modifier));
++						cast->current_constraints.width, cast->current_constraints.height, cast->framerate, &modifier,
++						xdpw_format_color_lookup(cast, fourcc)));
+ 
+ 			build_formats(&builder.b, cast, &params);
+ 
+--- a/src/screencast/screencast_common.c
++++ b/src/screencast/screencast_common.c
+@@ -450,11 +450,13 @@ void xdpw_buffer_constraints_init(struct xdpw_buffer_constraints *constraints) {
+ 	*constraints = (struct xdpw_buffer_constraints){ 0 };
+ 	wl_array_init(&constraints->dmabuf_format_modifier_pairs);
+ 	wl_array_init(&constraints->shm_formats);
++	wl_array_init(&constraints->format_colors);
+ }
+ 
+ void xdpw_buffer_constraints_finish(struct xdpw_buffer_constraints *constraints) {
+ 	wl_array_release(&constraints->dmabuf_format_modifier_pairs);
+ 	wl_array_release(&constraints->shm_formats);
++	wl_array_release(&constraints->format_colors);
+ 	*constraints = (struct xdpw_buffer_constraints){ 0 };
+ }
+ 
+@@ -471,6 +473,17 @@ bool xdpw_buffer_constraints_move(struct xdpw_buffer_constraints *dst, struct xd
+ 	return dirty;
+ }
+ 
++const struct xdpw_format_color *xdpw_format_color_lookup(
++		struct xdpw_screencast_instance *cast, uint32_t fourcc) {
++	struct xdpw_format_color *color;
++	wl_array_for_each(color, &cast->current_constraints.format_colors) {
++		if (color->fourcc == fourcc) {
++			return color;
++		}
++	}
++	return NULL;
++}
++
+ uint32_t xdpw_count_dmabuf_modifiers(struct xdpw_screencast_instance *cast, uint32_t drm_format) {
+ 	struct xdpw_buffer_constraints *constraints = &cast->current_constraints;
+ 	uint32_t modifiers = 0;
+--- a/src/screencast/wlr_screencast.c
++++ b/src/screencast/wlr_screencast.c
+@@ -6,6 +6,7 @@
+ #include "ext-image-capture-source-v1-client-protocol.h"
+ #include "ext-image-copy-capture-v1-client-protocol.h"
+ #include "ext-foreign-toplevel-list-v1-client-protocol.h"
++#include "aqueous-capture-color-v1-client-protocol.h"
+ #include <drm_fourcc.h>
+ #include <fcntl.h>
+ #include <limits.h>
+@@ -514,6 +515,13 @@ static void wlr_registry_handle_add(void *data, struct wl_registry *reg,
+ 				reg, id, &ext_image_copy_capture_manager_v1_interface, 1);
+ 	}
+ 
++	// Version 2 describes each format before frames, for stream colorimetry.
++	if (!strcmp(interface, aqueous_capture_color_manager_v1_interface.name) && ver >= 2) {
++		logprint(DEBUG, "wlroots: |-- registered to interface %s (Version %u)", interface, ver);
++		ctx->capture_color_manager = wl_registry_bind(
++				reg, id, &aqueous_capture_color_manager_v1_interface, 2);
++	}
++
+ 	if (!strcmp(interface, ext_foreign_toplevel_list_v1_interface.name)) {
+ 		logprint(DEBUG, "wlroots: |-- registered to interface %s (Version %u)", interface, ver);
+ 		ctx->ext_foreign_toplevel_list = wl_registry_bind(
+@@ -669,6 +677,9 @@ void xdpw_wlr_screencopy_finish(struct xdpw_screencast_context *ctx) {
+ 	if (ctx->ext_image_copy_capture_manager) {
+ 		ext_image_copy_capture_manager_v1_destroy(ctx->ext_image_copy_capture_manager);
+ 	}
++	if (ctx->capture_color_manager) {
++		aqueous_capture_color_manager_v1_destroy(ctx->capture_color_manager);
++	}
+ 	if (ctx->ext_output_image_capture_source_manager) {
+ 		ext_output_image_capture_source_manager_v1_destroy(ctx->ext_output_image_capture_source_manager);
+ 	}

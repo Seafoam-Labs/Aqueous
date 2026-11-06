@@ -1,16 +1,22 @@
+Capture formats, SDR conversion and per-frame/session color metadata.
+
 diff --git a/include/types/capture_output.h b/include/types/capture_output.h
 --- /dev/null
 +++ b/include/types/capture_output.h
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,73 @@
 +#ifndef TYPES_CAPTURE_OUTPUT_H
 +#define TYPES_CAPTURE_OUTPUT_H
 +
 +#include <wlr/interfaces/wlr_ext_image_capture_source_v1.h>
 +#include <wlr/types/wlr_ext_image_copy_capture_v1.h>
 +#include <wlr/types/wlr_output.h>
++#include <drm_fourcc.h>
++#include "types/screencopy_sdr.h"
 +
++// description is the source encoding for output sources; NULL for others.
 +bool capture_source_set_constraints(struct wlr_ext_image_capture_source_v1 *source,
-+	struct wlr_swapchain *swapchain, struct wlr_renderer *renderer, bool sdr_fallback);
++	struct wlr_swapchain *swapchain, struct wlr_renderer *renderer, bool sdr_fallback,
++	const struct wlr_output_image_description *description);
 +
 +bool capture_copy_output(struct wlr_ext_image_copy_capture_frame_v1 *frame,
 +	struct wlr_buffer *src, struct wlr_renderer *renderer,
@@ -29,11 +35,50 @@ diff --git a/include/types/capture_output.h b/include/types/capture_output.h
 +		 desc->primaries == WLR_COLOR_NAMED_PRIMARIES_SRGB);
 +}
 +
++#define CAPTURE_SDR_DESCRIPTION ((struct wlr_output_image_description) { \
++	.primaries = WLR_COLOR_NAMED_PRIMARIES_SRGB, \
++	.transfer_function = WLR_COLOR_TRANSFER_FUNCTION_GAMMA22, \
++})
++
++static inline bool capture_is_8bit(uint32_t format) {
++	switch (format) {
++	case DRM_FORMAT_XRGB8888:
++	case DRM_FORMAT_ARGB8888:
++	case DRM_FORMAT_XBGR8888:
++	case DRM_FORMAT_ABGR8888:
++		return true;
++	default:
++		return false;
++	}
++}
++
++static inline bool capture_is_pq(const struct wlr_output_image_description *desc) {
++	return desc && desc->transfer_function == WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ &&
++		capture_can_convert_sdr(desc);
++}
++
++// 8-bit cannot carry PQ usefully. Such destinations of a 10-bit PQ source
++// receive SDR (sRGB primaries, gamma 2.2) for both SHM and DMA-BUF.
++static inline bool capture_sdr_target(const struct wlr_output_image_description *desc,
++		uint32_t native, uint32_t format) {
++	return capture_is_pq(desc) && screencopy_is_10bit(native) && capture_is_8bit(format);
++}
++
++// Encoding a frame of this format receives under the source's current
++// constraints. Returns false when the encoding is not known in advance.
++bool capture_source_format_encoding(struct wlr_ext_image_capture_source_v1 *source,
++	uint32_t format, struct wlr_output_image_description *out);
++bool capture_output_source_format_encoding(struct wlr_ext_image_capture_source_v1 *source,
++	uint32_t format, struct wlr_output_image_description *out);
++bool capture_scene_source_format_encoding(struct wlr_ext_image_capture_source_v1 *source,
++	uint32_t format, struct wlr_output_image_description *out);
++
 +void capture_color_send(struct wlr_ext_image_copy_capture_frame_v1 *frame,
 +	const struct wlr_output_image_description *description);
 +
 +#endif
---- a/include/types/capture_shm.h
+diff --git a/include/types/capture_shm.h b/include/types/capture_shm.h
+--- /dev/null
 +++ b/include/types/capture_shm.h
 @@ -0,0 +1,48 @@
 +#ifndef TYPES_CAPTURE_SHM_H
@@ -84,6 +129,7 @@ diff --git a/include/types/capture_output.h b/include/types/capture_output.h
 +}
 +
 +#endif
+diff --git a/include/types/screencopy_sdr.h b/include/types/screencopy_sdr.h
 --- a/include/types/screencopy_sdr.h
 +++ b/include/types/screencopy_sdr.h
 @@ -7,7 +7,7 @@
@@ -129,6 +175,7 @@ diff --git a/include/types/capture_output.h b/include/types/capture_output.h
  		uint32_t format, const uint8_t *src, size_t src_stride,
  		uint8_t *dst, size_t dst_stride, int width, int height) {
  	bool bgr = format == DRM_FORMAT_XBGR2101010 || format == DRM_FORMAT_ABGR2101010;
+diff --git a/include/wlr/types/wlr_ext_image_copy_capture_v1.h b/include/wlr/types/wlr_ext_image_copy_capture_v1.h
 --- a/include/wlr/types/wlr_ext_image_copy_capture_v1.h
 +++ b/include/wlr/types/wlr_ext_image_copy_capture_v1.h
 @@ -4,6 +4,11 @@
@@ -143,7 +190,7 @@ diff --git a/include/types/capture_output.h b/include/types/capture_output.h
  #endif
  
  #ifndef WLR_TYPES_WLR_EXT_IMAGE_COPY_CAPTURE_V1_H
-@@ -84,4 +89,9 @@
+@@ -84,4 +89,11 @@
  bool wlr_ext_image_copy_capture_frame_v1_copy_buffer(struct wlr_ext_image_copy_capture_frame_v1 *frame,
  	struct wlr_buffer *src, struct wlr_renderer *renderer);
  
@@ -151,12 +198,14 @@ diff --git a/include/types/capture_output.h b/include/types/capture_output.h
 +struct wl_global *wlr_aqueous_capture_color_manager_v1_create(struct wl_display *display);
 +struct wlr_ext_image_copy_capture_frame_v1 *wlr_ext_image_copy_capture_frame_v1_from_resource(
 +	struct wl_resource *resource);
++struct wlr_ext_image_copy_capture_session_v1 *wlr_ext_image_copy_capture_session_v1_from_resource(
++	struct wl_resource *resource);
 +
  #endif
 diff --git a/protocol/aqueous-capture-color-v1.xml b/protocol/aqueous-capture-color-v1.xml
 --- /dev/null
 +++ b/protocol/aqueous-capture-color-v1.xml
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,148 @@
 +<?xml version="1.0" encoding="UTF-8"?>
 +<protocol name="aqueous_capture_color_v1">
 +  <copyright>
@@ -180,7 +229,7 @@ diff --git a/protocol/aqueous-capture-color-v1.xml b/protocol/aqueous-capture-co
 +    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 +    DEALINGS IN THE SOFTWARE.
 +  </copyright>
-+  <interface name="aqueous_capture_color_manager_v1" version="1">
++  <interface name="aqueous_capture_color_manager_v1" version="2">
 +    <description summary="color information for individual captured frames">
 +      This Aqueous extension describes the pixels delivered by an
 +      ext_image_copy_capture_frame_v1. It does not grant capture access or
@@ -203,6 +252,44 @@ diff --git a/protocol/aqueous-capture-color-v1.xml b/protocol/aqueous-capture-co
 +      <arg name="info" type="new_id" interface="aqueous_capture_color_info_v1"/>
 +      <arg name="frame" type="object" interface="ext_image_copy_capture_frame_v1"/>
 +    </request>
++    <request name="get_session_info" since="2">
++      <description summary="describe the encoding of each offered format">
++        Creates an object announcing, for each buffer format of the session's
++        current constraints, the encoding a successful frame in that format
++        is expected to receive. This lets clients label a stream before its
++        first frame, for example in PipeWire format negotiation.
++
++        The first description is sent in response to this request. A new
++        description follows every constraints update of the session, after
++        the session's own done event. Session destruction makes the object
++        inert. Per-frame information from get_frame_info remains
++        authoritative for individual frames.
++      </description>
++      <arg name="info" type="new_id" interface="aqueous_capture_color_session_v1"/>
++      <arg name="session" type="object" interface="ext_image_copy_capture_session_v1"/>
++    </request>
++  </interface>
++  <interface name="aqueous_capture_color_session_v1" version="2">
++    <description summary="per-format encoding of a capture session">
++      A description consists of zero or more format events, then done. Each
++      description replaces the previous one completely. Formats without a
++      format event have unknown encoding. A format code applies to both SHM
++      and DMA-BUF buffers. Primaries, transfer functions and luminances use
++      the meaning and units of aqueous_capture_color_info_v1.encoding.
++    </description>
++    <request name="destroy" type="destructor"/>
++    <event name="format">
++      <description summary="expected encoding of one buffer format">
++        format is a DRM fourcc code, as in ext_image_copy_capture_session_v1
++        dmabuf_format; SHM formats are reported with their DRM fourcc.
++      </description>
++      <arg name="format" type="uint"/>
++      <arg name="primaries" type="uint" enum="aqueous_capture_color_info_v1.primaries"/>
++      <arg name="transfer_function" type="uint" enum="aqueous_capture_color_info_v1.transfer_function"/>
++      <arg name="reference_white" type="uint"/>
++      <arg name="sdr_white" type="uint"/>
++    </event>
++    <event name="done"/>
 +  </interface>
 +  <interface name="aqueous_capture_color_info_v1" version="1">
 +    <description summary="immutable description of delivered capture pixels">
@@ -267,6 +354,7 @@ diff --git a/protocol/aqueous-capture-color-v1.xml b/protocol/aqueous-capture-co
 +    <event name="unavailable"/>
 +  </interface>
 +</protocol>
+diff --git a/protocol/meson.build b/protocol/meson.build
 --- a/protocol/meson.build
 +++ b/protocol/meson.build
 @@ -64,6 +64,8 @@
@@ -278,6 +366,7 @@ diff --git a/protocol/aqueous-capture-color-v1.xml b/protocol/aqueous-capture-co
  	# Other protocols
  	'drm': 'drm.xml',
  	'input-method-unstable-v2': 'input-method-unstable-v2.xml',
+diff --git a/types/ext_image_capture_source_v1/base.c b/types/ext_image_capture_source_v1/base.c
 --- a/types/ext_image_capture_source_v1/base.c
 +++ b/types/ext_image_capture_source_v1/base.c
 @@ -11,6 +11,8 @@
@@ -289,7 +378,7 @@ diff --git a/protocol/aqueous-capture-color-v1.xml b/protocol/aqueous-capture-co
  
  static void source_handle_destroy(struct wl_client *client,
  		struct wl_resource *source_resource) {
-@@ -97,66 +99,75 @@
+@@ -97,66 +99,91 @@
  	return format;
  }
  
@@ -302,10 +391,22 @@ diff --git a/protocol/aqueous-capture-color-v1.xml b/protocol/aqueous-capture-co
 +		}
  	}
 +	return true;
-+}
-+
+ }
+ 
+-bool wlr_ext_image_capture_source_v1_set_constraints_from_swapchain(struct wlr_ext_image_capture_source_v1 *source,
+-		struct wlr_swapchain *swapchain, struct wlr_renderer *renderer) {
+-	source->width = swapchain->width;
+-	source->height = swapchain->height;
+-
+-	uint32_t shm_format = get_swapchain_shm_format(swapchain, renderer);
+-	if (shm_format != DRM_FORMAT_INVALID) {
+-		uint32_t *shm_formats = calloc(1, sizeof(shm_formats[0]));
+-		if (shm_formats == NULL) {
+-			wlr_log(WLR_ERROR, "Allocation failed");
+-			return false;
 +bool capture_source_set_constraints(struct wlr_ext_image_capture_source_v1 *source,
-+		struct wlr_swapchain *swapchain, struct wlr_renderer *renderer, bool sdr_fallback) {
++		struct wlr_swapchain *swapchain, struct wlr_renderer *renderer, bool sdr_fallback,
++		const struct wlr_output_image_description *description) {
 +	// Prepare the complete replacement before notifying any sessions. In
 +	// particular, an unavailable read format must clear old SHM constraints.
 +	uint32_t native = get_swapchain_shm_format(swapchain, renderer);
@@ -322,64 +423,20 @@ diff --git a/protocol/aqueous-capture-color-v1.xml b/protocol/aqueous-capture-co
 +		if (len == 2) {
 +			formats[1] = DRM_FORMAT_XRGB8888;
 +		}
-+	}
-+	int drm_fd = wlr_renderer_get_drm_fd(renderer);
-+	if (swapchain->allocator &&
-+			(swapchain->allocator->buffer_caps & WLR_BUFFER_CAP_DMABUF) && drm_fd >= 0) {
-+		struct stat st;
-+		if (fstat(drm_fd, &st) != 0) {
-+			goto error;
-+		}
-+		device = st.st_rdev;
-+		if (!add_drm_format(&dmabuf, &swapchain->format)) {
-+			goto error;
-+		}
-+		const struct wlr_drm_format_set *render_formats = wlr_renderer_get_render_formats(renderer);
-+		assert(render_formats);
-+		uint32_t fallbacks[] = {DRM_FORMAT_ARGB8888, DRM_FORMAT_XRGB8888};
-+		for (size_t i = 0; i < sizeof(fallbacks) / sizeof(fallbacks[0]); i++) {
-+			const struct wlr_drm_format *fmt = wlr_drm_format_set_get(render_formats, fallbacks[i]);
-+			if (fmt && swapchain->format.format != fmt->format && !add_drm_format(&dmabuf, fmt)) {
-+				goto error;
-+			}
-+		}
-+	}
-+	free(source->shm_formats);
-+	wlr_drm_format_set_finish(&source->dmabuf_formats);
-+	source->shm_formats = formats;
-+	source->shm_formats_len = len;
-+	source->dmabuf_formats = dmabuf;
-+	source->dmabuf_device = device;
-+	source->width = swapchain->width;
-+	source->height = swapchain->height;
-+	wl_signal_emit_mutable(&source->events.constraints_update, NULL);
-+	return true;
-+error:
-+	free(formats);
-+	wlr_drm_format_set_finish(&dmabuf);
-+	return false;
- }
- 
- bool wlr_ext_image_capture_source_v1_set_constraints_from_swapchain(struct wlr_ext_image_capture_source_v1 *source,
- 		struct wlr_swapchain *swapchain, struct wlr_renderer *renderer) {
--	source->width = swapchain->width;
--	source->height = swapchain->height;
--
--	uint32_t shm_format = get_swapchain_shm_format(swapchain, renderer);
--	if (shm_format != DRM_FORMAT_INVALID) {
--		uint32_t *shm_formats = calloc(1, sizeof(shm_formats[0]));
--		if (shm_formats == NULL) {
--			wlr_log(WLR_ERROR, "Allocation failed");
--			return false;
--		}
++		// Clients such as grim take the first usable SHM format and cannot
++		// describe PQ. Offer the SDR conversion first; native PQ stays available.
++		if (len == 2 && capture_is_pq(description)) {
++			formats[0] = DRM_FORMAT_XRGB8888;
++			formats[1] = native;
+ 		}
 -		shm_formats[0] = shm_format;
 -
 -		source->shm_formats_len = 1;
 -		free(source->shm_formats);
 -		source->shm_formats = shm_formats;
--	}
+ 	}
 -
--	int drm_fd = wlr_renderer_get_drm_fd(renderer);
+ 	int drm_fd = wlr_renderer_get_drm_fd(renderer);
 -	if (swapchain->allocator != NULL &&
 -			(swapchain->allocator->buffer_caps & WLR_BUFFER_CAP_DMABUF) &&
 -			drm_fd >= 0) {
@@ -387,7 +444,12 @@ diff --git a/protocol/aqueous-capture-color-v1.xml b/protocol/aqueous-capture-co
 -		if (fstat(drm_fd, &dev_stat) != 0) {
 -			wlr_log_errno(WLR_ERROR, "fstat() failed");
 -			return false;
--		}
++	if (swapchain->allocator &&
++			(swapchain->allocator->buffer_caps & WLR_BUFFER_CAP_DMABUF) && drm_fd >= 0) {
++		struct stat st;
++		if (fstat(drm_fd, &st) != 0) {
++			goto error;
+ 		}
 -
 -		source->dmabuf_device = dev_stat.st_rdev;
 -
@@ -408,17 +470,54 @@ diff --git a/protocol/aqueous-capture-color-v1.xml b/protocol/aqueous-capture-co
 -				wlr_drm_format_set_get(render_formats, fallback_formats[i]);
 -			if (fmt != NULL && swapchain->format.format != fmt->format) {
 -				add_drm_format(&source->dmabuf_formats, fmt);
--			}
--		}
--	}
++		device = st.st_rdev;
++		if (!add_drm_format(&dmabuf, &swapchain->format)) {
++			goto error;
++		}
++		const struct wlr_drm_format_set *render_formats = wlr_renderer_get_render_formats(renderer);
++		assert(render_formats);
++		uint32_t fallbacks[] = {DRM_FORMAT_ARGB8888, DRM_FORMAT_XRGB8888};
++		for (size_t i = 0; i < sizeof(fallbacks) / sizeof(fallbacks[0]); i++) {
++			const struct wlr_drm_format *fmt = wlr_drm_format_set_get(render_formats, fallbacks[i]);
++			if (!fmt || swapchain->format.format == fmt->format) {
++				continue;
++			}
++			// Without input transforms the renderer cannot decode PQ, and a
++			// plain blit would deliver 8-bit PQ. Leave those clients to SHM.
++			if (capture_sdr_target(description, swapchain->format.format, fmt->format) &&
++					!renderer->features.input_color_transform) {
++				continue;
++			}
++			if (!add_drm_format(&dmabuf, fmt)) {
++				goto error;
+ 			}
+ 		}
+ 	}
 -
--	wl_signal_emit_mutable(&source->events.constraints_update, NULL);
--	return true;
++	free(source->shm_formats);
++	wlr_drm_format_set_finish(&source->dmabuf_formats);
++	source->shm_formats = formats;
++	source->shm_formats_len = len;
++	source->dmabuf_formats = dmabuf;
++	source->dmabuf_device = device;
++	source->width = swapchain->width;
++	source->height = swapchain->height;
+ 	wl_signal_emit_mutable(&source->events.constraints_update, NULL);
+ 	return true;
++error:
++	free(formats);
++	wlr_drm_format_set_finish(&dmabuf);
++	return false;
++}
++
++bool wlr_ext_image_capture_source_v1_set_constraints_from_swapchain(struct wlr_ext_image_capture_source_v1 *source,
++		struct wlr_swapchain *swapchain, struct wlr_renderer *renderer) {
 +	// Scene and cursor sources keep their own color and copy semantics.
-+	return capture_source_set_constraints(source, swapchain, renderer, false);
++	return capture_source_set_constraints(source, swapchain, renderer, false, NULL);
  }
  
  void wlr_ext_image_capture_source_v1_cursor_init(struct wlr_ext_image_capture_source_v1_cursor *source_cursor,
+diff --git a/types/ext_image_capture_source_v1/output.c b/types/ext_image_capture_source_v1/output.c
 --- a/types/ext_image_capture_source_v1/output.c
 +++ b/types/ext_image_capture_source_v1/output.c
 @@ -8,6 +8,7 @@
@@ -470,18 +569,39 @@ diff --git a/protocol/aqueous-capture-color-v1.xml b/protocol/aqueous-capture-co
  
  	if (!output->enabled) {
  		return;
-@@ -118,8 +128,8 @@
+@@ -118,8 +128,29 @@
  		return;
  	}
  
 -	wlr_ext_image_capture_source_v1_set_constraints_from_swapchain(&source->base,
 -		output->swapchain, output->renderer);
 +	source->constraints_valid = capture_source_set_constraints(&source->base,
-+		output->swapchain, output->renderer, capture_can_convert_sdr(output->image_description));
++		output->swapchain, output->renderer, capture_can_convert_sdr(output->image_description),
++		output->image_description);
++}
++
++bool capture_output_source_format_encoding(struct wlr_ext_image_capture_source_v1 *base,
++		uint32_t format, struct wlr_output_image_description *out) {
++	if (base->impl != &output_source_impl) {
++		return false;
++	}
++	struct wlr_ext_output_image_capture_source_v1 *source = wl_container_of(base, source, base);
++	struct wlr_output *output = source->output;
++	// constraints_valid is assigned only after constraints_update listeners run.
++	if (!output->enabled || !output->swapchain) {
++		return false;
++	}
++	const struct wlr_output_image_description *desc = output->image_description;
++	if (!desc || capture_sdr_target(desc, output->swapchain->format.format, format)) {
++		*out = CAPTURE_SDR_DESCRIPTION;
++	} else {
++		*out = *desc;
++	}
++	return true;
  }
  
  static void source_handle_output_commit(struct wl_listener *listener,
-@@ -128,8 +138,14 @@
+@@ -128,10 +159,16 @@
  	struct wlr_output_event_commit *event = data;
  
  	if (event->state->committed & (WLR_OUTPUT_STATE_MODE |
@@ -489,15 +609,17 @@ diff --git a/protocol/aqueous-capture-color-v1.xml b/protocol/aqueous-capture-co
 +			WLR_OUTPUT_STATE_RENDER_FORMAT | WLR_OUTPUT_STATE_ENABLED |
 +			WLR_OUTPUT_STATE_IMAGE_DESCRIPTION)) {
  		source_update_buffer_constraints(source);
-+	}
-+
+ 	}
+ 
 +	if (event->state->committed & WLR_OUTPUT_STATE_IMAGE_DESCRIPTION) {
 +		source->color_damage = true;
 +		wlr_output_update_needs_frame(source->output);
- 	}
- 
++	}
++
  	if (event->state->committed & WLR_OUTPUT_STATE_BUFFER) {
-@@ -139,7 +155,7 @@
+ 		struct wlr_buffer *buffer = event->state->buffer;
+ 
+@@ -139,7 +176,7 @@
  		pixman_region32_init_rect(&full_damage, 0, 0, buffer->width, buffer->height);
  
  		const pixman_region32_t *damage;
@@ -506,7 +628,7 @@ diff --git a/protocol/aqueous-capture-color-v1.xml b/protocol/aqueous-capture-co
  			damage = &event->state->damage;
  		} else {
  			damage = &full_damage;
-@@ -152,6 +168,14 @@
+@@ -152,6 +189,14 @@
  			.buffer = buffer,
  			.when = event->when, // TODO: predict next presentation time instead
  		};
@@ -521,435 +643,6 @@ diff --git a/protocol/aqueous-capture-color-v1.xml b/protocol/aqueous-capture-co
  		wl_signal_emit_mutable(&source->base.events.frame, &frame_event);
  
  		pixman_region32_fini(&full_damage);
---- a/types/meson.build
-+++ b/types/meson.build
-@@ -52,6 +52,7 @@
- 	'wlr_ext_data_control_v1.c',
- 	'wlr_ext_foreign_toplevel_list_v1.c',
- 	'wlr_ext_image_copy_capture_v1.c',
-+	'wlr_aqueous_capture_color_v1.c',
- 	'wlr_ext_workspace_v1.c',
- 	'wlr_fixes.c',
- 	'wlr_foreign_toplevel_management_v1.c',
---- a/types/wlr_aqueous_capture_color_v1.c
-+++ b/types/wlr_aqueous_capture_color_v1.c
-@@ -0,0 +1,170 @@
-+#include <math.h>
-+#include <stdlib.h>
-+#include <wlr/types/wlr_ext_image_copy_capture_v1.h>
-+#include "types/capture_output.h"
-+#include "aqueous-capture-color-v1-protocol.h"
-+
-+struct capture_color_info {
-+	struct wl_resource *resource;
-+	struct wl_listener frame_destroy;
-+	bool sent;
-+};
-+
-+struct capture_color_manager {
-+	struct wl_global *global;
-+	struct wl_listener display_destroy;
-+};
-+
-+static void info_unavailable(struct capture_color_info *info) {
-+	if (!info->sent) {
-+		aqueous_capture_color_info_v1_send_unavailable(info->resource);
-+		info->sent = true;
-+	}
-+}
-+
-+static void info_frame_destroy(struct wl_listener *listener, void *data) {
-+	struct capture_color_info *info = wl_container_of(listener, info, frame_destroy);
-+	info_unavailable(info);
-+	wl_list_remove(&info->frame_destroy.link);
-+	wl_list_init(&info->frame_destroy.link);
-+}
-+
-+static void info_destroy(struct wl_resource *resource) {
-+	struct capture_color_info *info = wl_resource_get_user_data(resource);
-+	wl_list_remove(&info->frame_destroy.link);
-+	free(info);
-+}
-+
-+static void resource_destroy(struct wl_client *client, struct wl_resource *resource) {
-+	wl_resource_destroy(resource);
-+}
-+
-+static const struct aqueous_capture_color_info_v1_interface info_impl = {
-+	.destroy = resource_destroy,
-+};
-+
-+static void get_frame_info(struct wl_client *client, struct wl_resource *resource,
-+		uint32_t id, struct wl_resource *frame_resource) {
-+	struct wlr_ext_image_copy_capture_frame_v1 *frame =
-+		wlr_ext_image_copy_capture_frame_v1_from_resource(frame_resource);
-+	if (!frame || frame->capturing) {
-+		wl_resource_post_error(resource, AQUEOUS_CAPTURE_COLOR_MANAGER_V1_ERROR_INVALID_FRAME,
-+			"color info must be requested before capture");
-+		return;
-+	}
-+	if (wl_signal_get(&frame->events.destroy, info_frame_destroy)) {
-+		wl_resource_post_error(resource, AQUEOUS_CAPTURE_COLOR_MANAGER_V1_ERROR_DUPLICATE,
-+			"frame already has color info");
-+		return;
-+	}
-+	struct capture_color_info *info = calloc(1, sizeof(*info));
-+	if (!info) {
-+		wl_resource_post_no_memory(resource);
-+		return;
-+	}
-+	info->resource = wl_resource_create(client, &aqueous_capture_color_info_v1_interface, 1, id);
-+	if (!info->resource) {
-+		free(info);
-+		wl_resource_post_no_memory(resource);
-+		return;
-+	}
-+	wl_resource_set_implementation(info->resource, &info_impl, info, info_destroy);
-+	info->frame_destroy.notify = info_frame_destroy;
-+	wl_signal_add(&frame->events.destroy, &info->frame_destroy);
-+}
-+
-+static const struct aqueous_capture_color_manager_v1_interface manager_impl = {
-+	.destroy = resource_destroy,
-+	.get_frame_info = get_frame_info,
-+};
-+
-+static void manager_bind(struct wl_client *client, void *data, uint32_t version, uint32_t id) {
-+	struct wl_resource *resource = wl_resource_create(client,
-+		&aqueous_capture_color_manager_v1_interface, version, id);
-+	if (!resource) {
-+		wl_client_post_no_memory(client);
-+		return;
-+	}
-+	wl_resource_set_implementation(resource, &manager_impl, NULL, NULL);
-+}
-+
-+static void manager_destroy(struct wl_listener *listener, void *data) {
-+	struct capture_color_manager *manager = wl_container_of(listener, manager, display_destroy);
-+	wl_list_remove(&manager->display_destroy.link);
-+	wl_global_destroy(manager->global);
-+	free(manager);
-+}
-+
-+struct wl_global *wlr_aqueous_capture_color_manager_v1_create(struct wl_display *display) {
-+	struct capture_color_manager *manager = calloc(1, sizeof(*manager));
-+	if (!manager) {
-+		return NULL;
-+	}
-+	manager->global = wl_global_create(display, &aqueous_capture_color_manager_v1_interface,
-+		1, manager, manager_bind);
-+	if (!manager->global) {
-+		free(manager);
-+		return NULL;
-+	}
-+	manager->display_destroy.notify = manager_destroy;
-+	wl_display_add_destroy_listener(display, &manager->display_destroy);
-+	return manager->global;
-+}
-+
-+static uint32_t scaled(double value, double scale) {
-+	if (!isfinite(value) || value <= 0) {
-+		return 0;
-+	}
-+	return (uint32_t)llround(fmin(value * scale, UINT32_MAX));
-+}
-+
-+void capture_color_send(struct wlr_ext_image_copy_capture_frame_v1 *frame,
-+		const struct wlr_output_image_description *desc) {
-+	struct wl_listener *listener = wl_signal_get(&frame->events.destroy, info_frame_destroy);
-+	if (!listener) {
-+		return;
-+	}
-+	struct capture_color_info *info = wl_container_of(listener, info, frame_destroy);
-+	if (info->sent) {
-+		return;
-+	}
-+	if (!desc) {
-+		info_unavailable(info);
-+		return;
-+	}
-+	uint32_t primaries, tf;
-+	switch (desc->primaries) {
-+	case WLR_COLOR_NAMED_PRIMARIES_SRGB: primaries = AQUEOUS_CAPTURE_COLOR_INFO_V1_PRIMARIES_SRGB; break;
-+	case WLR_COLOR_NAMED_PRIMARIES_BT2020: primaries = AQUEOUS_CAPTURE_COLOR_INFO_V1_PRIMARIES_BT2020; break;
-+	default: info_unavailable(info); return;
-+	}
-+	switch (desc->transfer_function) {
-+	case WLR_COLOR_TRANSFER_FUNCTION_GAMMA22: tf = AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_GAMMA22; break;
-+	case WLR_COLOR_TRANSFER_FUNCTION_SRGB: tf = AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_SRGB; break;
-+	case WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ: tf = AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_PQ; break;
-+	case WLR_COLOR_TRANSFER_FUNCTION_EXT_LINEAR: tf = AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_LINEAR; break;
-+	case WLR_COLOR_TRANSFER_FUNCTION_BT1886: tf = AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_BT1886; break;
-+	default: info_unavailable(info); return;
-+	}
-+	bool pq = desc->transfer_function == WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ;
-+	double reference = pq ? 203.0 : 80.0;
-+	double white = pq && desc->sdr_white_level > 0 ? desc->sdr_white_level : reference;
-+	aqueous_capture_color_info_v1_send_encoding(info->resource, primaries, tf,
-+		scaled(reference, 10000), scaled(white, 10000));
-+	const struct wlr_color_primaries *p = &desc->mastering_display_primaries;
-+	if (desc->mastering_luminance.max > 0 && p->red.y > 0 &&
-+			p->green.y > 0 && p->blue.y > 0 && p->white.y > 0) {
-+		aqueous_capture_color_info_v1_send_mastering_display(info->resource,
-+			scaled(p->red.x, 1000000), scaled(p->red.y, 1000000),
-+			scaled(p->green.x, 1000000), scaled(p->green.y, 1000000),
-+			scaled(p->blue.x, 1000000), scaled(p->blue.y, 1000000),
-+			scaled(p->white.x, 1000000), scaled(p->white.y, 1000000),
-+			scaled(desc->mastering_luminance.min, 10000), scaled(desc->mastering_luminance.max, 10000));
-+	}
-+	if (desc->max_cll > 0 || desc->max_fall > 0) {
-+		aqueous_capture_color_info_v1_send_content_light(info->resource,
-+			scaled(desc->max_cll, 10000), scaled(desc->max_fall, 10000));
-+	}
-+	aqueous_capture_color_info_v1_send_done(info->resource);
-+	info->sent = true;
-+}
-diff --git a/types/wlr_ext_image_copy_capture_v1.c b/types/wlr_ext_image_copy_capture_v1.c
---- a/types/wlr_ext_image_copy_capture_v1.c
-+++ b/types/wlr_ext_image_copy_capture_v1.c
-@@ -8,6 +8,8 @@
- #include <wlr/render/wlr_renderer.h>
- #include "ext-image-copy-capture-v1-protocol.h"
- #include "render/pixel_format.h"
-+#include "types/capture_output.h"
-+#include "types/capture_shm.h"
- 
- #define IMAGE_COPY_CAPTURE_MANAGER_V1_VERSION 1
- 
-@@ -41,7 +43,7 @@
- 	return wl_resource_get_user_data(resource);
- }
- 
--static struct wlr_ext_image_copy_capture_frame_v1 *frame_from_resource(
-+struct wlr_ext_image_copy_capture_frame_v1 *wlr_ext_image_copy_capture_frame_v1_from_resource(
- 		struct wl_resource *resource) {
- 	assert(wl_resource_instance_of(resource,
- 		&ext_image_copy_capture_frame_v1_interface, &frame_impl));
-@@ -101,6 +103,7 @@
- 	ext_image_copy_capture_frame_v1_send_transform(frame->resource, transform);
- 	ext_image_copy_capture_frame_v1_send_presentation_time(frame->resource,
- 		pres_time_sec >> 32, (uint32_t)pres_time_sec, presentation_time->tv_nsec);
-+	capture_color_send(frame, NULL); // Unknown source unless copy supplied metadata.
- 	ext_image_copy_capture_frame_v1_send_ready(frame->resource);
- 	frame_destroy(frame);
- }
-@@ -133,27 +136,28 @@
- }
- 
- static bool copy_shm(void *data, uint32_t format, size_t stride,
--		struct wlr_buffer *src, struct wlr_renderer *renderer) {
-+		struct wlr_buffer *src, struct wlr_renderer *renderer,
-+		const struct wlr_output_image_description *description, bool *converted) {
- 	// TODO: bypass renderer if source buffer supports data ptr access
- 	struct wlr_texture *texture = wlr_texture_from_buffer(renderer, src);
- 	if (!texture) {
- 		return false;
- 	}
- 
--	// TODO: only copy damaged region
--	bool ok = wlr_texture_read_pixels(texture, &(struct wlr_texture_read_pixels_options){
--		.data = data,
--		.format = format,
--		.stride = stride,
--	});
-+	*converted = description && capture_can_convert_sdr(description) &&
-+		screencopy_is_10bit(wlr_texture_preferred_read_format(texture)) && format == DRM_FORMAT_XRGB8888;
-+	struct wlr_box box = {.width = src->width, .height = src->height};
-+	bool ok = capture_shm_read(texture, data, format, stride, &box,
-+		description && capture_can_convert_sdr(description), description);
- 
- 	wlr_texture_destroy(texture);
- 
- 	return ok;
- }
- 
--bool wlr_ext_image_copy_capture_frame_v1_copy_buffer(struct wlr_ext_image_copy_capture_frame_v1 *frame,
--		struct wlr_buffer *src, struct wlr_renderer *renderer) {
-+static bool capture_copy(struct wlr_ext_image_copy_capture_frame_v1 *frame,
-+		struct wlr_buffer *src, struct wlr_renderer *renderer,
-+		const struct wlr_output_image_description *description, bool scene_sdr) {
- 	struct wlr_buffer *dst = frame->buffer;
- 
- 	if (src->width != dst->width || src->height != dst->height) {
-@@ -163,6 +167,8 @@
- 	}
- 
- 	bool ok = false;
-+	bool converted = false;
-+	bool shm = false;
- 	enum ext_image_copy_capture_frame_v1_failure_reason failure_reason =
- 		EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_UNKNOWN;
- 	struct wlr_dmabuf_attributes dmabuf;
-@@ -170,7 +176,8 @@
- 	uint32_t format;
- 	size_t stride;
- 	if (wlr_buffer_get_dmabuf(dst, &dmabuf)) {
--		if (frame->session->source->dmabuf_formats.len == 0) {
-+		if (!wlr_drm_format_set_has(&frame->session->source->dmabuf_formats,
-+				dmabuf.format, dmabuf.modifier)) {
- 			ok = false;
- 			failure_reason = EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_BUFFER_CONSTRAINTS;
- 		} else {
-@@ -178,11 +185,22 @@
- 		}
- 	} else if (wlr_buffer_begin_data_ptr_access(dst,
- 			WLR_BUFFER_DATA_PTR_ACCESS_WRITE, &data, &format, &stride)) {
--		if (frame->session->source->shm_formats_len == 0) {
-+		shm = true;
-+		bool supported = false;
-+		for (size_t i = 0; i < frame->session->source->shm_formats_len; i++) {
-+			if (frame->session->source->shm_formats[i] == format) {
-+				supported = true;
-+				break;
-+			}
-+		}
-+		const struct wlr_pixel_format_info *info = drm_get_pixel_format_info(format);
-+		if (!supported || !info || stride > INT32_MAX ||
-+				!pixel_format_info_check_stride(info, (int32_t)stride, dst->width) ||
-+				dst->height <= 0 || stride > SIZE_MAX / (size_t)dst->height) {
- 			ok = false;
- 			failure_reason = EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_BUFFER_CONSTRAINTS;
- 		} else {
--			ok = copy_shm(data, format, stride, src, renderer);
-+			ok = copy_shm(data, format, stride, src, renderer, description, &converted);
- 		}
- 		wlr_buffer_end_data_ptr_access(dst);
- 	}
-@@ -191,7 +209,36 @@
- 		return false;
- 	}
- 
-+	const struct wlr_output_image_description sdr = {
-+		.primaries = WLR_COLOR_NAMED_PRIMARIES_SRGB,
-+		.transfer_function = WLR_COLOR_TRANSFER_FUNCTION_GAMMA22,
-+	};
-+	// DMA-BUF uses a rendering path whose HDR color preservation is not yet
-+	// guaranteed. Never label those bytes as native PQ without qualification.
-+	capture_color_send(frame, (shm || scene_sdr) ? (converted ? &sdr : description) : NULL);
- 	return true;
-+}
-+
-+bool capture_copy_output(struct wlr_ext_image_copy_capture_frame_v1 *frame,
-+		struct wlr_buffer *src, struct wlr_renderer *renderer,
-+		const struct wlr_output_image_description *description) {
-+	return capture_copy(frame, src, renderer, description, false);
-+}
-+
-+bool capture_copy_scene(struct wlr_ext_image_copy_capture_frame_v1 *frame,
-+		struct wlr_buffer *src, struct wlr_renderer *renderer, bool known_sdr) {
-+	// The scene render pass already converted the input into this encoding.
-+	// The subsequent default SDR blit keeps that encoding for DMA-BUF too.
-+	const struct wlr_output_image_description sdr = {
-+		.primaries = WLR_COLOR_NAMED_PRIMARIES_SRGB,
-+		.transfer_function = WLR_COLOR_TRANSFER_FUNCTION_GAMMA22,
-+	};
-+	return capture_copy(frame, src, renderer, known_sdr ? &sdr : NULL, known_sdr);
-+}
-+
-+bool wlr_ext_image_copy_capture_frame_v1_copy_buffer(struct wlr_ext_image_copy_capture_frame_v1 *frame,
-+		struct wlr_buffer *src, struct wlr_renderer *renderer) {
-+	return capture_copy_output(frame, src, renderer, NULL);
- }
- 
- void wlr_ext_image_copy_capture_frame_v1_fail(struct wlr_ext_image_copy_capture_frame_v1 *frame,
-@@ -207,7 +254,7 @@
- 
- static void frame_handle_attach_buffer(struct wl_client *client,
- 		struct wl_resource *frame_resource, struct wl_resource *buffer_resource) {
--	struct wlr_ext_image_copy_capture_frame_v1 *frame = frame_from_resource(frame_resource);
-+	struct wlr_ext_image_copy_capture_frame_v1 *frame = wlr_ext_image_copy_capture_frame_v1_from_resource(frame_resource);
- 	if (frame == NULL) {
- 		return;
- 	}
-@@ -232,7 +279,7 @@
- static void frame_handle_damage_buffer(struct wl_client *client,
- 		struct wl_resource *frame_resource, int32_t x, int32_t y,
- 		int32_t width, int32_t height) {
--	struct wlr_ext_image_copy_capture_frame_v1 *frame = frame_from_resource(frame_resource);
-+	struct wlr_ext_image_copy_capture_frame_v1 *frame = wlr_ext_image_copy_capture_frame_v1_from_resource(frame_resource);
- 	if (frame == NULL) {
- 		return;
- 	}
-@@ -257,7 +304,7 @@
- 
- static void frame_handle_capture(struct wl_client *client,
- 		struct wl_resource *frame_resource) {
--	struct wlr_ext_image_copy_capture_frame_v1 *frame = frame_from_resource(frame_resource);
-+	struct wlr_ext_image_copy_capture_frame_v1 *frame = wlr_ext_image_copy_capture_frame_v1_from_resource(frame_resource);
- 	if (frame == NULL) {
- 		return;
- 	}
-@@ -415,6 +462,10 @@
- 		void *data) {
- 	struct wlr_ext_image_copy_capture_session_v1 *session =
- 		wl_container_of(listener, session, source_constraints_update);
-+	// Resizing or changing color/format invalidates reused destination content.
-+	pixman_region32_clear(&session->damage);
-+	pixman_region32_union_rect(&session->damage, &session->damage, 0, 0,
-+		session->source->width, session->source->height);
- 	session_send_constraints(session);
- }
- 
---- a/types/wlr_screencopy_v1.c
-+++ b/types/wlr_screencopy_v1.c
-@@ -13,7 +13,7 @@
- #include "wlr-screencopy-unstable-v1-protocol.h"
- #include "render/pixel_format.h"
- #include "render/wlr_renderer.h"
--#include "types/screencopy_sdr.h"
-+#include "types/capture_shm.h"
- 
- #define SCREENCOPY_MANAGER_VERSION 3
- 
-@@ -213,45 +213,9 @@
- 		goto out;
- 	}
- 
--	uint32_t native_format = wlr_texture_preferred_read_format(texture);
--	if (screencopy_is_10bit(native_format)) {
--		// Read the native pixels first: a renderer blit to 8-bit would retain
--		// PQ encoding and produce a dark, incorrectly colored SDR screenshot.
--		// Use the committed output description, including changes since the
--		// frame was requested. A format change may require a client retry.
--		if (format != DRM_FORMAT_XRGB8888 || frame->box.width <= 0 ||
--				frame->box.height <= 0 ||
--				(size_t)frame->box.width > SIZE_MAX / 4 / (size_t)frame->box.height) {
--			goto texture_out;
--		}
--		size_t native_stride = (size_t)frame->box.width * 4;
--		uint8_t *pixels = malloc(native_stride * (size_t)frame->box.height);
--		if (!pixels) {
--			goto texture_out;
--		}
--		ok = wlr_texture_read_pixels(texture, &(struct wlr_texture_read_pixels_options) {
--			.data = pixels,
--			.format = native_format,
--			.stride = native_stride,
--			.src_box = frame->box,
--		});
--		if (ok) {
--			struct screencopy_sdr_conversion conv;
--			screencopy_sdr_conversion_init(&conv, output->image_description);
--			screencopy_sdr_convert(&conv, native_format, pixels, native_stride,
--				data, stride, frame->box.width, frame->box.height);
--		}
--		free(pixels);
--	} else {
--		ok = wlr_texture_read_pixels(texture, &(struct wlr_texture_read_pixels_options) {
--			.data = data,
--			.format = format,
--			.stride = stride,
--			.src_box = frame->box,
--		});
--	}
--
--texture_out:
-+	ok = capture_shm_read(texture, data, format, stride, &frame->box,
-+		true, output->image_description);
-+
- 	wlr_texture_destroy(texture);
- 
- out:
 diff --git a/types/ext_image_capture_source_v1/scene.c b/types/ext_image_capture_source_v1/scene.c
 --- a/types/ext_image_capture_source_v1/scene.c
 +++ b/types/ext_image_capture_source_v1/scene.c
@@ -1111,7 +804,31 @@ diff --git a/types/ext_image_capture_source_v1/scene.c b/types/ext_image_capture
  		wlr_ext_image_copy_capture_frame_v1_ready(frame,
  			source->output.transform, &event->when);
  	}
-@@ -241,6 +317,7 @@
+@@ -164,6 +240,23 @@
+ 
+ static const struct wlr_backend_impl backend_impl = {0};
+ 
++bool capture_scene_source_format_encoding(struct wlr_ext_image_capture_source_v1 *base,
++		uint32_t format, struct wlr_output_image_description *out) {
++	if (base->impl != &source_impl) {
++		return false;
++	}
++	struct scene_node_source *source = wl_container_of(base, source, base);
++	struct wlr_renderer *renderer = source->output.renderer;
++	// Nominal: individual frames remain unavailable when a render cannot
++	// establish SDR (see scene_sdr_inputs).
++	if (!renderer || !renderer->features.input_color_transform ||
++			!renderer->features.output_color_transform) {
++		return false;
++	}
++	*out = CAPTURE_SDR_DESCRIPTION;
++	return true;
++}
++
+ static void source_update_buffer_constraints(struct scene_node_source *source,
+ 		const struct wlr_output_state *state) {
+ 	struct wlr_output *output = &source->output;
+@@ -241,6 +334,7 @@
  		.base = { .damage = damage },
  		.buffer = buffer,
  		.when = now,
@@ -1119,7 +836,7 @@ diff --git a/types/ext_image_capture_source_v1/scene.c b/types/ext_image_capture
  	};
  	wl_signal_emit_mutable(&source->base.events.frame, &frame_event.base);
  
-@@ -319,10 +396,23 @@
+@@ -319,10 +413,23 @@
  	snprintf(name, sizeof(name), "CAPTURE-%zu", output_num);
  	wlr_output_set_name(&source->output, name);
  
@@ -1144,3 +861,623 @@ diff --git a/types/ext_image_capture_source_v1/scene.c b/types/ext_image_capture
  
  	source->node_destroy.notify = source_handle_node_destroy;
  	wl_signal_add(&node->events.destroy, &source->node_destroy);
+diff --git a/types/meson.build b/types/meson.build
+--- a/types/meson.build
++++ b/types/meson.build
+@@ -52,6 +52,7 @@
+ 	'wlr_ext_data_control_v1.c',
+ 	'wlr_ext_foreign_toplevel_list_v1.c',
+ 	'wlr_ext_image_copy_capture_v1.c',
++	'wlr_aqueous_capture_color_v1.c',
+ 	'wlr_ext_workspace_v1.c',
+ 	'wlr_fixes.c',
+ 	'wlr_foreign_toplevel_management_v1.c',
+diff --git a/types/wlr_aqueous_capture_color_v1.c b/types/wlr_aqueous_capture_color_v1.c
+--- /dev/null
++++ b/types/wlr_aqueous_capture_color_v1.c
+@@ -0,0 +1,287 @@
++#include <math.h>
++#include <stdlib.h>
++#include <wlr/types/wlr_ext_image_copy_capture_v1.h>
++#include "types/capture_output.h"
++#include "aqueous-capture-color-v1-protocol.h"
++
++struct capture_color_info {
++	struct wl_resource *resource;
++	struct wl_listener frame_destroy;
++	bool sent;
++};
++
++struct capture_color_session {
++	struct wl_resource *resource;
++	struct wlr_ext_image_copy_capture_session_v1 *session;
++	struct wl_listener session_destroy;
++	struct wl_listener constraints_update;
++};
++
++struct capture_color_manager {
++	struct wl_global *global;
++	struct wl_listener display_destroy;
++};
++
++static void info_unavailable(struct capture_color_info *info) {
++	if (!info->sent) {
++		aqueous_capture_color_info_v1_send_unavailable(info->resource);
++		info->sent = true;
++	}
++}
++
++static void info_frame_destroy(struct wl_listener *listener, void *data) {
++	struct capture_color_info *info = wl_container_of(listener, info, frame_destroy);
++	info_unavailable(info);
++	wl_list_remove(&info->frame_destroy.link);
++	wl_list_init(&info->frame_destroy.link);
++}
++
++static void info_destroy(struct wl_resource *resource) {
++	struct capture_color_info *info = wl_resource_get_user_data(resource);
++	wl_list_remove(&info->frame_destroy.link);
++	free(info);
++}
++
++static void resource_destroy(struct wl_client *client, struct wl_resource *resource) {
++	wl_resource_destroy(resource);
++}
++
++static uint32_t scaled(double value, double scale);
++static bool encoding_args(const struct wlr_output_image_description *desc,
++	uint32_t *primaries, uint32_t *tf, uint32_t *reference, uint32_t *white);
++
++bool capture_source_format_encoding(struct wlr_ext_image_capture_source_v1 *source,
++		uint32_t format, struct wlr_output_image_description *out) {
++	return capture_output_source_format_encoding(source, format, out) ||
++		capture_scene_source_format_encoding(source, format, out);
++}
++
++static void session_info_send_format(struct capture_color_session *info, uint32_t format) {
++	struct wlr_output_image_description desc;
++	uint32_t primaries, tf, reference, white;
++	if (capture_source_format_encoding(info->session->source, format, &desc) &&
++			encoding_args(&desc, &primaries, &tf, &reference, &white)) {
++		aqueous_capture_color_session_v1_send_format(info->resource,
++			format, primaries, tf, reference, white);
++	}
++}
++
++static void session_info_send(struct capture_color_session *info) {
++	if (info->session) {
++		struct wlr_ext_image_capture_source_v1 *source = info->session->source;
++		for (size_t i = 0; i < source->shm_formats_len; i++) {
++			session_info_send_format(info, source->shm_formats[i]);
++		}
++		for (size_t i = 0; i < source->dmabuf_formats.len; i++) {
++			uint32_t format = source->dmabuf_formats.formats[i].format;
++			bool seen = false;
++			for (size_t j = 0; j < source->shm_formats_len; j++) {
++				seen = seen || source->shm_formats[j] == format;
++			}
++			if (!seen) {
++				session_info_send_format(info, format);
++			}
++		}
++	}
++	aqueous_capture_color_session_v1_send_done(info->resource);
++}
++
++static void session_info_detach(struct capture_color_session *info) {
++	if (!info->session) {
++		return;
++	}
++	wl_list_remove(&info->session_destroy.link);
++	wl_list_remove(&info->constraints_update.link);
++	info->session = NULL;
++}
++
++static void session_info_handle_session_destroy(struct wl_listener *listener, void *data) {
++	struct capture_color_session *info = wl_container_of(listener, info, session_destroy);
++	session_info_detach(info);
++}
++
++static void session_info_handle_constraints_update(struct wl_listener *listener, void *data) {
++	struct capture_color_session *info = wl_container_of(listener, info, constraints_update);
++	session_info_send(info);
++}
++
++static void session_info_destroy(struct wl_resource *resource) {
++	struct capture_color_session *info = wl_resource_get_user_data(resource);
++	session_info_detach(info);
++	free(info);
++}
++
++static const struct aqueous_capture_color_session_v1_interface session_info_impl = {
++	.destroy = resource_destroy,
++};
++
++static void get_session_info(struct wl_client *client, struct wl_resource *resource,
++		uint32_t id, struct wl_resource *session_resource) {
++	struct capture_color_session *info = calloc(1, sizeof(*info));
++	if (!info) {
++		wl_resource_post_no_memory(resource);
++		return;
++	}
++	info->resource = wl_resource_create(client, &aqueous_capture_color_session_v1_interface,
++		wl_resource_get_version(resource), id);
++	if (!info->resource) {
++		free(info);
++		wl_resource_post_no_memory(resource);
++		return;
++	}
++	wl_resource_set_implementation(info->resource, &session_info_impl, info,
++		session_info_destroy);
++	// An inert session has no source; its description is empty.
++	info->session = wlr_ext_image_copy_capture_session_v1_from_resource(session_resource);
++	if (info->session) {
++		info->session_destroy.notify = session_info_handle_session_destroy;
++		wl_signal_add(&info->session->events.destroy, &info->session_destroy);
++		// Added after the session's own listener, so updates follow its done.
++		info->constraints_update.notify = session_info_handle_constraints_update;
++		wl_signal_add(&info->session->source->events.constraints_update,
++			&info->constraints_update);
++	}
++	session_info_send(info);
++}
++
++static const struct aqueous_capture_color_info_v1_interface info_impl = {
++	.destroy = resource_destroy,
++};
++
++static void get_frame_info(struct wl_client *client, struct wl_resource *resource,
++		uint32_t id, struct wl_resource *frame_resource) {
++	struct wlr_ext_image_copy_capture_frame_v1 *frame =
++		wlr_ext_image_copy_capture_frame_v1_from_resource(frame_resource);
++	if (!frame || frame->capturing) {
++		wl_resource_post_error(resource, AQUEOUS_CAPTURE_COLOR_MANAGER_V1_ERROR_INVALID_FRAME,
++			"color info must be requested before capture");
++		return;
++	}
++	if (wl_signal_get(&frame->events.destroy, info_frame_destroy)) {
++		wl_resource_post_error(resource, AQUEOUS_CAPTURE_COLOR_MANAGER_V1_ERROR_DUPLICATE,
++			"frame already has color info");
++		return;
++	}
++	struct capture_color_info *info = calloc(1, sizeof(*info));
++	if (!info) {
++		wl_resource_post_no_memory(resource);
++		return;
++	}
++	info->resource = wl_resource_create(client, &aqueous_capture_color_info_v1_interface,
++		wl_resource_get_version(resource), id);
++	if (!info->resource) {
++		free(info);
++		wl_resource_post_no_memory(resource);
++		return;
++	}
++	wl_resource_set_implementation(info->resource, &info_impl, info, info_destroy);
++	info->frame_destroy.notify = info_frame_destroy;
++	wl_signal_add(&frame->events.destroy, &info->frame_destroy);
++}
++
++static const struct aqueous_capture_color_manager_v1_interface manager_impl = {
++	.destroy = resource_destroy,
++	.get_frame_info = get_frame_info,
++	.get_session_info = get_session_info,
++};
++
++static void manager_bind(struct wl_client *client, void *data, uint32_t version, uint32_t id) {
++	struct wl_resource *resource = wl_resource_create(client,
++		&aqueous_capture_color_manager_v1_interface, version, id);
++	if (!resource) {
++		wl_client_post_no_memory(client);
++		return;
++	}
++	wl_resource_set_implementation(resource, &manager_impl, NULL, NULL);
++}
++
++static void manager_destroy(struct wl_listener *listener, void *data) {
++	struct capture_color_manager *manager = wl_container_of(listener, manager, display_destroy);
++	wl_list_remove(&manager->display_destroy.link);
++	wl_global_destroy(manager->global);
++	free(manager);
++}
++
++struct wl_global *wlr_aqueous_capture_color_manager_v1_create(struct wl_display *display) {
++	struct capture_color_manager *manager = calloc(1, sizeof(*manager));
++	if (!manager) {
++		return NULL;
++	}
++	manager->global = wl_global_create(display, &aqueous_capture_color_manager_v1_interface,
++		2, manager, manager_bind);
++	if (!manager->global) {
++		free(manager);
++		return NULL;
++	}
++	manager->display_destroy.notify = manager_destroy;
++	wl_display_add_destroy_listener(display, &manager->display_destroy);
++	return manager->global;
++}
++
++static uint32_t scaled(double value, double scale) {
++	if (!isfinite(value) || value <= 0) {
++		return 0;
++	}
++	return (uint32_t)llround(fmin(value * scale, UINT32_MAX));
++}
++
++static bool encoding_args(const struct wlr_output_image_description *desc,
++		uint32_t *primaries, uint32_t *tf, uint32_t *reference, uint32_t *white) {
++	switch (desc->primaries) {
++	case WLR_COLOR_NAMED_PRIMARIES_SRGB: *primaries = AQUEOUS_CAPTURE_COLOR_INFO_V1_PRIMARIES_SRGB; break;
++	case WLR_COLOR_NAMED_PRIMARIES_BT2020: *primaries = AQUEOUS_CAPTURE_COLOR_INFO_V1_PRIMARIES_BT2020; break;
++	default: return false;
++	}
++	switch (desc->transfer_function) {
++	case WLR_COLOR_TRANSFER_FUNCTION_GAMMA22: *tf = AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_GAMMA22; break;
++	case WLR_COLOR_TRANSFER_FUNCTION_SRGB: *tf = AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_SRGB; break;
++	case WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ: *tf = AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_PQ; break;
++	case WLR_COLOR_TRANSFER_FUNCTION_EXT_LINEAR: *tf = AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_LINEAR; break;
++	case WLR_COLOR_TRANSFER_FUNCTION_BT1886: *tf = AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_BT1886; break;
++	default: return false;
++	}
++	bool pq = desc->transfer_function == WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ;
++	double ref = pq ? 203.0 : 80.0;
++	*reference = scaled(ref, 10000);
++	*white = scaled(pq && desc->sdr_white_level > 0 ? desc->sdr_white_level : ref, 10000);
++	return true;
++}
++
++void capture_color_send(struct wlr_ext_image_copy_capture_frame_v1 *frame,
++		const struct wlr_output_image_description *desc) {
++	struct wl_listener *listener = wl_signal_get(&frame->events.destroy, info_frame_destroy);
++	if (!listener) {
++		return;
++	}
++	struct capture_color_info *info = wl_container_of(listener, info, frame_destroy);
++	if (info->sent) {
++		return;
++	}
++	if (!desc) {
++		info_unavailable(info);
++		return;
++	}
++	uint32_t primaries, tf, reference, white;
++	if (!encoding_args(desc, &primaries, &tf, &reference, &white)) {
++		info_unavailable(info);
++		return;
++	}
++	aqueous_capture_color_info_v1_send_encoding(info->resource, primaries, tf,
++		reference, white);
++	const struct wlr_color_primaries *p = &desc->mastering_display_primaries;
++	if (desc->mastering_luminance.max > 0 && p->red.y > 0 &&
++			p->green.y > 0 && p->blue.y > 0 && p->white.y > 0) {
++		aqueous_capture_color_info_v1_send_mastering_display(info->resource,
++			scaled(p->red.x, 1000000), scaled(p->red.y, 1000000),
++			scaled(p->green.x, 1000000), scaled(p->green.y, 1000000),
++			scaled(p->blue.x, 1000000), scaled(p->blue.y, 1000000),
++			scaled(p->white.x, 1000000), scaled(p->white.y, 1000000),
++			scaled(desc->mastering_luminance.min, 10000), scaled(desc->mastering_luminance.max, 10000));
++	}
++	if (desc->max_cll > 0 || desc->max_fall > 0) {
++		aqueous_capture_color_info_v1_send_content_light(info->resource,
++			scaled(desc->max_cll, 10000), scaled(desc->max_fall, 10000));
++	}
++	aqueous_capture_color_info_v1_send_done(info->resource);
++	info->sent = true;
++}
+diff --git a/types/wlr_ext_image_copy_capture_v1.c b/types/wlr_ext_image_copy_capture_v1.c
+--- a/types/wlr_ext_image_copy_capture_v1.c
++++ b/types/wlr_ext_image_copy_capture_v1.c
+@@ -8,6 +8,8 @@
+ #include <wlr/render/wlr_renderer.h>
+ #include "ext-image-copy-capture-v1-protocol.h"
+ #include "render/pixel_format.h"
++#include "types/capture_output.h"
++#include "types/capture_shm.h"
+ 
+ #define IMAGE_COPY_CAPTURE_MANAGER_V1_VERSION 1
+ 
+@@ -41,14 +43,14 @@
+ 	return wl_resource_get_user_data(resource);
+ }
+ 
+-static struct wlr_ext_image_copy_capture_frame_v1 *frame_from_resource(
++struct wlr_ext_image_copy_capture_frame_v1 *wlr_ext_image_copy_capture_frame_v1_from_resource(
+ 		struct wl_resource *resource) {
+ 	assert(wl_resource_instance_of(resource,
+ 		&ext_image_copy_capture_frame_v1_interface, &frame_impl));
+ 	return wl_resource_get_user_data(resource);
+ }
+ 
+-static struct wlr_ext_image_copy_capture_session_v1 *session_from_resource(
++struct wlr_ext_image_copy_capture_session_v1 *wlr_ext_image_copy_capture_session_v1_from_resource(
+ 		struct wl_resource *resource) {
+ 	assert(wl_resource_instance_of(resource,
+ 		&ext_image_copy_capture_session_v1_interface, &session_impl));
+@@ -101,18 +103,32 @@
+ 	ext_image_copy_capture_frame_v1_send_transform(frame->resource, transform);
+ 	ext_image_copy_capture_frame_v1_send_presentation_time(frame->resource,
+ 		pres_time_sec >> 32, (uint32_t)pres_time_sec, presentation_time->tv_nsec);
++	capture_color_send(frame, NULL); // Unknown source unless copy supplied metadata.
+ 	ext_image_copy_capture_frame_v1_send_ready(frame->resource);
+ 	frame_destroy(frame);
+ }
+ 
++// pq_source is set when an 8-bit destination needs the PQ source converted
++// to SDR. This matches the SHM conversion (screencopy_sdr_conversion_init):
++// SDR white returns to 1.0, BT.2020 maps to sRGB, and the default output
++// encoding is gamma 2.2. Highlights and out-of-gamut colors clip.
+ static bool copy_dmabuf(struct wlr_buffer *dst,
+ 		struct wlr_buffer *src, struct wlr_renderer *renderer,
+-		const pixman_region32_t *clip) {
++		const pixman_region32_t *clip,
++		const struct wlr_output_image_description *pq_source) {
+ 	struct wlr_texture *texture = wlr_texture_from_buffer(renderer, src);
+ 	if (texture == NULL) {
+ 		return false;
+ 	}
+ 
++	struct wlr_color_primaries primaries;
++	float luminance_multiplier = 1.0f;
++	if (pq_source) {
++		wlr_color_primaries_from_named(&primaries, pq_source->primaries);
++		double white = pq_source->sdr_white_level > 0 ? pq_source->sdr_white_level : 203.0;
++		luminance_multiplier = (float)(10000.0 / white);
++	}
++
+ 	bool ok = false;
+ 	struct wlr_render_pass *pass = wlr_renderer_begin_buffer_pass(renderer, dst, NULL);
+ 	if (!pass) {
+@@ -123,6 +139,9 @@
+ 		.texture = texture,
+ 		.clip = clip,
+ 		.blend_mode = WLR_RENDER_BLEND_MODE_NONE,
++		.transfer_function = pq_source ? WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ : 0,
++		.primaries = pq_source ? &primaries : NULL,
++		.luminance_multiplier = pq_source ? &luminance_multiplier : NULL,
+ 	});
+ 
+ 	ok = wlr_render_pass_submit(pass);
+@@ -133,27 +152,28 @@
+ }
+ 
+ static bool copy_shm(void *data, uint32_t format, size_t stride,
+-		struct wlr_buffer *src, struct wlr_renderer *renderer) {
++		struct wlr_buffer *src, struct wlr_renderer *renderer,
++		const struct wlr_output_image_description *description, bool *converted) {
+ 	// TODO: bypass renderer if source buffer supports data ptr access
+ 	struct wlr_texture *texture = wlr_texture_from_buffer(renderer, src);
+ 	if (!texture) {
+ 		return false;
+ 	}
+ 
+-	// TODO: only copy damaged region
+-	bool ok = wlr_texture_read_pixels(texture, &(struct wlr_texture_read_pixels_options){
+-		.data = data,
+-		.format = format,
+-		.stride = stride,
+-	});
++	*converted = description && capture_can_convert_sdr(description) &&
++		screencopy_is_10bit(wlr_texture_preferred_read_format(texture)) && format == DRM_FORMAT_XRGB8888;
++	struct wlr_box box = {.width = src->width, .height = src->height};
++	bool ok = capture_shm_read(texture, data, format, stride, &box,
++		description && capture_can_convert_sdr(description), description);
+ 
+ 	wlr_texture_destroy(texture);
+ 
+ 	return ok;
+ }
+ 
+-bool wlr_ext_image_copy_capture_frame_v1_copy_buffer(struct wlr_ext_image_copy_capture_frame_v1 *frame,
+-		struct wlr_buffer *src, struct wlr_renderer *renderer) {
++static bool capture_copy(struct wlr_ext_image_copy_capture_frame_v1 *frame,
++		struct wlr_buffer *src, struct wlr_renderer *renderer,
++		const struct wlr_output_image_description *description, bool scene_sdr) {
+ 	struct wlr_buffer *dst = frame->buffer;
+ 
+ 	if (src->width != dst->width || src->height != dst->height) {
+@@ -163,6 +183,7 @@
+ 	}
+ 
+ 	bool ok = false;
++	bool converted = false;
+ 	enum ext_image_copy_capture_frame_v1_failure_reason failure_reason =
+ 		EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_UNKNOWN;
+ 	struct wlr_dmabuf_attributes dmabuf;
+@@ -170,19 +191,41 @@
+ 	uint32_t format;
+ 	size_t stride;
+ 	if (wlr_buffer_get_dmabuf(dst, &dmabuf)) {
+-		if (frame->session->source->dmabuf_formats.len == 0) {
++		if (!wlr_drm_format_set_has(&frame->session->source->dmabuf_formats,
++				dmabuf.format, dmabuf.modifier)) {
+ 			ok = false;
+ 			failure_reason = EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_BUFFER_CONSTRAINTS;
+ 		} else {
+-			ok = copy_dmabuf(dst, src, renderer, &frame->buffer_damage);
++			struct wlr_dmabuf_attributes src_dmabuf;
++			converted = description && !scene_sdr &&
++				wlr_buffer_get_dmabuf(src, &src_dmabuf) &&
++				capture_sdr_target(description, src_dmabuf.format, dmabuf.format);
++			if (converted && !renderer->features.input_color_transform) {
++				// Constraints never offer this; refuse rather than send 8-bit PQ.
++				ok = false;
++				failure_reason = EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_BUFFER_CONSTRAINTS;
++			} else {
++				ok = copy_dmabuf(dst, src, renderer, &frame->buffer_damage,
++					converted ? description : NULL);
++			}
+ 		}
+ 	} else if (wlr_buffer_begin_data_ptr_access(dst,
+ 			WLR_BUFFER_DATA_PTR_ACCESS_WRITE, &data, &format, &stride)) {
+-		if (frame->session->source->shm_formats_len == 0) {
++		bool supported = false;
++		for (size_t i = 0; i < frame->session->source->shm_formats_len; i++) {
++			if (frame->session->source->shm_formats[i] == format) {
++				supported = true;
++				break;
++			}
++		}
++		const struct wlr_pixel_format_info *info = drm_get_pixel_format_info(format);
++		if (!supported || !info || stride > INT32_MAX ||
++				!pixel_format_info_check_stride(info, (int32_t)stride, dst->width) ||
++				dst->height <= 0 || stride > SIZE_MAX / (size_t)dst->height) {
+ 			ok = false;
+ 			failure_reason = EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_BUFFER_CONSTRAINTS;
+ 		} else {
+-			ok = copy_shm(data, format, stride, src, renderer);
++			ok = copy_shm(data, format, stride, src, renderer, description, &converted);
+ 		}
+ 		wlr_buffer_end_data_ptr_access(dst);
+ 	}
+@@ -191,9 +234,36 @@
+ 		return false;
+ 	}
+ 
++	const struct wlr_output_image_description sdr = CAPTURE_SDR_DESCRIPTION;
++	// Unconverted copies keep the source encoding: SHM reads back natively and
++	// the default DMA-BUF blit decodes and re-encodes with the same gamma 2.2
++	// curve, so PQ code values pass through unchanged.
++	capture_color_send(frame, converted ? &sdr : description);
+ 	return true;
+ }
+ 
++bool capture_copy_output(struct wlr_ext_image_copy_capture_frame_v1 *frame,
++		struct wlr_buffer *src, struct wlr_renderer *renderer,
++		const struct wlr_output_image_description *description) {
++	return capture_copy(frame, src, renderer, description, false);
++}
++
++bool capture_copy_scene(struct wlr_ext_image_copy_capture_frame_v1 *frame,
++		struct wlr_buffer *src, struct wlr_renderer *renderer, bool known_sdr) {
++	// The scene render pass already converted the input into this encoding.
++	// The subsequent default SDR blit keeps that encoding for DMA-BUF too.
++	const struct wlr_output_image_description sdr = {
++		.primaries = WLR_COLOR_NAMED_PRIMARIES_SRGB,
++		.transfer_function = WLR_COLOR_TRANSFER_FUNCTION_GAMMA22,
++	};
++	return capture_copy(frame, src, renderer, known_sdr ? &sdr : NULL, known_sdr);
++}
++
++bool wlr_ext_image_copy_capture_frame_v1_copy_buffer(struct wlr_ext_image_copy_capture_frame_v1 *frame,
++		struct wlr_buffer *src, struct wlr_renderer *renderer) {
++	return capture_copy_output(frame, src, renderer, NULL);
++}
++
+ void wlr_ext_image_copy_capture_frame_v1_fail(struct wlr_ext_image_copy_capture_frame_v1 *frame,
+ 		enum ext_image_copy_capture_frame_v1_failure_reason reason) {
+ 	ext_image_copy_capture_frame_v1_send_failed(frame->resource, reason);
+@@ -207,7 +277,7 @@
+ 
+ static void frame_handle_attach_buffer(struct wl_client *client,
+ 		struct wl_resource *frame_resource, struct wl_resource *buffer_resource) {
+-	struct wlr_ext_image_copy_capture_frame_v1 *frame = frame_from_resource(frame_resource);
++	struct wlr_ext_image_copy_capture_frame_v1 *frame = wlr_ext_image_copy_capture_frame_v1_from_resource(frame_resource);
+ 	if (frame == NULL) {
+ 		return;
+ 	}
+@@ -232,7 +302,7 @@
+ static void frame_handle_damage_buffer(struct wl_client *client,
+ 		struct wl_resource *frame_resource, int32_t x, int32_t y,
+ 		int32_t width, int32_t height) {
+-	struct wlr_ext_image_copy_capture_frame_v1 *frame = frame_from_resource(frame_resource);
++	struct wlr_ext_image_copy_capture_frame_v1 *frame = wlr_ext_image_copy_capture_frame_v1_from_resource(frame_resource);
+ 	if (frame == NULL) {
+ 		return;
+ 	}
+@@ -257,7 +327,7 @@
+ 
+ static void frame_handle_capture(struct wl_client *client,
+ 		struct wl_resource *frame_resource) {
+-	struct wlr_ext_image_copy_capture_frame_v1 *frame = frame_from_resource(frame_resource);
++	struct wlr_ext_image_copy_capture_frame_v1 *frame = wlr_ext_image_copy_capture_frame_v1_from_resource(frame_resource);
+ 	if (frame == NULL) {
+ 		return;
+ 	}
+@@ -299,7 +369,7 @@
+ 
+ static void session_handle_create_frame(struct wl_client *client,
+ 		struct wl_resource *session_resource, uint32_t new_id) {
+-	struct wlr_ext_image_copy_capture_session_v1 *session = session_from_resource(session_resource);
++	struct wlr_ext_image_copy_capture_session_v1 *session = wlr_ext_image_copy_capture_session_v1_from_resource(session_resource);
+ 
+ 	if (session != NULL && session->frame != NULL) {
+ 		wl_resource_post_error(session_resource,
+@@ -415,6 +485,10 @@
+ 		void *data) {
+ 	struct wlr_ext_image_copy_capture_session_v1 *session =
+ 		wl_container_of(listener, session, source_constraints_update);
++	// Resizing or changing color/format invalidates reused destination content.
++	pixman_region32_clear(&session->damage);
++	pixman_region32_union_rect(&session->damage, &session->damage, 0, 0,
++		session->source->width, session->source->height);
+ 	session_send_constraints(session);
+ }
+ 
+@@ -436,7 +510,7 @@
+ }
+ 
+ static void session_handle_resource_destroy(struct wl_resource *resource) {
+-	session_destroy(session_from_resource(resource));
++	session_destroy(wlr_ext_image_copy_capture_session_v1_from_resource(resource));
+ }
+ 
+ static void session_create(struct wl_resource *parent_resource, uint32_t new_id,
+diff --git a/types/wlr_screencopy_v1.c b/types/wlr_screencopy_v1.c
+--- a/types/wlr_screencopy_v1.c
++++ b/types/wlr_screencopy_v1.c
+@@ -13,7 +13,7 @@
+ #include "wlr-screencopy-unstable-v1-protocol.h"
+ #include "render/pixel_format.h"
+ #include "render/wlr_renderer.h"
+-#include "types/screencopy_sdr.h"
++#include "types/capture_shm.h"
+ 
+ #define SCREENCOPY_MANAGER_VERSION 3
+ 
+@@ -213,45 +213,9 @@
+ 		goto out;
+ 	}
+ 
+-	uint32_t native_format = wlr_texture_preferred_read_format(texture);
+-	if (screencopy_is_10bit(native_format)) {
+-		// Read the native pixels first: a renderer blit to 8-bit would retain
+-		// PQ encoding and produce a dark, incorrectly colored SDR screenshot.
+-		// Use the committed output description, including changes since the
+-		// frame was requested. A format change may require a client retry.
+-		if (format != DRM_FORMAT_XRGB8888 || frame->box.width <= 0 ||
+-				frame->box.height <= 0 ||
+-				(size_t)frame->box.width > SIZE_MAX / 4 / (size_t)frame->box.height) {
+-			goto texture_out;
+-		}
+-		size_t native_stride = (size_t)frame->box.width * 4;
+-		uint8_t *pixels = malloc(native_stride * (size_t)frame->box.height);
+-		if (!pixels) {
+-			goto texture_out;
+-		}
+-		ok = wlr_texture_read_pixels(texture, &(struct wlr_texture_read_pixels_options) {
+-			.data = pixels,
+-			.format = native_format,
+-			.stride = native_stride,
+-			.src_box = frame->box,
+-		});
+-		if (ok) {
+-			struct screencopy_sdr_conversion conv;
+-			screencopy_sdr_conversion_init(&conv, output->image_description);
+-			screencopy_sdr_convert(&conv, native_format, pixels, native_stride,
+-				data, stride, frame->box.width, frame->box.height);
+-		}
+-		free(pixels);
+-	} else {
+-		ok = wlr_texture_read_pixels(texture, &(struct wlr_texture_read_pixels_options) {
+-			.data = data,
+-			.format = format,
+-			.stride = stride,
+-			.src_box = frame->box,
+-		});
+-	}
++	ok = capture_shm_read(texture, data, format, stride, &frame->box,
++		true, output->image_description);
+ 
+-texture_out:
+ 	wlr_texture_destroy(texture);
+ 
+ out:

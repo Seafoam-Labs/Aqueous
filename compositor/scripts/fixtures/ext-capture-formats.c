@@ -172,7 +172,7 @@ static void registry_global(void *data, struct wl_registry *registry, uint32_t n
 	BIND(wl_output, wl_output, 1);
 	BIND(sources, ext_output_image_capture_source_manager_v1, 1);
 	BIND(captures, ext_image_copy_capture_manager_v1, 1);
-	BIND(colors, aqueous_capture_color_manager_v1, 1);
+	BIND(colors, aqueous_capture_color_manager_v1, 2);
 	BIND(foreign_sources, ext_foreign_toplevel_image_capture_source_manager_v1, 1);
 	if (!strcmp(interface, "ext_foreign_toplevel_list_v1")) {
 		struct ext_foreign_toplevel_list_v1 *list = wl_registry_bind(registry, name, &ext_foreign_toplevel_list_v1_interface, 1);
@@ -299,6 +299,42 @@ static void frame_finish(struct frame *f) {
 static void padding_unchanged(struct frame *f) {
 	for (int y = 0; y < HEIGHT; y++) for (size_t x = WIDTH * 4; x < f->stride; x++)
 		assert(f->pixels[(size_t)y * f->stride + x] == 0xA5);
+}
+
+// aqueous_capture_color_session_v1: expected encoding per offered format.
+struct session_colors {
+	struct aqueous_capture_color_session_v1 *proxy;
+	uint32_t formats[16], primaries[16], tf[16], white[16];
+	size_t count;
+	unsigned dones;
+	bool batch;
+};
+static void session_color_format(void *data, struct aqueous_capture_color_session_v1 *c,
+		uint32_t format, uint32_t p, uint32_t tf, uint32_t r, uint32_t w) {
+	struct session_colors *v = data; if (!v->batch) v->count = 0; v->batch = true;
+	assert(v->count < 16);
+	v->formats[v->count] = format; v->primaries[v->count] = p; v->tf[v->count] = tf; v->white[v->count] = w;
+	v->count++;
+}
+static void session_color_done(void *data, struct aqueous_capture_color_session_v1 *c) {
+	struct session_colors *v = data; if (!v->batch) v->count = 0; v->batch = false; v->dones++;
+}
+static const struct aqueous_capture_color_session_v1_listener session_color_listener = {
+	.format = session_color_format, .done = session_color_done,
+};
+static void session_colors_init(struct session_colors *c, struct session *s) {
+	*c = (struct session_colors){0};
+	c->proxy = aqueous_capture_color_manager_v1_get_session_info(colors, s->proxy);
+	aqueous_capture_color_session_v1_add_listener(c->proxy, &session_color_listener, c);
+	roundtrip(); assert(c->dones == 1);
+}
+static void session_color_expect(struct session_colors *c, uint32_t drm_format,
+		uint32_t primaries, uint32_t tf, uint32_t white) {
+	for (size_t i = 0; i < c->count; i++) if (c->formats[i] == drm_format) {
+		assert(c->primaries[i] == primaries && c->tf[i] == tf && c->white[i] == white);
+		return;
+	}
+	assert(!"format missing from session color description");
 }
 
 struct legacy_shot {
@@ -436,6 +472,40 @@ static void wait_frame(struct frame *frame) {
 	for (int i = 0; i < 1000 && !frame->ready && !frame->failed; i++) { roundtrip(); usleep(1000); }
 	assert(frame->ready || frame->failed);
 }
+// Capture an output frame into a GPU buffer. The caller commits and waits.
+static struct wlr_buffer *dma_frame_init(struct frame *f, struct session *session, uint32_t drm_format) {
+	assert(dmabufs);
+	const struct wlr_drm_format_set *set = gpu_renderer->WLR_PRIVATE.impl->get_render_formats(gpu_renderer);
+	const struct wlr_drm_format *format = wlr_drm_format_set_get(set, drm_format); assert(format);
+	struct wlr_buffer *dst = wlr_allocator_create_buffer(gpu_allocator, WIDTH, HEIGHT, format); assert(dst);
+	struct wlr_dmabuf_attributes attrs; assert(wlr_buffer_get_dmabuf(dst, &attrs));
+	struct zwp_linux_buffer_params_v1 *params = zwp_linux_dmabuf_v1_create_params(dmabufs);
+	for (int i = 0; i < attrs.n_planes; i++) zwp_linux_buffer_params_v1_add(params, attrs.fd[i], i,
+		attrs.offset[i], attrs.stride[i], attrs.modifier >> 32, attrs.modifier & 0xffffffff);
+	*f = (struct frame){0};
+	f->buffer = zwp_linux_buffer_params_v1_create_immed(params, WIDTH, HEIGHT, attrs.format, 0);
+	zwp_linux_buffer_params_v1_destroy(params);
+	f->proxy = ext_image_copy_capture_session_v1_create_frame(session->proxy);
+	ext_image_copy_capture_frame_v1_add_listener(f->proxy, &frame_listener, f);
+	f->info = aqueous_capture_color_manager_v1_get_frame_info(colors, f->proxy);
+	aqueous_capture_color_info_v1_add_listener(f->info, &color_listener, f);
+	ext_image_copy_capture_frame_v1_attach_buffer(f->proxy, f->buffer);
+	ext_image_copy_capture_frame_v1_damage_buffer(f->proxy, 0, 0, WIDTH, HEIGHT);
+	ext_image_copy_capture_frame_v1_capture(f->proxy);
+	roundtrip();
+	return dst;
+}
+static void dma_frame_finish(struct frame *f, struct wlr_buffer *dst) {
+	ext_image_copy_capture_frame_v1_destroy(f->proxy); aqueous_capture_color_info_v1_destroy(f->info);
+	wl_buffer_destroy(f->buffer); roundtrip(); wlr_buffer_drop(dst);
+}
+static void dma_read(struct wlr_buffer *dst, uint32_t format, uint32_t *pixels) {
+	struct wlr_texture *texture = wlr_texture_from_buffer(gpu_renderer, dst); assert(texture);
+	assert(wlr_texture_read_pixels(texture, &(struct wlr_texture_read_pixels_options){
+		.data = pixels, .format = format, .stride = WIDTH * 4}));
+	wlr_texture_destroy(texture);
+}
+
 static void scene_dma_frame(struct session *session, struct wlr_scene_buffer *node,
         struct wlr_buffer *source, const uint32_t *palette) {
     assert(dmabufs);
@@ -478,7 +548,6 @@ static void scene_frames(struct wlr_allocator *memory_allocator) {
 	backend.buffer_caps = WLR_BUFFER_CAP_SHM;
 	struct wlr_allocator *scene_allocator = gpu_allocator ? gpu_allocator : wlr_allocator_autocreate(&backend, renderer);
 	assert(scene_allocator);
-	if (gpu_renderer) assert(wlr_linux_dmabuf_v1_create_with_renderer(server,4,gpu_renderer));
 	struct wlr_scene *scene = wlr_scene_create(); assert(scene);
 	struct wlr_drm_format fmt = {.format = DRM_FORMAT_XRGB8888};
 	struct wlr_buffer *buffer = allocate(memory_allocator, WIDTH, HEIGHT, &fmt);
@@ -615,6 +684,7 @@ int main(int argc, char **argv) {
 	assert(wlr_ext_image_copy_capture_manager_v1_create(server, 1));
 	assert(wlr_aqueous_capture_color_manager_v1_create(server));
 	assert(wlr_screencopy_manager_v1_create(server));
+	if (gpu_renderer) assert(wlr_linux_dmabuf_v1_create_with_renderer(server, 4, gpu_renderer));
 	int sockets[2]; assert(socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sockets) == 0);
 	assert(wl_client_create(server, sockets[0])); client = wl_display_connect_to_fd(sockets[1]); assert(client);
 	struct wl_registry *registry = wl_display_get_registry(client);
@@ -623,6 +693,14 @@ int main(int argc, char **argv) {
 	struct session native, sdr; session_init(&native); session_init(&sdr);
 	assert(native.count == 2 && has_format(&native, WL_SHM_FORMAT_XRGB8888));
 	assert(has_format(&native, WL_SHM_FORMAT_XBGR2101010));
+	// First-pick SHM clients (grim) must land on the SDR conversion of PQ.
+	assert(native.formats[0] == WL_SHM_FORMAT_XRGB8888);
+	struct session_colors native_colors; session_colors_init(&native_colors, &native);
+	session_color_expect(&native_colors, DRM_FORMAT_XRGB8888, AQUEOUS_CAPTURE_COLOR_INFO_V1_PRIMARIES_SRGB,
+		AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_GAMMA22, 800000);
+	session_color_expect(&native_colors, DRM_FORMAT_XBGR2101010, AQUEOUS_CAPTURE_COLOR_INFO_V1_PRIMARIES_BT2020,
+		AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_PQ, 2000000);
+	puts("PASS: PQ session describes SDR 8-bit and PQ 10-bit formats; SDR SHM offered first");
 
 	struct memory_buffer *b;
 	struct wlr_drm_format fmt = {.format = DRM_FORMAT_XBGR2101010};
@@ -651,6 +729,35 @@ int main(int argc, char **argv) {
 	padding_unchanged(&nf); padding_unchanged(&sf); save_capture(&nf, &sf);
 	frame_finish(&nf); frame_finish(&sf);
 	puts("PASS: simultaneous native 10-bit and SDR capture, metadata ordering, padding");
+	if (gpu_renderer) {
+		// 8-bit DMA-BUF of a PQ output must be SDR, matching the SHM conversion.
+		uint32_t *gpu = calloc((size_t)WIDTH * HEIGHT, 4); assert(gpu);
+		struct frame df; struct wlr_buffer *dst = dma_frame_init(&df, &native, DRM_FORMAT_XRGB8888);
+		frame_init(&sf, &sdr, WL_SHM_FORMAT_XRGB8888, true);
+		commit_buffer(b, NULL, false); wait_frame(&df);
+		assert(df.ready && sf.ready && df.color_done);
+		assert(df.tf == AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_GAMMA22 &&
+			df.primaries == AQUEOUS_CAPTURE_COLOR_INFO_V1_PRIMARIES_SRGB && df.white == 800000);
+		dma_read(dst, DRM_FORMAT_XRGB8888, gpu);
+		for (int x = 0; x < WIDTH; x++) for (int ch = 0; ch < 3; ch++) {
+			int actual = (gpu[x] >> (8 * ch)) & 255, expected = sf.pixels[x * 4 + ch];
+			if (abs(actual - expected) > 2) fprintf(stderr, "dma SDR x=%d ch=%d got=%d expected=%d\n", x, ch, actual, expected);
+			assert(abs(actual - expected) <= 2);
+		}
+		frame_finish(&sf); dma_frame_finish(&df, dst);
+		// 10-bit DMA-BUF keeps PQ samples and says so.
+		dst = dma_frame_init(&df, &native, DRM_FORMAT_XBGR2101010);
+		commit_buffer(b, NULL, false); wait_frame(&df);
+		assert(df.ready && df.color_done && df.tf == AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_PQ &&
+			df.primaries == AQUEOUS_CAPTURE_COLOR_INFO_V1_PRIMARIES_BT2020 && df.white == 2000000);
+		dma_read(dst, DRM_FORMAT_XBGR2101010, gpu);
+		for (int x = 0; x < WIDTH; x++) {
+			uint32_t want; memcpy(&want, b->pixels + (size_t)x * 4, 4);
+			assert(abs((int)(gpu[x] & 1023) - (int)(want & 1023)) <= 1);
+		}
+		dma_frame_finish(&df, dst); free(gpu);
+		puts("PASS: PQ output DMA-BUF: 8-bit converted to SDR, 10-bit native PQ with metadata");
+	}
 	if (getenv("AQUEOUS_CAPTURE_BENCHMARK")) {
 		enum { warmup = 3, samples = 20 };
 		double durations[samples];
@@ -708,6 +815,12 @@ int main(int argc, char **argv) {
 	assert(sf.ready && sf.pixels[512 * 4] == (((sdr_pixel >> 20) & 1023) * 255 + 511) / 1023);
 	frame_finish(&sf);
 	puts("PASS: 10-bit SDR is not decoded as PQ");
+	assert(native.formats[0] == WL_SHM_FORMAT_XBGR2101010);
+	session_color_expect(&native_colors, DRM_FORMAT_XBGR2101010, AQUEOUS_CAPTURE_COLOR_INFO_V1_PRIMARIES_SRGB,
+		AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_GAMMA22, 800000);
+	session_color_expect(&native_colors, DRM_FORMAT_XRGB8888, AQUEOUS_CAPTURE_COLOR_INFO_V1_PRIMARIES_SRGB,
+		AQUEOUS_CAPTURE_COLOR_INFO_V1_TRANSFER_FUNCTION_GAMMA22, 800000);
+	puts("PASS: session color description follows HDR toggle; native format first for SDR");
 
 	for (size_t i = 2; i < sizeof(formats) / sizeof(formats[0]); i++) {
 		// Aqueous HDR outputs use opaque XB30/XR30. Alpha layouts are covered
@@ -766,6 +879,7 @@ int main(int argc, char **argv) {
 	assert(sf.failed && sf.unavailable && sdr.stopped && native.stopped); frame_finish(&sf);
 	puts(gpu_renderer ? "PASS: cancellation, output removal and metadata lifetime" :
 		"PASS: import/read failure, cancellation, output removal and metadata lifetime");
+	aqueous_capture_color_session_v1_destroy(native_colors.proxy);
 	ext_image_copy_capture_session_v1_destroy(native.proxy); ext_image_capture_source_v1_destroy(native.source);
 	ext_image_copy_capture_session_v1_destroy(sdr.proxy); ext_image_capture_source_v1_destroy(sdr.source);
 	scene_frames(&allocator);
