@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Real protocol commits and the production luminance helper, without a GPU.
+#define WLR_PRIVATE
 #include <assert.h>
 #include <math.h>
 #include <poll.h>
@@ -22,6 +23,12 @@ static struct wp_single_pixel_buffer_manager_v1 *pixels;
 static struct wlr_scene *scene;
 static struct wlr_scene_surface *live;
 static struct wl_listener new_surface;
+static unsigned preview_frames;
+static void preview_done(void *data, struct wl_callback *callback, uint32_t time) {
+	preview_frames++;
+	wl_callback_destroy(callback);
+}
+static const struct wl_callback_listener preview_listener = {preview_done};
 
 static void new_surface_notify(struct wl_listener *listener, void *data) {
 	live = wlr_scene_surface_create(&scene->tree, data);
@@ -209,6 +216,34 @@ int main(void) {
 	assert(live->buffer->transfer_function == WLR_COLOR_TRANSFER_FUNCTION_GAMMA22);
 	assert(wlr_scene_buffer_get_windows_scrgb(snapshot));
 
+	// The live-preview bridge keeps snapshots input-inert and services only the
+	// visible pacing output. Normal and preview callback paths drain the same
+	// pending callback list, so a second send cannot deliver twice.
+	struct wlr_output pacing = {0}, mirror = {0};
+	struct wlr_scene_output preview_output = {.output = &pacing};
+	struct wlr_scene_frame_done_event event = {.output = &preview_output};
+	struct wlr_scene_buffer *preview = wlr_scene_buffer_create(&scene->tree, NULL);
+	assert(preview && wlr_scene_buffer_snapshot_surface(preview, live->surface, &pacing));
+	assert(wlr_scene_surface_try_from_buffer(preview) == NULL);
+	struct wl_callback *frame = wl_surface_frame(surface);
+	wl_callback_add_listener(frame, &preview_listener, NULL);
+	wl_surface_commit(surface);
+	sync_client();
+	pixman_region32_clear(&preview->node.visible);
+	wlr_scene_buffer_send_frame_done(preview, &event);
+	sync_client();
+	assert(preview_frames == 0);
+	pixman_region32_union_rect(&preview->node.visible, &preview->node.visible, 0, 0, 1, 1);
+	preview_output.output = &mirror;
+	wlr_scene_buffer_send_frame_done(preview, &event);
+	sync_client();
+	assert(preview_frames == 0);
+	preview_output.output = &pacing;
+	wlr_scene_buffer_send_frame_done(preview, &event);
+	wlr_scene_buffer_send_frame_done(preview, &event);
+	sync_client();
+	assert(preview_frames == 1);
+
 	wp_color_management_surface_v1_destroy(color);
 	wp_image_description_v1_destroy(scrgb);
 	wp_image_description_v1_destroy(linear);
@@ -216,6 +251,10 @@ int main(void) {
 	wl_buffer_destroy(buffer);
 	sync_client();
 	assert(wlr_scene_buffer_get_windows_scrgb(snapshot));
+	// Destroying the source makes retained snapshot callbacks inert. Destruction
+	// of the clone must also detach its surface addon/listeners exactly once.
+	wlr_scene_buffer_send_frame_done(preview, &event);
+	wlr_scene_node_destroy(&preview->node);
 	wp_single_pixel_buffer_manager_v1_destroy(pixels);
 	wp_color_manager_v1_destroy(manager);
 	wl_compositor_destroy(compositor);
@@ -225,5 +264,5 @@ int main(void) {
 	wl_list_remove(&new_surface.link);
 	wlr_scene_node_destroy(&scene->tree.node);
 	wl_display_destroy(server);
-	puts("PASS: scRGB snapshot luminance, SDR/PQ controls, committed color transitions and frozen state");
+	puts("PASS: scRGB snapshots, committed color transitions, visible preview pacing and source/clone lifetimes");
 }

@@ -154,6 +154,7 @@ let
       "${src}/compositor/patches/wlroots/0042-vulkan-pass-requirements.patch"
       "${src}/compositor/patches/wlroots/0043-scene-buffer-windows-scrgb.patch"
       "${src}/compositor/patches/wlroots/0044-color-management-extended-target-volume.patch"
+      "${src}/compositor/patches/wlroots/0045-scene-live-snapshot.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending

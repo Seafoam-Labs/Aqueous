@@ -26,15 +26,20 @@ parser.add_argument("--opacity", type=float, default=1.0)
 parser.add_argument("--blur", action="store_true")
 parser.add_argument("--scrgb", action="store_true")
 parser.add_argument("--fullscreen", action="store_true", help="Check fullscreen workspace snapshots; omit the resize case")
+parser.add_argument("--headless", action="store_true", help="Use a private headless output instead of a host Wayland window")
 args = parser.parse_args()
 assert 0 < args.opacity <= 1
 work = Path(tempfile.mkdtemp(prefix="aqueous-snapshot-colors-"))
 runtime = work / "runtime"
 runtime.mkdir(mode=0o700)
-(runtime / "host").symlink_to(Path(os.environ["XDG_RUNTIME_DIR"]) / os.environ["WAYLAND_DISPLAY"])
+if not args.headless:
+    (runtime / "host").symlink_to(Path(os.environ["XDG_RUNTIME_DIR"]) / os.environ["WAYLAND_DISPLAY"])
 env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime), XDG_CONFIG_HOME=str(work / "config"),
            XDG_CACHE_HOME=str(work / "cache"), XDG_STATE_HOME=str(work / "state"),
            WLR_BACKENDS="wayland", WLR_WL_OUTPUTS="1", WAYLAND_DISPLAY="host")
+if args.headless:
+    env.update(WLR_BACKENDS="headless", WLR_HEADLESS_OUTPUTS="1", WLR_RENDERER="vulkan")
+    env.pop("WAYLAND_DISPLAY", None)
 env.pop("LD_PRELOAD", None)
 env.pop("DISPLAY", None)
 for key, filename in [("AQUEOUS_CONFIG", "wm.toml"), ("AQUEOUS_RULES", "rules.toml"),

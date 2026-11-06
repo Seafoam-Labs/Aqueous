@@ -51,6 +51,7 @@ patch_files=(
     "$here/patches/wlroots/0042-vulkan-pass-requirements.patch"
     "$here/patches/wlroots/0043-scene-buffer-windows-scrgb.patch"
     "$here/patches/wlroots/0044-color-management-extended-target-volume.patch"
+    "$here/patches/wlroots/0045-scene-live-snapshot.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -235,6 +236,7 @@ for symbol in \
     wlr_scene_buffer_set_force_blend \
     wlr_scene_buffer_set_windows_scrgb \
     wlr_scene_buffer_get_windows_scrgb \
+    wlr_scene_buffer_snapshot_surface \
     wlr_scene_rect_set_force_blend \
     wlr_vk_renderer_enable_offscreen \
     wlr_vk_render_pass_run_offscreen \
