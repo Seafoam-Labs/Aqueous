@@ -23,6 +23,8 @@ const OverlayPreference = @import("wm/rules/engine.zig").OverlayPreference;
 
 extern fn wlr_scene_node_set_position_f64(node: *wlr.SceneNode, x: f64, y: f64) void;
 extern fn wlr_surface_set_preferred_scale_override(surface: *wlr.Surface, scale: f64) void;
+extern fn wlr_surface_for_each_surface(surface: *wlr.Surface, iterator: *const fn (*wlr.Surface, c_int, c_int, ?*anyopaque) callconv(.c) void, data: ?*anyopaque) void;
+extern fn wlr_scene_buffer_snapshot_surface(buffer: *wlr.SceneBuffer, surface: *wlr.Surface, output: ?*wlr.Output) bool;
 
 const Decoration = @import("Decoration.zig");
 const Output = @import("Output.zig");
@@ -478,6 +480,10 @@ anim_active: bool = false,
 anim_initialized: bool = false,
 /// True while `anim_tree` currently holds a cloned snapshot of the surfaces.
 anim_snapshot: bool = false,
+/// Last captured committed surface-tree generation. Checked only while sliding;
+/// includes independent subsurface commits, membership, position and stacking.
+anim_content_generation: ?u64 = null,
+anim_content_dirty: bool = false,
 /// Fullscreen style committed by the previous render transaction.
 rendered_fullscreen: bool = false,
 /// Rounding committed by the previous render transaction.
@@ -1879,6 +1885,8 @@ fn presentationHint(window: *Window) aqueous.OutputV1.PresentationMode {
 
 pub fn renderFinish(window: *Window) void {
     defer server.overview.refreshDeck(window);
+    // Accepted geometry/effects may change without a new client buffer.
+    window.anim_content_dirty = true;
     const requested = &window.rendering_requested;
 
     // Keep the scene nodes disabled until the render sequence in which the first
@@ -2166,7 +2174,7 @@ fn disableBackdropBlur(window: *Window, blur: fx.WindowBlur) void {
 /// This keeps scene hit-testing (`Scene.at`) reading the settled origin, so a
 /// moving window can no longer fabricate surface-local pointer motion. The visual
 /// slide is performed entirely by the input-inert `anim_tree` overlay, which holds
-/// a frozen clone of the surfaces and is eased from the old origin to the target in
+/// a live, input-inert clone of the surfaces and is eased from the old origin to the target in
 /// `stepAnimation`.
 ///
 /// `animate` is false (forcing a snap, no overlay) when animations are compiled
@@ -2214,11 +2222,11 @@ fn setAnimationTarget(window: *Window, target_x: i32, target_y: i32, animate: bo
     window.updateAnimationClip();
 }
 
-/// Capture a frozen clone of the live surfaces into `anim_surfaces_tree`,
+/// Capture the live surfaces into `anim_surfaces_tree`,
 /// positioned at the window's current on-screen origin, so it can be eased
 /// toward the target while the live surfaces are pinned (and kept invisible) at
 /// the target. No-op if a snapshot is already armed (a re-target reuses the
-/// existing clone).
+/// existing animation position). Content is refreshed before output rendering.
 fn armSnapshot(window: *Window) bool {
     if (comptime !fx.anim_enabled) return false;
     if (window.anim_snapshot) return true;
@@ -2227,29 +2235,82 @@ fn armSnapshot(window: *Window) bool {
     if (window.tree.node.parent) |parent| {
         window.anim_tree.node.reparent(parent);
     }
-    // A scrolling window's live surface tree may already be cropped by the
-    // prior frame. Temporarily remove that crop so the snapshot retains the
-    // complete buffer and can reveal the correct portion as it moves. The live
-    // tree receives the current requested clip later in renderFinish().
-    const no_clip: wlr.Box = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
-    window.applySurfaceClip(&no_clip, &no_clip);
-    window.anim_buffers.clearRetainingCapacity();
-    var capture: AnimBufferCapture = .{ .window = window };
-    const cloned = window.surfaces.cloneInto(
-        window.anim_surfaces_tree,
-        captureAnimBuffer,
-        &capture,
-    );
-    if (!cloned or capture.failed) {
-        log.err("unable to capture animation buffers", .{});
-        window.clearAnimationSurfaceNodes();
-        window.anim_buffers.clearRetainingCapacity();
-        return false;
-    }
+    if (!window.replaceAnimationContent()) return false;
     window.setPreciseAnimationPosition();
     window.anim_tree.node.raiseToTop();
     window.anim_tree.node.setEnabled(true);
     window.anim_snapshot = true;
+    return true;
+}
+
+/// Read committed state after all Wayland listeners have run. Walking the small
+/// mapped surface tree during an already-scheduled animation frame avoids
+/// listener-order assumptions and dangling child observers. No idle polling.
+fn animationContentGeneration(window: *Window) u64 {
+    var hash = std.hash.Wyhash.init(0);
+    if (window.rootSurface()) |surface| {
+        wlr_surface_for_each_surface(surface, hashAnimationSurface, &hash);
+    }
+    return hash.final();
+}
+
+fn hashAnimationSurface(surface: *wlr.Surface, x: c_int, y: c_int, data: ?*anyopaque) callconv(.c) void {
+    const hash: *std.hash.Wyhash = @ptrCast(@alignCast(data.?));
+    const identity = @intFromPtr(surface);
+    hash.update(std.mem.asBytes(&identity));
+    hash.update(std.mem.asBytes(&surface.current.seq));
+    hash.update(std.mem.asBytes(&x));
+    hash.update(std.mem.asBytes(&y));
+}
+
+pub fn refreshAnimationContent(window: *Window) bool {
+    if (!window.anim_active or !window.anim_snapshot or window.state != .mapped) return false;
+    // A resize transaction owns the displayed generation until application.
+    if (window.surfaces.saved) return false;
+    const generation = window.animationContentGeneration();
+    if (!window.anim_content_dirty and window.anim_content_generation == generation) return false;
+    if (!window.replaceAnimationContent()) return false;
+    window.updateAnimationClip();
+    window.applyOpacity();
+    return true;
+}
+
+/// Build in a disabled sibling, then publish atomically. Failed refreshes retain
+/// the last complete generation and retry on the next animation frame.
+fn replaceAnimationContent(window: *Window) bool {
+    const staged = window.anim_tree.createSceneTree() catch return false;
+    staged.node.setEnabled(false);
+    var records: std.ArrayListUnmanaged(AnimBuffer) = .empty;
+    var published = false;
+    defer if (!published) {
+        staged.node.destroy();
+        records.deinit(util.gpa);
+    };
+
+    const no_clip: wlr.Box = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
+    window.applySurfaceClip(&no_clip, &no_clip);
+    defer {
+        var clip = window.rendering_requested.clip;
+        var content_clip = window.rendering_requested.content_clip;
+        if (window.wm_requested.fullscreen) |output| {
+            const width, const height = output.sent.dimensions();
+            clip = .{ .x = 0, .y = 0, .width = width, .height = height };
+            content_clip = no_clip;
+        }
+        window.applySurfaceClip(&clip, &content_clip);
+        window.applySurfaceVisualState();
+    }
+    var capture: AnimBufferCapture = .{ .window = window, .records = &records };
+    if (!window.surfaces.cloneInto(staged, captureAnimBuffer, &capture) or capture.failed) return false;
+    staged.node.placeBelow(&window.anim_border_tree.node);
+    window.anim_surfaces_tree.node.destroy();
+    window.anim_buffers.deinit(util.gpa);
+    window.anim_surfaces_tree = staged;
+    window.anim_buffers = records;
+    window.anim_content_generation = window.animationContentGeneration();
+    window.anim_content_dirty = false;
+    staged.node.setEnabled(true);
+    published = true;
     return true;
 }
 
@@ -2276,6 +2337,8 @@ fn clearSnapshot(window: *Window) void {
     window.anim_buffers.clearRetainingCapacity();
     window.anim_tree.node.setEnabled(false);
     window.anim_snapshot = false;
+    window.anim_content_generation = null;
+    window.anim_content_dirty = false;
     window.refreshSuspension();
     window.syncFullscreenBackground();
     window.applyOpacity();
@@ -2417,6 +2480,7 @@ const AnimBuffer = struct {
 
 const AnimBufferCapture = struct {
     window: *Window,
+    records: *std.ArrayListUnmanaged(AnimBuffer),
     failed: bool = false,
 };
 
@@ -2511,12 +2575,19 @@ fn captureAnimBuffer(
 ) void {
     const capture: *AnimBufferCapture = @ptrCast(@alignCast(data));
     if (capture.failed) return;
+    if (wlr.SceneSurface.tryFromBuffer(source_buffer)) |scene_surface| {
+        const output = if (capture.window.workspace) |ws| ws.output.wlr_output else null;
+        if (!wlr_scene_buffer_snapshot_surface(buffer, scene_surface.surface, output)) {
+            capture.failed = true;
+            return;
+        }
+    }
     // Snapshot buffers are visual overlays only. A null callback means
     // "accept every point" in wlroots, so merely omitting SceneNodeData lets
     // the clone swallow hit testing instead of falling through to the live
     // window at its settled position.
     buffer.point_accepts_input = rejectAnimationBufferInput;
-    const source = effectiveSourceBox(source_buffer) orelse {
+    const source = effectiveSourceBox(buffer) orelse {
         capture.failed = true;
         return;
     };
@@ -2531,7 +2602,7 @@ fn captureAnimBuffer(
         source_buffer.dst_height
     else
         @max(1, @as(i32, @intFromFloat(@round(natural_height))));
-    capture.window.anim_buffers.append(util.gpa, .{
+    capture.records.append(util.gpa, .{
         .buffer = buffer,
         .x = sx,
         .y = sy,

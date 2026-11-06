@@ -2396,16 +2396,15 @@ fn stepAnimations(output: *Output) bool {
     }
     output.anim_last_ns = now_ns;
 
-    if (dt_s <= 0) return false;
-
     var changed = false;
     var it = server.wm.windows.iterator();
     while (it.next()) |window| {
         const ws = window.workspace orelse continue;
         if (ws.output != output) continue;
-        if (window.stepAnimation(dt_s)) changed = true;
+        if (window.refreshAnimationContent()) changed = true;
+        if (dt_s > 0 and window.stepAnimation(dt_s)) changed = true;
     }
-    if (server.overview.step(output, dt_s)) changed = true;
+    if (dt_s > 0 and server.overview.step(output, dt_s)) changed = true;
     return changed;
 }
 

@@ -13,7 +13,7 @@ env = dict(os.environ)
 for key, directory in (("PKG_CONFIG_PATH", "lib/pkgconfig"), ("LD_LIBRARY_PATH", "lib")):
     env[key] = str(prefix / directory) + (":" + env[key] if env.get(key) else "")
 flags = shlex.split(subprocess.check_output(
-    ["pkg-config", "--cflags", "--libs", "wlroots-0.20", "wayland-client", "wayland-server"],
+    ["pkg-config", "--cflags", "--libs", "wlroots-0.20", "wayland-client", "wayland-server", "pixman-1"],
     env=env, text=True))
 protocols = Path(subprocess.check_output(
     ["pkg-config", "--variable=pkgdatadir", "wayland-protocols"], env=env, text=True).strip())

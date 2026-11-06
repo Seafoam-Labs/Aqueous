@@ -100,6 +100,15 @@ a private headless session. Use `--renderer vulkan` with an effects build.
 
 ## Building
 
+Workspace and scrolling slides display live client content while keeping input
+geometry at its settled destination. This requires private wlroots patch 0045
+for preview callbacks, presentation and captured explicit-sync lifetimes.
+Run `python3 scripts/test-live-slide.py`, repeat with `--child-only` and
+`--scrolling`, to verify callback-paced content through transitions and reversal.
+The harness uses a private headless Vulkan session. See
+[`docs/live-slide-content-plan.md`](../docs/live-slide-content-plan.md) for the
+implementation and validation record.
+
 The toolchain is Zig 0.17.0. Bindings use the upstream Zig 0.17 releases of
 zig-wayland (0.7.0), zig-pixman (0.4.0), zig-xkbcommon (0.5.0), and
 translate-c (2.0.2). The portal picker uses the upstream zig-gobject
