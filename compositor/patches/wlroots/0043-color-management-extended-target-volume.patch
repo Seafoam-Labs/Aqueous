@@ -1,0 +1,22 @@
+color-management-v1: allow compositors to advertise extended target volume
+
+Vulkan WSI only lists VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT when the
+compositor advertises extended_target_volume. Mesa has this rule explicitly,
+and the NVIDIA driver behaves the same way. Wine and Proton can only choose
+Windows-scRGB from that list, so without the feature DXGI silently falls back
+to G22 and linear FP16 values get decoded as sRGB.
+
+wlroots does not restrict target volumes against the primary color volume, so
+the feature only needs its creation-time assertion removed. wlroots already
+sends the feature to clients when the option is set.
+
+--- a/types/wlr_color_management_v1.c
++++ b/types/wlr_color_management_v1.c
+@@ -1162,7 +1162,6 @@
+ 	assert(!options->features.set_primaries);
+ 	assert(!options->features.set_tf_power);
+ 	assert(!options->features.set_luminances);
+-	assert(!options->features.extended_target_volume);
+
+ 	struct wlr_color_manager_v1 *manager = calloc(1, sizeof(*manager));
+ 	if (manager == NULL) {

@@ -50,6 +50,7 @@ struct probe {
 	bool perceptual;
 	bool windows_scrgb;
 	bool windows_bt2100;
+	bool extended_target_volume;
 	bool ext_linear;
 	bool pq;
 	bool srgb;
@@ -91,6 +92,8 @@ static void manager_supported_feature(void *data,
 		probe->windows_scrgb = true;
 	} else if (feature == WP_COLOR_MANAGER_V1_FEATURE_WINDOWS_BT2100) {
 		probe->windows_bt2100 = true;
+	} else if (feature == WP_COLOR_MANAGER_V1_FEATURE_EXTENDED_TARGET_VOLUME) {
+		probe->extended_target_volume = true;
 	}
 }
 
@@ -339,6 +342,9 @@ int main(void) {
 	require_condition(probe.perceptual, "perceptual rendering intent is missing");
 	require_condition(probe.windows_scrgb, "Windows-scRGB feature is missing");
 	require_condition(probe.windows_bt2100, "Windows-BT.2100 feature is missing");
+	/* Vulkan WSI hides EXTENDED_SRGB_LINEAR without this feature. */
+	require_condition(probe.extended_target_volume,
+		"Windows-scRGB was advertised without extended target volume");
 	require_condition(probe.ext_linear && probe.srgb,
 		"Windows-scRGB was advertised without its renderer encoding");
 	require_condition(probe.pq && probe.bt2020,
@@ -362,6 +368,9 @@ int main(void) {
 		"version 1 client lost the perceptual rendering intent");
 	require_condition(version1.windows_scrgb,
 		"version 1 client lost Windows-scRGB compatibility");
+	/* The NVIDIA driver binds version 1 to build its Vulkan format list. */
+	require_condition(version1.extended_target_volume,
+		"version 1 client lost extended target volume");
 	require_condition(!version1.windows_bt2100,
 		"version 1 client received a version 3-only feature");
 	require_condition(version1.ext_linear && version1.srgb,

@@ -48,6 +48,13 @@ pub fn windowsHdrFeatureMask(
     return mask;
 }
 
+/// Vulkan WSI only lists EXTENDED_SRGB_LINEAR when the compositor advertises
+/// extended_target_volume. Without it, Wine and Proton cannot select
+/// Windows-scRGB, and DXGI falls back to decoding linear FP16 values as sRGB.
+pub fn advertisesExtendedTargetVolume(windows_hdr_features: u32) bool {
+    return windows_hdr_features & windows_scrgb_bit != 0;
+}
+
 /// Enable the wlroots extensions immediately after creating the manager,
 /// before the Wayland display starts accepting client connections.
 pub fn enableWindowsHdr(manager: *wlr.ColorManagerV1, features: u32) void {
@@ -76,6 +83,13 @@ test "Windows HDR features require their complete color encoding" {
         windows_bt2100_bit,
         windowsHdrFeatureMask(&.{.st2084_pq}, &.{ .srgb, .bt2020 }),
     );
+}
+
+test "extended target volume follows Windows-scRGB support" {
+    try std.testing.expect(advertisesExtendedTargetVolume(windows_scrgb_bit));
+    try std.testing.expect(advertisesExtendedTargetVolume(windows_scrgb_bit | windows_bt2100_bit));
+    try std.testing.expect(!advertisesExtendedTargetVolume(windows_bt2100_bit));
+    try std.testing.expect(!advertisesExtendedTargetVolume(0));
 }
 
 test "partial encodings are never advertised" {

@@ -379,6 +379,7 @@ pub fn init(
             .features = .{
                 .parametric = true,
                 .set_mastering_display_primaries = true,
+                .extended_target_volume = color_management.advertisesExtendedTargetVolume(windows_hdr_features),
             },
             .render_intents = render_intents,
             .transfer_functions = transfer_functions,
