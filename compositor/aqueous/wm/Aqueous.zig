@@ -79,6 +79,12 @@ pending_new_focus: layout_types.Handle = 0,
 window_states: StateStore,
 output_service: OutputService,
 started: bool = false,
+/// Windows admitted while this is true satisfy `matching = "startup"` rules.
+/// Armed by `start()` for a settle window so autostart clients racing the
+/// compositor still match, and cleared by `rule_startup_timer`. Like
+/// `started`, it returns to the startup state on deinit.
+rule_startup_phase: bool = true,
+rule_startup_timer: ?*wl.EventSource = null,
 drag: ?Drag = null,
 /// Admission can complete after the initiating button has been released.
 pending_tiled_transfer: ?TiledTransfer = null,
@@ -167,16 +173,22 @@ pub fn init(aqueous: *Aqueous, mode: Mode, startup_config: config_loader.Snapsho
         log.warn("unable to start delayed focus-raise timer: {}", .{err});
         break :blk null;
     };
+    aqueous.rule_startup_timer = event_loop.addTimer(*Aqueous, handleRuleStartupTimer, aqueous) catch |err| blk: {
+        log.warn("unable to start window rule startup timer: {}", .{err});
+        break :blk null;
+    };
     log.info("policy mode={s} layout={s}", .{ @tagName(mode), @tagName(aqueous.config.layout.default) });
 }
 
 pub fn deinit(aqueous: *Aqueous) void {
     aqueous.started = false;
+    aqueous.rule_startup_phase = true;
     aqueous.cancelOverview();
     aqueous.output_service.deinit();
     if (aqueous.reload_timer) |timer| timer.remove();
     if (aqueous.hover_focus_timer) |timer| timer.remove();
     if (aqueous.raise_focus_timer) |timer| timer.remove();
+    if (aqueous.rule_startup_timer) |timer| timer.remove();
     var states = aqueous.layout_states.valueIterator();
     while (states.next()) |state| state.deinit(util.gpa);
     aqueous.layout_states.deinit(util.gpa);
@@ -203,6 +215,7 @@ pub fn start(aqueous: *Aqueous) void {
     if (!aqueous.mode.runsInternal()) return;
     aqueous.applyLayerRules();
     aqueous.applyInputConfig();
+    aqueous.armRuleStartupPhase();
     aqueous.runExec(.startup);
 }
 
@@ -433,6 +446,8 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 .title = window.title,
                 .tag = window.tag,
                 .content_type = window.content_type,
+                .current_match = state.rule_match,
+                .startup_phase = aqueous.rule_startup_phase,
             });
             aqueous.api.ensureWorkspace(window.handle, output.id);
             const effect = aqueous.reconcileWindowRule(
@@ -575,12 +590,15 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         // so apply focus-sensitive visuals in a second pass using the focus
         // target which Seat.manageFinish() will commit this transaction.
         for (output.windows) |window| {
+            const rule_owner = aqueous.window_states.get(window.handle);
             const rule = aqueous.rules.resolve(.{
                 .app_id = window.app_id,
                 .class = window.app_id,
                 .title = window.title,
                 .tag = window.tag,
                 .content_type = window.content_type,
+                .current_match = if (rule_owner) |owner| owner.rule_match else 0,
+                .startup_phase = aqueous.rule_startup_phase,
             });
             const focus_opacity: ?f64 = if (aqueous.config.wm.opacity_enabled and aqueous.config.wm.opacity_focus_sensitive)
                 (if (cycle_focus == window.handle) aqueous.config.wm.opacity_focused else aqueous.config.wm.opacity_unfocused)
@@ -3436,16 +3454,18 @@ const RuleEffect = struct {
 fn reconcileRulePlacements(aqueous: *Aqueous, snapshot: *const CompositorApi.PolicySnapshot) bool {
     var refresh = false;
     for (snapshot.outputs) |output| for (output.windows) |window| {
+        const state = aqueous.window_states.get(window.handle) orelse continue;
         const rule = aqueous.rules.resolve(.{
             .app_id = window.app_id,
             .class = window.app_id,
             .title = window.title,
             .tag = window.tag,
             .content_type = window.content_type,
+            .current_match = state.rule_match,
+            .startup_phase = aqueous.rule_startup_phase,
         });
         if (aqueous.prepareWindowRuleMatch(window, output.id, rule)) refresh = true;
 
-        const state = aqueous.window_states.get(window.handle) orelse continue;
         const requested = if (rule) |matched| matched.placementFingerprint() else 0;
         if (requested == state.rule_workspace_requested) continue;
         if (requested == 0) {
@@ -3517,6 +3537,9 @@ fn prepareWindowRuleMatch(aqueous: *Aqueous, window: layout_types.Window, output
     state.skip_switcher = false;
     state.skip_taskbar = false;
     state.acceptRuleMatch(match);
+    // Accepting a `matching = "once"` rule spends its budget for every later
+    // window. The claiming window keeps resolving it via `current_match`.
+    if (rule) |matched| aqueous.rules.claimMatching(matched);
     return true;
 }
 
@@ -3571,7 +3594,8 @@ fn distributeLayoutOverflow(
     var layout_rules: std.ArrayListUnmanaged(workspace_overflow.LayoutRule) = .empty;
     defer layout_rules.deinit(a);
     for (residents) |window| {
-        const rule = aqueous.rules.resolve(.{ .app_id = window.app_id, .class = window.app_id, .title = window.title, .tag = window.tag, .content_type = window.content_type }) orelse continue;
+        const owner = aqueous.window_states.get(window.handle);
+        const rule = aqueous.rules.resolve(.{ .app_id = window.app_id, .class = window.app_id, .title = window.title, .tag = window.tag, .content_type = window.content_type, .current_match = if (owner) |state| state.rule_match else 0, .startup_phase = aqueous.rule_startup_phase }) orelse continue;
         const id = rule.layout orelse continue;
         try layout_rules.append(a, .{
             .handle = window.handle,
@@ -3590,7 +3614,7 @@ fn distributeLayoutOverflow(
         for (residents) |window| {
             if (!aqueous.api.windowOnWorkspace(window.handle, output.id, @intCast(number))) continue;
             const state = aqueous.window_states.get(window.handle) orelse continue;
-            const rule = aqueous.rules.resolve(.{ .app_id = window.app_id, .class = window.app_id, .title = window.title, .tag = window.tag, .content_type = window.content_type });
+            const rule = aqueous.rules.resolve(.{ .app_id = window.app_id, .class = window.app_id, .title = window.title, .tag = window.tag, .content_type = window.content_type, .current_match = state.rule_match, .startup_phase = aqueous.rule_startup_phase });
             if (window.fullscreen or state.kind() == .maximized or (rule != null and rule.?.fullscreen and !state.rule_fullscreen_overridden)) workspace.blocked = true;
             if (state.kind() != .tiled or window.fullscreen) continue;
             if (rule) |matched| {
@@ -3780,6 +3804,39 @@ fn reconcileWindowRule(
         state.rule_floating_signature = floating_signature;
     }
     return effect;
+}
+
+/// `matching = "startup"` eligibility window after compositor startup. The
+/// settle delay lets autostart clients which race initialization still claim
+/// startup rules; integration tests shorten it via `AQUEOUS_RULE_STARTUP_MS`.
+const rule_startup_settle_ms: i32 = 10_000;
+
+fn armRuleStartupPhase(aqueous: *Aqueous) void {
+    aqueous.rule_startup_phase = false;
+    const timer = aqueous.rule_startup_timer orelse return;
+    var delay_ms: i32 = rule_startup_settle_ms;
+    if (std.c.getenv("AQUEOUS_RULE_STARTUP_MS")) |raw| {
+        const value = std.mem.trim(u8, std.mem.span(raw), " \t\r");
+        if (value.len > 0) {
+            if (std.fmt.parseInt(i32, value, 10)) |parsed| {
+                if (parsed >= 0) delay_ms = parsed;
+            } else |_| {}
+        }
+    }
+    // Wayland treats zero as disarm, not an immediately expiring timer.
+    if (delay_ms == 0) return;
+    timer.timerUpdate(delay_ms) catch {
+        log.warn("unable to arm window rule startup timer", .{});
+        return;
+    };
+    aqueous.rule_startup_phase = true;
+}
+
+fn handleRuleStartupTimer(aqueous: *Aqueous) c_int {
+    if (!aqueous.rule_startup_phase) return 0;
+    aqueous.rule_startup_phase = false;
+    log.debug("window rule startup phase ended", .{});
+    return 0;
 }
 
 fn handleReloadTimer(aqueous: *Aqueous) c_int {

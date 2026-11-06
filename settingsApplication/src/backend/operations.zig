@@ -1402,7 +1402,7 @@ fn writeRuleJsonValue(json: *std.json.Stringify, key: []const u8, raw: []const u
         } else |_| {}
     }
     const text = if (std.mem.eql(u8, key, "layout")) schema.normalizeLayout(unquoteToml(raw)) else if (ruleKnown(key)) unquoteToml(raw) else raw;
-    try json.write(text);
+    try json.write(if (std.mem.eql(u8, key, "matching")) collections.normalizeMatching(text) else text);
 }
 
 fn applyWindowRuleChanges(allocator: Allocator, document: *config.Document, requested: []const Json) !void {
@@ -1519,6 +1519,7 @@ fn encodeRuleValue(allocator: Allocator, key: []const u8, value: Json) ![]const 
     var text = jsonString(value) orelse return error.InvalidWindowRuleValue;
     if (text.len > 1024) return error.InvalidWindowRuleValue;
     if (std.mem.eql(u8, key, "layout")) text = schema.normalizeLayout(text);
+    if (std.mem.eql(u8, key, "matching")) text = collections.normalizeMatching(text);
     if (!validRuleText(key, text)) return error.InvalidWindowRuleValue;
     return jsonStringLiteral(allocator, text);
 }

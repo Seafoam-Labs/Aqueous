@@ -20,7 +20,7 @@ pub const rule_keys: []const []const u8 = &.{
     "floating",             "fullscreen",      "ignore_struts", "width",        "height",         "x",             "y",
     "placement_policy",     "anchor",          "size",          "scale",        "blur",           "opacity",       "buffer_scale_policy",
     "hdr_expand",           "overlay_plane",   "stack_layer",   "focus",        "fixed_position", "skip_switcher", "skip_taskbar",
-    "scrolling_full_width", "scrolling_width", "tag",           "scope",        "window_type",
+    "scrolling_full_width", "scrolling_width", "tag",           "scope",        "window_type",    "matching",
 };
 
 pub fn parseSnapTablePath(name: []const u8) ?SnapTablePath {
@@ -122,9 +122,15 @@ pub fn validateRuleRaw(key: []const u8, raw: []const u8) !void {
 
 pub fn validRuleText(key: []const u8, value: []const u8) bool {
     const options = ruleOptions(key);
-    if (options.len != 0) return valueIn(value, options);
+    if (options.len != 0) return valueIn(if (std.mem.eql(u8, key, "matching")) normalizeMatching(value) else value, options);
     if (std.mem.eql(u8, key, "size")) return validRuleSize(value);
     return true;
+}
+
+pub fn normalizeMatching(value: []const u8) []const u8 {
+    if (std.mem.eql(u8, value, "match-once") or std.mem.eql(u8, value, "match_once")) return "once";
+    if (std.mem.eql(u8, value, "at-startup") or std.mem.eql(u8, value, "at_startup")) return "startup";
+    return value;
 }
 
 pub fn validRuleSize(value: []const u8) bool {
@@ -176,5 +182,6 @@ pub fn ruleOptions(key: []const u8) []const []const u8 {
     if (std.mem.eql(u8, key, "buffer_scale_policy")) return &.{ "native", "integer-ceil" };
     if (std.mem.eql(u8, key, "overlay_plane")) return &.{ "off", "prefer" };
     if (std.mem.eql(u8, key, "stack_layer")) return &.{ "below", "normal", "above" };
+    if (std.mem.eql(u8, key, "matching")) return &.{ "always", "once", "startup" };
     return &.{};
 }

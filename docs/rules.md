@@ -73,6 +73,7 @@ matters.
 | `fixed_position` | bool | no | Reject compositor pointer and keyboard geometry changes. |
 | `skip_switcher` | bool | no | Exclude from MRU cycling and overview. |
 | `skip_taskbar` | bool | no | Export a taskbar-suppression hint through the window-info state. |
+| `matching` | string | no (default `"always"`) | When the rule may match: `always` matches every window; `once` binds the rule to the first window which claims it so later matching windows fall through to subsequent rules; `startup` applies only to windows admitted during the compositor startup settle window (the first 10 seconds after startup, so autostart clients still match). Accepted aliases: `match-once`/`match_once` and `at-startup`/`at_startup`. A claimed once budget survives hot reloads until the rule's matcher is edited, and the claiming window keeps its rule for its whole lifetime. Override-redirect rules are always-on; any other timing rejects the reload. |
 | `output` | string | no | Open the window on the enabled output with this exact connector name, as reported by `aqueousctl outputs`. When `workspace` is omitted, the output's active workspace is used. |
 | `workspace` | integer | no | Open the window on this 1-based workspace number. Without `output`, the window's normal admission output is used. |
 | `width`, `height` | integer | no | Floating placement dimensions. |
@@ -84,6 +85,14 @@ matters.
 | `buffer_scale_policy` | string | no | Override the global client-buffer policy with `"native"` or `"integer-ceil"`. Integer-ceil advertises the next integer scale before initial root/popup configures while retaining fractional logical geometry; it may improve toolkit text rasterization at the cost of larger buffers and more GPU/memory bandwidth. |
 | `hdr_expand` | bool | no | Expand this window's SDR highlights toward the HDR peak when its output has `auto_hdr` enabled. When unset, fullscreen windows and windows that committed `content_type = "game"` are expanded. |
 | `overlay_plane` | string | no (default `"off"`) | `"prefer"` requests promotion of this window's root buffer to the output's single DRM overlay layer. `[render].overlay_planes = true` must be enabled before startup. Promotion falls back to normal composition when TEST_ONLY rejects the complete state, when content overlaps the window, during capture/software-cursor forcing, or when scaling, transforms, effects, opacity, clipping, or buffer format constraints require composition. |
+
+Once a `once` or `startup` rule is claimed, that window keeps the rule even
+when its title, tag, or content type changes or an earlier rule would now
+match. Removing the rule or editing its matching conditions releases the
+binding; edits to its effects preserve the binding and manual overrides.
+Unclaimed windows still use first-match-wins ordering. The
+`AQUEOUS_RULE_STARTUP_MS` test override accepts zero to disable startup
+eligibility immediately; timer creation/arming failures also end eligibility.
 
 `output` and `workspace` form one initial-placement target. Either can be used
 alone: output-only rules use the destination's active workspace, while

@@ -23,6 +23,13 @@ pub const Identity = struct {
     title: ?[]const u8 = null,
     tag: ?[]const u8 = null,
     content_type: wp.ContentTypeV1.Type = .none,
+    /// Semantic matcher the window's policy state already owns (zero when it
+    /// owns none). A timing-restricted rule still resolves for the window
+    /// which claimed it so eligibility changes never evict its lifecycle.
+    current_match: u64 = 0,
+    /// True while the compositor is still in its startup phase. Consumed by
+    /// `matching = "startup"` rules; every other timing ignores it.
+    startup_phase: bool = true,
 };
 
 pub const Placement = struct {
@@ -56,6 +63,23 @@ pub const Layout = enum {
     floating,
     game_mode,
     composable,
+};
+
+/// When a rule is eligible to match. `once` binds to the first window which
+/// claims it; `startup` applies only while the compositor is in its startup
+/// phase. Ineligible rules keep resolving for the window which already owns
+/// their matcher so an eligibility change never rolls back claimed state.
+pub const Matching = enum {
+    always,
+    once,
+    startup,
+
+    pub fn parse(value: []const u8) ?Matching {
+        if (std.mem.eql(u8, value, "always")) return .always;
+        if (std.mem.eql(u8, value, "once") or std.mem.eql(u8, value, "match-once") or std.mem.eql(u8, value, "match_once")) return .once;
+        if (std.mem.eql(u8, value, "startup") or std.mem.eql(u8, value, "at-startup") or std.mem.eql(u8, value, "at_startup")) return .startup;
+        return null;
+    }
 };
 
 pub const OverlayPreference = enum {
@@ -114,6 +138,8 @@ pub const Rule = struct {
     fixed_position: bool = false,
     skip_switcher: bool = false,
     skip_taskbar: bool = false,
+    /// When this rule is eligible to match. See `Matching`.
+    matching: Matching = .always,
 
     /// Stable semantic identity used by per-window lifecycle reconciliation.
     /// It deliberately excludes source addresses and struct padding.
@@ -168,12 +194,15 @@ pub const Rule = struct {
         hash.update(std.mem.asBytes(&rule.fixed_position));
         hash.update(std.mem.asBytes(&rule.skip_switcher));
         hash.update(std.mem.asBytes(&rule.skip_taskbar));
+        hash.update(std.mem.asBytes(&rule.matching));
         const value = hash.final();
         return if (value == 0) 1 else value;
     }
 
     /// Identity of the matching clause only. Placement and visual edits do not
-    /// create a new match and therefore cannot discard user overrides.
+    /// create a new match and therefore cannot discard user overrides. The
+    /// matching timing is part of the clause: editing `always` to `once` (or
+    /// back) opens a fresh ownership lifecycle on reload.
     pub fn matcherFingerprint(rule: Rule) u64 {
         var hash = std.hash.Wyhash.init(0);
         hash.update(std.mem.asBytes(&rule.scope));
@@ -183,6 +212,7 @@ pub const Rule = struct {
         hashOptionalString(&hash, rule.title);
         hashOptionalString(&hash, rule.tag);
         hashOptionalContentType(&hash, rule.content_type);
+        hash.update(std.mem.asBytes(&rule.matching));
         const value = hash.final();
         return if (value == 0) 1 else value;
     }
@@ -207,6 +237,7 @@ pub const Rule = struct {
         placement_only.fixed_position = false;
         placement_only.skip_switcher = false;
         placement_only.skip_taskbar = false;
+        placement_only.matching = .always;
         return placement_only.fingerprint();
     }
 
@@ -239,6 +270,10 @@ rules: []Rule = &.{},
 layer_rules: []LayerRule = &.{},
 game_mode: GameMode = .{},
 source_fingerprint: u64 = 0,
+/// Matcher fingerprints of `matching = "once"` rules which a window has
+/// already claimed. Preserved across reloads for unchanged matchers so a
+/// hot-reload never re-arms a rule another window owns.
+consumed_once: std.AutoHashMapUnmanaged(u64, void) = .empty,
 
 pub fn init(allocator: std.mem.Allocator) Engine {
     return .{ .allocator = allocator };
@@ -246,12 +281,14 @@ pub fn init(allocator: std.mem.Allocator) Engine {
 
 pub fn deinit(engine: *Engine) void {
     engine.clear();
+    engine.consumed_once.deinit(engine.allocator);
 }
 
 pub fn reload(engine: *Engine, rules: []const Rule) !void {
     const replacement = try cloneRules(engine.allocator, rules);
     engine.clear();
     engine.rules = replacement;
+    engine.pruneConsumedOnce();
 }
 
 pub fn reloadSnapshot(
@@ -267,13 +304,57 @@ pub fn reloadSnapshot(
     engine.rules = replacement;
     engine.layer_rules = layer_replacement;
     engine.game_mode = game_mode;
+    engine.pruneConsumedOnce();
+}
+
+/// True when a timing-restricted rule remains eligible for `identity`. A
+/// window which already owns the matcher always keeps eligibility: the once
+/// budget being spent or the startup phase ending must never evict the rule
+/// lifecycle its window is still living under.
+fn matchingEligible(engine: *const Engine, rule: Rule, identity: Identity) bool {
+    if (rule.matching == .always) return true;
+    if (identity.current_match != 0 and identity.current_match == rule.matcherFingerprint()) return true;
+    return switch (rule.matching) {
+        .always => true,
+        .startup => identity.startup_phase,
+        .once => !engine.consumed_once.contains(rule.matcherFingerprint()),
+    };
+}
+
+/// Record that a `matching = "once"` rule was accepted for a window so every
+/// later window falls through to the next rule. Other timings are unaffected.
+pub fn claimMatching(engine: *Engine, rule: Rule) void {
+    if (rule.matching != .once) return;
+    engine.consumed_once.put(engine.allocator, rule.matcherFingerprint(), {}) catch return;
+}
+
+/// Drop once-budgets whose matcher no longer exists in the ruleset. Editing a
+/// matcher legitimately re-arms the rule; keeping budgets for matchers which
+/// returned verbatim re-arms nothing.
+fn pruneConsumedOnce(engine: *Engine) void {
+    var stale = std.ArrayListUnmanaged(u64).empty;
+    defer stale.deinit(engine.allocator);
+    var keys = engine.consumed_once.keyIterator();
+    while (keys.next()) |key| {
+        var live = false;
+        for (engine.rules) |rule| {
+            if (rule.matching == .once and rule.matcherFingerprint() == key.*) {
+                live = true;
+                break;
+            }
+        }
+        if (!live) stale.append(engine.allocator, key.*) catch {};
+    }
+    for (stale.items) |key| _ = engine.consumed_once.remove(key);
 }
 
 /// True when `rule`'s matchers accept `identity`. A rule with no matcher never
 /// matches; each present matcher must match its corresponding identity field.
-fn matchesIdentity(rule: Rule, identity: Identity) bool {
+fn matchesIdentity(engine: *const Engine, rule: Rule, identity: Identity) bool {
     if (rule.scope != identity.scope) return false;
-    if (rule.window_type) |kind| if (identity.window_types & (@as(u16, 1) << @intCast(@intFromEnum(kind))) == 0) return false;
+    if (rule.matching != .always and identity.current_match != 0 and identity.current_match == rule.matcherFingerprint()) return true;
+    if (!engine.matchingEligible(rule, identity)) return false;
+    if (rule.window_type) |kind| if (identity.window_types & (@as(u16, 1) << @intCast(@backingInt(kind))) == 0) return false;
     if (rule.app_id == null and rule.class == null and rule.title == null and rule.tag == null and rule.content_type == null and rule.window_type == null) return false;
     if (rule.app_id != null and !glob.matches(rule.app_id, identity.app_id)) return false;
     if (rule.class != null and !glob.matches(rule.class, identity.class)) return false;
@@ -284,8 +365,20 @@ fn matchesIdentity(rule: Rule, identity: Identity) bool {
 }
 
 pub fn resolve(engine: *const Engine, identity: Identity) ?Rule {
-    for (engine.rules) |rule| {
-        if (!matchesIdentity(rule, identity)) continue;
+    // A claimed timing rule is bound to this window until removed or its
+    // matching clause changes. Title/tag updates and newly matching earlier
+    // rules must not replace it or discard its manual overrides.
+    var candidates = engine.rules;
+    if (identity.current_match != 0) {
+        for (engine.rules, 0..) |rule, index| {
+            if (rule.scope == identity.scope and rule.matching != .always and rule.matcherFingerprint() == identity.current_match) {
+                candidates = engine.rules[index .. index + 1];
+                break;
+            }
+        }
+    }
+    for (candidates) |rule| {
+        if (!engine.matchesIdentity(rule, identity)) continue;
         if (rule.content_type == null) return rule;
         // Content-type rules are visual-only: drop every layout and placement
         // edit so a late-arriving content type can never move a window.
@@ -311,7 +404,7 @@ pub fn resolve(engine: *const Engine, identity: Identity) ?Rule {
     // default, which is intentionally absent from engine.rules and therefore
     // never listed nor able to override a user rule.
     for (picker_fallback) |rule| {
-        if (matchesIdentity(rule, identity)) return rule;
+        if (engine.matchesIdentity(rule, identity)) return rule;
     }
     return null;
 }
@@ -428,12 +521,12 @@ fn hashOptionalString(hash: *std.hash.Wyhash, value: ?[]const u8) void {
 }
 
 fn hashOptionalEnum(hash: *std.hash.Wyhash, value: anytype) void {
-    const encoded: u8 = if (value) |item| @as(u8, @intCast(@intFromEnum(item))) + 1 else 0;
+    const encoded: u8 = if (value) |item| @as(u8, @intCast(@backingInt(item))) + 1 else 0;
     hash.update(std.mem.asBytes(&encoded));
 }
 
 fn hashOptionalContentType(hash: *std.hash.Wyhash, value: ?wp.ContentTypeV1.Type) void {
-    const encoded: u8 = if (value) |item| @as(u8, @intCast(@intFromEnum(item))) + 1 else 0;
+    const encoded: u8 = if (value) |item| @as(u8, @intCast(@backingInt(item))) + 1 else 0;
     hash.update(std.mem.asBytes(&encoded));
 }
 
@@ -562,6 +655,100 @@ test "placement fingerprints cover output and workspace without changing the mat
     try std.testing.expectEqual(first.placementFingerprint(), same.placementFingerprint());
     try std.testing.expect(first.placementFingerprint() != other_output.placementFingerprint());
     try std.testing.expect(first.placementFingerprint() != other_workspace.placementFingerprint());
+}
+
+test "matching timing restricts once and startup rules to eligible windows" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try engine.reload(&.{
+        .{ .app_id = "term*", .placement = .{ .workspace = 5 }, .matching = .once },
+        .{ .app_id = "term*", .placement = .{ .workspace = 7 } },
+    });
+
+    // The first eligible window resolves the once rule and claims its budget.
+    const first = engine.resolve(.{ .app_id = "term-one" }).?;
+    try std.testing.expectEqual(@as(u32, 5), first.placement.workspace);
+    engine.claimMatching(first);
+
+    // Later windows fall through to the broader rule.
+    try std.testing.expectEqual(@as(u32, 7), engine.resolve(.{ .app_id = "term-two" }).?.placement.workspace);
+
+    // The owning window keeps the rule even though the budget is spent.
+    try std.testing.expectEqual(
+        @as(u32, 5),
+        engine.resolve(.{ .app_id = "term-one", .current_match = first.matcherFingerprint() }).?.placement.workspace,
+    );
+
+    // Consumption survives reloads which keep the matcher and resets when it
+    // is edited into a different matcher.
+    try engine.reload(&.{
+        .{ .app_id = "term*", .placement = .{ .workspace = 5 }, .matching = .once },
+        .{ .app_id = "term*", .placement = .{ .workspace = 7 } },
+    });
+    try std.testing.expectEqual(@as(u32, 7), engine.resolve(.{ .app_id = "term-three" }).?.placement.workspace);
+    try engine.reload(&.{.{ .app_id = "termx*", .placement = .{ .workspace = 5 }, .matching = .once }});
+    try std.testing.expectEqual(@as(u32, 5), engine.resolve(.{ .app_id = "termx-one" }).?.placement.workspace);
+}
+
+test "claimed timing rules survive identity changes and earlier rules until removed" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    inline for (.{ Matching.once, Matching.startup }) |timing| {
+        const bound: Rule = .{ .app_id = "editor", .title = "Loading", .matching = timing, .opacity = 0.6 };
+        try engine.reload(&.{ .{ .title = "Ready", .opacity = 0.9 }, bound });
+        const first = engine.resolve(.{ .app_id = "editor", .title = "Loading" }).?;
+        engine.claimMatching(first);
+        const identity: Identity = .{ .app_id = "editor", .title = "Ready", .current_match = first.matcherFingerprint(), .startup_phase = false };
+        try std.testing.expectEqual(@as(?f64, 0.6), engine.resolve(identity).?.opacity);
+        var edited = bound;
+        edited.opacity = 0.7;
+        try engine.reload(&.{ .{ .title = "Ready", .opacity = 0.9 }, edited });
+        try std.testing.expectEqual(@as(?f64, 0.7), engine.resolve(identity).?.opacity);
+        try engine.reload(&.{.{ .title = "Ready", .opacity = 0.9 }});
+        try std.testing.expectEqual(@as(?f64, 0.9), engine.resolve(identity).?.opacity);
+    }
+}
+
+test "startup rules stop matching after the startup phase ends" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try engine.reload(&.{
+        .{ .app_id = "firefox", .placement = .{ .workspace = 9 }, .matching = .startup },
+        .{ .app_id = "firefox", .placement = .{ .workspace = 1 } },
+    });
+
+    // Windows admitted during startup use the startup rule; later windows do
+    // not, unless they already own the matcher.
+    const startup = engine.resolve(.{ .app_id = "firefox" }).?;
+    try std.testing.expectEqual(@as(u32, 9), startup.placement.workspace);
+    const owned = startup.matcherFingerprint();
+    const later = engine.resolve(.{ .app_id = "firefox", .startup_phase = false }).?;
+    try std.testing.expectEqual(@as(u32, 1), later.placement.workspace);
+    try std.testing.expectEqual(
+        @as(u32, 9),
+        engine.resolve(.{ .app_id = "firefox", .startup_phase = false, .current_match = owned }).?.placement.workspace,
+    );
+}
+
+test "matching timing changes rule and matcher identity but not floating placement" {
+    const always: Rule = .{ .app_id = "term*", .placement = .{ .floating = true } };
+    var once = always;
+    once.matching = .once;
+    var startup = always;
+    startup.matching = .startup;
+    try std.testing.expect(always.fingerprint() != once.fingerprint());
+    try std.testing.expect(always.matcherFingerprint() != once.matcherFingerprint());
+    try std.testing.expect(once.matcherFingerprint() != startup.matcherFingerprint());
+    try std.testing.expectEqual(always.floatingFingerprint(), once.floatingFingerprint());
+
+    for ([_][]const u8{ "once", "match-once", "match_once" }) |spelling| {
+        try std.testing.expectEqual(Matching.once, Matching.parse(spelling).?);
+    }
+    for ([_][]const u8{ "startup", "at-startup", "at_startup" }) |spelling| {
+        try std.testing.expectEqual(Matching.startup, Matching.parse(spelling).?);
+    }
+    try std.testing.expectEqual(Matching.always, Matching.parse("always").?);
+    try std.testing.expect(Matching.parse("sometimes") == null);
 }
 
 test "matcher fingerprints ignore unrelated property edits" {

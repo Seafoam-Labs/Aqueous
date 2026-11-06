@@ -79,6 +79,7 @@ fn signature(a: A, file: schema.FileId, doc: *const config.Document) ![]const u8
                         if (entry.value[0] == '"') text = try std.json.parseFromSliceLeaky([]const u8, a, entry.value, .{});
                     }
                     if (std.mem.eql(u8, entry.key, "layout")) text = schema.normalizeLayout(text);
+                    if (std.mem.eql(u8, entry.key, "matching")) text = fields.normalizeMatching(text);
                     inline for (.{ "app_id", "class", "title", "content_type", "tag", "window_type" }) |key| {
                         if (std.mem.eql(u8, entry.key, key) and (text.len != 0 or std.mem.eql(u8, key, "tag"))) matcher = true;
                     }

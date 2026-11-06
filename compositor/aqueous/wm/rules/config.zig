@@ -246,6 +246,7 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "fixed_position")) rule.fixed_position = parseBool(value) orelse rule.fixed_position;
     if (std.mem.eql(u8, key, "skip_switcher")) rule.skip_switcher = parseBool(value) orelse rule.skip_switcher;
     if (std.mem.eql(u8, key, "skip_taskbar")) rule.skip_taskbar = parseBool(value) orelse rule.skip_taskbar;
+    if (std.mem.eql(u8, key, "matching")) rule.matching = Engine.Matching.parse(value) orelse rule.matching;
 }
 
 fn parseStackLayer(value: []const u8) ?Engine.StackLayer {
@@ -649,10 +650,38 @@ test "popup rules validate atomically and preserve explicit zero placement" {
     try parseAndReload(std.testing.allocator, &engine, "[[window]]\nscope = \"override_redirect\"\nwindow_type = \"notification\"\nx = 0\nopacity = 0.8\nfocus = false\n");
     try std.testing.expectEqual(@as(?i32, 0), engine.rules[0].position_x);
     try std.testing.expectEqual(@as(?i32, null), engine.rules[0].position_y);
-    inline for (.{ "floating = false", "focus = true", "workspace = 2", "blur = false", "typo = 1", "opacity = nan", "focus = typo", "x = 100001" }) |property| {
+    inline for (.{ "floating = false", "focus = true", "workspace = 2", "blur = false", "typo = 1", "opacity = nan", "focus = typo", "x = 100001", "matching = \"once\"" }) |property| {
         try std.testing.expectError(error.UnsupportedOverrideRedirectRule, parseAndReload(std.testing.allocator, &engine, "[[window]]\nscope = \"override_redirect\"\nclass = \"*\"\n" ++ property));
         try std.testing.expectEqual(@as(?f64, 0.8), engine.rules[0].opacity);
     }
     try std.testing.expectError(error.InvalidRuleScope, parseAndReload(std.testing.allocator, &engine, "[[window]]\nclass = \"*\"\nscope = \"typo\""));
     try std.testing.expectError(error.WindowTypeRequiresOverrideRedirectScope, parseAndReload(std.testing.allocator, &engine, "[[window]]\nwindow_type = \"notification\""));
+}
+
+test "matching rules parse canonical spellings and aliases and tolerate invalid values" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try parseAndReload(std.testing.allocator, &engine,
+        \\[[window]]
+        \\app_id = "once"
+        \\matching = "once"
+        \\workspace = 1
+        \\[[window]]
+        \\app_id = "alias"
+        \\matching = "at-startup"
+        \\workspace = 2
+        \\[[window]]
+        \\app_id = "underscore"
+        \\matching = "match_once"
+        \\workspace = 3
+        \\[[window]]
+        \\app_id = "invalid"
+        \\matching = "sometimes"
+        \\workspace = 4
+    );
+    try std.testing.expectEqual(Engine.Matching.once, engine.resolve(.{ .app_id = "once" }).?.matching);
+    try std.testing.expectEqual(Engine.Matching.startup, engine.resolve(.{ .app_id = "alias" }).?.matching);
+    try std.testing.expectEqual(Engine.Matching.once, engine.resolve(.{ .app_id = "underscore" }).?.matching);
+    // An invalid spelling keeps the default without rejecting the reload.
+    try std.testing.expectEqual(Engine.Matching.always, engine.resolve(.{ .app_id = "invalid" }).?.matching);
 }

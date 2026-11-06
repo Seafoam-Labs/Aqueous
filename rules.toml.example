@@ -90,6 +90,19 @@ gaps_inner = 8             # integer >= 0
 #   fixed_position  true/false; reject pointer and keyboard geometry changes
 #   skip_switcher   true/false; omit from MRU cycling and overview
 #   skip_taskbar    true/false; exported through window-info state
+#   matching        always | once | startup (aliases: match-once/match_once,
+#                   at-startup/at_startup); restricts when the rule may match.
+#                   The default always matches every window. once binds the
+#                   rule to the first window which claims it; every later
+#                   window falls through to the next rule, so a broader rule
+#                   below still catches it. startup applies only to windows
+#                   admitted during the compositor startup settle window
+#                   (the first 10 seconds after startup, so autostart
+#                   clients still match). A claimed once budget survives
+#                   hot reloads until the rule's matcher is edited. The
+#                   owning window keeps its rule across title/tag changes
+#                   until the rule is removed or its matching clause changes.
+#                   Override-redirect rules reject the matching field.
 #
 # Floating placement:
 #   width, height   positive pixel sizes; 0/invalid means automatic
@@ -122,6 +135,20 @@ gaps_inner = 8             # integer >= 0
 # new matcher becomes active; the rule is not blindly enforced every manage
 # cycle. A missing or disabled output falls back to normal admission placement
 # and does not move the established window if that output appears later.
+
+# -----------------------------------------------------------------------------
+# Matching timing example
+# -----------------------------------------------------------------------------
+# Pin an application without dragging every later window along:
+# [[window]]
+# app_id = "firefox"
+# matching = "startup" # only windows admitted during compositor startup
+# output = "DP-2"
+# workspace = 3
+# [[window]]
+# app_id = "wezterm"
+# matching = "once" # only the first terminal claims this rule
+# workspace = 5
 
 # -----------------------------------------------------------------------------
 # Complete Game Mode example

@@ -64,6 +64,9 @@ with tempfile.TemporaryDirectory(prefix='aqueous-dms-helper-') as temporary:
     width_field = next(f for f in snap['collection_schema']['window_rules']['fields'] if f['key'] == 'scrolling_width')
     assert width_field['type'] == 'number' and width_field['range'] == [0, 1]
     assert width_field['exclusive_minimum'] is True
+    matching_field = next(f for f in snap['collection_schema']['window_rules']['fields'] if f['key'] == 'matching')
+    assert matching_field['type'] == 'string'
+    assert matching_field['options'] == ['always', 'once', 'startup']
     # Both shell adapters round-trip the preset and independent base fraction.
     for shell in ['dms', 'noctalia']:
         change = dict(protocol=1, expected_generation=applied['generation'],
@@ -104,6 +107,31 @@ with tempfile.TemporaryDirectory(prefix='aqueous-dms-helper-') as temporary:
         invalid = dict(protocol=1, expected_generation=applied['generation'],
                        window_rule_changes=[dict(id=rule['id'], op='update',
                            values=dict(scrolling_full_width='invalid'))])
+        call('validate', invalid, shell=shell, success=False)
+        assert (config/'rules.toml').read_bytes() == before_rules
+        applied = call('apply', dict(protocol=1, expected_generation=applied['generation'],
+            window_rule_changes=[dict(id=rule['id'], op='delete')]), shell=shell)
+        # Matching timing round-trips through the shared collection schema.
+        change = dict(protocol=1, expected_generation=applied['generation'],
+                      window_rule_changes=[dict(id='new-rule:timing', op='add',
+                          values=dict(app_id='aq-matching-test', matching='once'))])
+        applied = call('apply', change, shell=shell)
+        rule = next(r for r in applied['window_rules'] if r['values'].get('app_id') == 'aq-matching-test')
+        assert rule['values']['matching'] == 'once'
+        assert 'matching = "once"' in (config/'rules.toml').read_text()
+        for spelling, canonical in [('match-once', 'once'), ('match_once', 'once'),
+                                    ('at-startup', 'startup'), ('at_startup', 'startup')]:
+            change = dict(protocol=1, expected_generation=applied['generation'],
+                          window_rule_changes=[dict(id=rule['id'], op='update', values=dict(matching=spelling))])
+            call('validate', change, shell=shell)
+            applied = call('apply', change, shell=shell)
+            rule = next(r for r in applied['window_rules'] if r['id'] == rule['id'])
+            assert rule['values']['matching'] == canonical
+            assert f'matching = "{canonical}"' in (config/'rules.toml').read_text()
+        before_rules = (config/'rules.toml').read_bytes()
+        invalid = dict(protocol=1, expected_generation=applied['generation'],
+                       window_rule_changes=[dict(id=rule['id'], op='update',
+                           values=dict(matching='sometimes'))])
         call('validate', invalid, shell=shell, success=False)
         assert (config/'rules.toml').read_bytes() == before_rules
         applied = call('apply', dict(protocol=1, expected_generation=applied['generation'],
