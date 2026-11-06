@@ -78,7 +78,7 @@ pub fn featureContext(output: *wlr.Output) Policy.Context {
     return context;
 }
 pub fn featureState(state: Output.State) Policy.State {
-    return .{ .hdr = state.hdr_enabled, .vrr = state.adaptive_sync, .auto_hdr = state.auto_hdr, .hdr_level = @intFromEnum(state.hdr_level), .sdr_white_level = state.sdr_white_level, .auto_hdr_boost = state.auto_hdr_boost };
+    return .{ .hdr = state.hdr_enabled, .vrr = state.adaptive_sync, .auto_hdr = state.auto_hdr, .hdr_level = @backingInt(state.hdr_level), .sdr_white_level = state.sdr_white_level, .auto_hdr_boost = state.auto_hdr_boost };
 }
 pub fn supportReason(output: *wlr.Output, feature: Policy.Feature) ?[]const u8 {
     // Ordinary layout edits preserve every participant's active features.
@@ -108,6 +108,7 @@ fn includeIntent(req: *Policy.Requirements, spec: Config.Spec, before: Policy.St
         .auto => before.hdr_level,
         .l100 => 100,
         .l400 => 400,
+        .l600 => 600,
         .l1000 => 1000,
     };
     if (spec.sdr_white_level) |v| after.sdr_white_level = v;

@@ -49,7 +49,8 @@ def group_fields(group, enabled=True):
 def transition_cases(group):
     cases = {'transition-off': group_fields(group, False)} if group != 'sdr' else {}
     if group in ('hdr', 'hdr_vrr', 'auto_hdr'):
-        cases.update({'hdr-peak': {'hdr_level': '400'}, 'hdr-auto-peak': {'hdr_level': 'auto'},
+        cases.update({'hdr-peak': {'hdr_level': '400'}, 'hdr-peak-600': {'hdr_level': '600'},
+                      'hdr-auto-peak': {'hdr_level': 'auto'},
                       'sdr-white': {'sdr_white_level': 350}})
     if group == 'hdr_vrr':
         cases.update({'hdr-off-vrr-on': {'hdr': False}, 'vrr-off-hdr-on': {'adaptive_sync': False}})

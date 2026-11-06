@@ -100,7 +100,7 @@ def main() -> int:
                     help="demo artifact directory")
     ap.add_argument("--peak-nits", type=float, default=1000.0,
                     help="HDR peak for demo/export sanity (compositor levels: "
-                         "100/400/1000)")
+                         "100/400/600/1000)")
     ap.add_argument("--opset", type=int, default=18)
     args = ap.parse_args()
 

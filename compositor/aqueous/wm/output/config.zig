@@ -28,7 +28,7 @@ pub const Mode = struct { width: i32, height: i32, refresh_mhz: ?i32 = null };
 
 /// Requested HDR peak-luminance preset. `auto` resolves against the EDID
 /// CTA-861 desired-content luminances when the output applies.
-pub const HdrLevelChoice = enum { auto, l100, l400, l1000 };
+pub const HdrLevelChoice = enum { auto, l100, l400, l600, l1000 };
 
 pub const Spec = struct {
     /// Source table ordinal; scoped to this configuration generation.
@@ -342,6 +342,7 @@ pub fn parseHdrLevelChoice(value: []const u8) ?HdrLevelChoice {
     if (std.mem.eql(u8, value, "auto")) return .auto;
     if (std.mem.eql(u8, value, "100")) return .l100;
     if (std.mem.eql(u8, value, "400")) return .l400;
+    if (std.mem.eql(u8, value, "600")) return .l600;
     if (std.mem.eql(u8, value, "1000")) return .l1000;
     return null;
 }
@@ -351,6 +352,7 @@ pub fn hdrLevelChoiceName(choice: HdrLevelChoice) []const u8 {
         .auto => "auto",
         .l100 => "100",
         .l400 => "400",
+        .l600 => "600",
         .l1000 => "1000",
     };
 }
@@ -507,8 +509,9 @@ test "hdr level and sdr white level reject unsupported values" {
     try std.testing.expect(parseMode("1920x1080@1e300") == null);
     try std.testing.expect(parseMode("1920x1080@0.00001") == null);
     try std.testing.expectEqual(HdrLevelChoice.auto, parseHdrLevelChoice("auto").?);
+    try std.testing.expectEqual(HdrLevelChoice.l600, parseHdrLevelChoice("600").?);
     try std.testing.expectEqual(HdrLevelChoice.l1000, parseHdrLevelChoice("1000").?);
-    try std.testing.expect(parseHdrLevelChoice("600") == null);
+    try std.testing.expect(parseHdrLevelChoice("500") == null);
     try std.testing.expect(parseSdrWhiteLevel("79") == null);
     try std.testing.expect(parseSdrWhiteLevel("1000") != null);
     try std.testing.expect(parseSdrWhiteLevel("1000.5") == null);
@@ -517,7 +520,14 @@ test "hdr level and sdr white level reject unsupported values" {
         \\name = "DP-1"
         \\hdr_level = 600
     );
-    try std.testing.expectEqual(@as(u8, 0), snapshot.output_count);
+    try std.testing.expectEqual(@as(u8, 1), snapshot.output_count);
+    try std.testing.expectEqual(HdrLevelChoice.l600, snapshot.outputs[0].hdr_level.?);
+    const unsupported = parse(
+        \\[[output]]
+        \\name = "DP-1"
+        \\hdr_level = 500
+    );
+    try std.testing.expectEqual(@as(u8, 0), unsupported.output_count);
     const out_of_range = parse(
         \\[[output]]
         \\name = "DP-1"

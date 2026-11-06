@@ -127,7 +127,7 @@ Outputs and members accept the canonical parser's fields:
 | `position` | Two signed 32-bit integers |
 | `transform` | `normal`, `90`, `180`, `270`, `flipped`, `flipped-90`, `flipped-180`, `flipped-270` |
 | `mirror_of` | Exact source name, or `""` to restore extended mode; no wildcard |
-| `hdr_level` | String `auto`, `100`, `400` or `1000` |
+| `hdr_level` | String `auto`, `100`, `400`, `600` or `1000` |
 | `sdr_white_level` | Number 80–1000 cd/m² |
 | `auto_hdr_boost` | Number 0–1 |
 

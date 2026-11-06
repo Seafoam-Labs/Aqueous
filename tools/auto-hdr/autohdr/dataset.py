@@ -35,7 +35,7 @@ CLASS_NAMES = ("scene", "video", "ui")
 
 # Compositor HdrLevel presets in working units (output_hdr.zig). The 100-nit
 # level has no headroom above white, so it is not sampled for training.
-PEAK_LEVELS = (400.0 / SDR_WHITE_NITS, 1000.0 / SDR_WHITE_NITS)
+PEAK_LEVELS = (400.0 / SDR_WHITE_NITS, 600.0 / SDR_WHITE_NITS, 1000.0 / SDR_WHITE_NITS)
 
 
 class PairDataset(Dataset):

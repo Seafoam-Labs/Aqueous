@@ -111,11 +111,15 @@ level_400=$(output_request "{\"op\":\"set\",\"changes\":[{\"name\":\"$NAME\",\"h
 echo "$level_400" | jq -e '.ok == true' >/dev/null \
     && pass "hdr_level accepts numeric presets" \
     || err "hdr_level rejected 400: $level_400"
+level_600=$(output_request "{\"op\":\"set\",\"changes\":[{\"name\":\"$NAME\",\"hdr_level\":600}]}")
+echo "$level_600" | jq -e '.ok == true' >/dev/null \
+    && pass "hdr_level accepts the 600-nit preset" \
+    || err "hdr_level rejected 600: $level_600"
 list=$(output_request '{"op":"list"}')
-echo "$list" | jq -e '.outputs[0].hdr_level == 400' >/dev/null \
+echo "$list" | jq -e '.outputs[0].hdr_level == 600' >/dev/null \
     && pass "list reflects the resolved HDR level" \
     || err "list does not reflect the HDR level"
-bad_level=$(output_request "{\"op\":\"set\",\"changes\":[{\"name\":\"$NAME\",\"hdr_level\":600}]}")
+bad_level=$(output_request "{\"op\":\"set\",\"changes\":[{\"name\":\"$NAME\",\"hdr_level\":500}]}")
 echo "$bad_level" | jq -e '.ok == false' >/dev/null \
     && pass "unsupported hdr_level is rejected" \
     || err "unsupported hdr_level was accepted"

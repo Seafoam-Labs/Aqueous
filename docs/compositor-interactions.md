@@ -633,7 +633,7 @@ normal 8-bit sRGB output profile. Per-surface mastering metadata, HLG,
 display-specific tone mapping, and ICC calibration are outside this profile.
 
 `hdr_level` picks the peak-luminance preset used for the mastering metadata
-(100, 400, or 1000 cd/m²; default 1000), so the static InfoFrame matches the
+(100, 400, 600, or 1000 cd/m²; default 1000), so the static InfoFrame matches the
 connected display. `hdr_level = "auto"` resolves the preset nearest the
 EDID CTA-861 desired-content peak luminance when the connector advertises
 one, falling back to 1000 otherwise. `sdr_white_level` (80–1000 cd/m²,
@@ -656,7 +656,7 @@ range and the configured SDR white as its reference luminance. If integer
 protocol rounding would make reference equal to or exceed the target maximum,
 the wire value is clamped to `target max - 1`. This preserves Proton's strict
 `target max > reference` HDR signal without changing the compositor's actual
-SDR-white gain. The 100/400/1000 cd/m² output preset remains the
+SDR-white gain. The 100/400/600/1000 cd/m² output preset remains the
 target/mastering maximum and is also used for MaxCLL/MaxFALL; it does not
 replace the PQ encoding maximum.
 Normal SDR output information remains 80 cd/m² maximum and 80 cd/m² reference,
@@ -712,7 +712,7 @@ compositor. It preserves the display-panel JSON contract without a separate
 `aqueous-outputd` process and accepts only same-UID peers.
 
 The output-service `set` and `save_profile` operations accept an optional
-boolean `hdr` field, an optional `hdr_level` field (100, 400, 1000, or
+boolean `hdr` field, an optional `hdr_level` field (100, 400, 600, 1000, or
 `"auto"`), an optional numeric `sdr_white_level` field in cd/m², an optional
 boolean `auto_hdr` field, and an optional numeric `auto_hdr_boost` field.
 Listed outputs report `hdr`, the resolved `hdr_level`, `sdr_white_level`,

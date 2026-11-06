@@ -37,23 +37,26 @@ pub const hdr_render_formats = [_]u32{
 pub const HdrLevel = enum(u16) {
     l100 = 100,
     l400 = 400,
+    l600 = 600,
     l1000 = 1000,
 
     pub fn parse(value: []const u8) ?HdrLevel {
         if (std.mem.eql(u8, value, "100")) return .l100;
         if (std.mem.eql(u8, value, "400")) return .l400;
+        if (std.mem.eql(u8, value, "600")) return .l600;
         if (std.mem.eql(u8, value, "1000")) return .l1000;
         return null;
     }
 
     pub fn nits(level: HdrLevel) u16 {
-        return @intFromEnum(level);
+        return @backingInt(level);
     }
 
     pub fn name(level: HdrLevel) []const u8 {
         return switch (level) {
             .l100 => "100",
             .l400 => "400",
+            .l600 => "600",
             .l1000 => "1000",
         };
     }
@@ -113,6 +116,7 @@ pub fn imageDescription(level: HdrLevel, sdr_white_level: f64) ImageDescription 
     const max_fall: f64 = switch (level) {
         .l100 => 50.0,
         .l400 => 200.0,
+        .l600 => 300.0,
         .l1000 => 400.0,
     };
     return .{
@@ -136,8 +140,8 @@ fn hasFlag(mask: u32, flag: c_int) bool {
 }
 
 pub fn supportsHdrColors(supported_primaries: u32, supported_transfer_functions: u32) bool {
-    return hasFlag(supported_primaries, @intFromEnum(wlr.color.NamedPrimaries.bt2020)) and
-        hasFlag(supported_transfer_functions, @intFromEnum(wlr.color.TransferFunction.st2084_pq));
+    return hasFlag(supported_primaries, @backingInt(wlr.color.NamedPrimaries.bt2020)) and
+        hasFlag(supported_transfer_functions, @backingInt(wlr.color.TransferFunction.st2084_pq));
 }
 
 pub fn selectFormatFromSet(formats: ?*const wlr.DrmFormatSet) ?u32 {
@@ -182,7 +186,8 @@ pub fn pickAutoLevel(desired_max_luminance: f64, desired_max_frame_avg_luminance
     const peak = if (desired_max_luminance > 0) desired_max_luminance else desired_max_frame_avg_luminance;
     if (peak <= 0) return null;
     if (peak <= 250.0) return .l100;
-    if (peak <= 700.0) return .l400;
+    if (peak <= 500.0) return .l400;
+    if (peak <= 800.0) return .l600;
     return .l1000;
 }
 
@@ -284,9 +289,9 @@ test "SDR fallback clears prepared or active HDR and preserves untouched SDR" {
 }
 
 test "HDR color capability requires BT.2020 and PQ" {
-    const srgb: u32 = @intCast(@intFromEnum(wlr.color.NamedPrimaries.srgb));
-    const bt2020: u32 = @intCast(@intFromEnum(wlr.color.NamedPrimaries.bt2020));
-    const pq: u32 = @intCast(@intFromEnum(wlr.color.TransferFunction.st2084_pq));
+    const srgb: u32 = @intCast(@backingInt(wlr.color.NamedPrimaries.srgb));
+    const bt2020: u32 = @intCast(@backingInt(wlr.color.NamedPrimaries.bt2020));
+    const pq: u32 = @intCast(@backingInt(wlr.color.TransferFunction.st2084_pq));
     try std.testing.expect(!supportsHdrColors(srgb, pq));
     try std.testing.expect(!supportsHdrColors(bt2020, 0));
     try std.testing.expect(supportsHdrColors(bt2020, pq));
@@ -323,10 +328,13 @@ test "DRM format names are exposed as fourcc strings" {
 test "HDR levels parse from their nit names" {
     try std.testing.expectEqual(HdrLevel.l100, HdrLevel.parse("100").?);
     try std.testing.expectEqual(HdrLevel.l400, HdrLevel.parse("400").?);
+    try std.testing.expectEqual(HdrLevel.l600, HdrLevel.parse("600").?);
     try std.testing.expectEqual(HdrLevel.l1000, HdrLevel.parse("1000").?);
-    try std.testing.expect(HdrLevel.parse("600") == null);
+    try std.testing.expect(HdrLevel.parse("500") == null);
     try std.testing.expect(HdrLevel.parse("auto") == null);
     try std.testing.expectEqualStrings("400", HdrLevel.l400.name());
+    try std.testing.expectEqualStrings("600", HdrLevel.l600.name());
+    try std.testing.expectEqual(@as(u16, 600), HdrLevel.l600.nits());
     try std.testing.expectEqual(@as(u16, 1000), HdrLevel.l1000.nits());
 }
 
@@ -343,6 +351,12 @@ test "image descriptions follow the level envelope" {
     try std.testing.expectEqual(@as(f64, 200.0), l400.max_fall);
     try std.testing.expectEqual(@as(f64, 150.0), l400.sdr_white_level);
 
+    const l600 = imageDescription(.l600, 200.0);
+    try std.testing.expectEqual(@as(f64, 600.0), l600.mastering_luminance.max);
+    try std.testing.expectEqual(@as(f64, 600.0), l600.max_cll);
+    try std.testing.expectEqual(@as(f64, 300.0), l600.max_fall);
+    try std.testing.expectEqual(@as(f64, 200.0), l600.sdr_white_level);
+
     const l1000 = imageDescription(.l1000, default_sdr_white_level);
     try std.testing.expectEqual(@as(f64, 1000.0), l1000.mastering_luminance.max);
     try std.testing.expectEqual(@as(f64, 1000.0), l1000.max_cll);
@@ -356,7 +370,7 @@ test "image descriptions follow the level envelope" {
     try std.testing.expectEqual(@as(f64, 400.0), reference_at_target_max.sdr_white_level);
     try std.testing.expectEqual(@as(f64, 400.0), reference_at_target_max.mastering_luminance.max);
 
-    for ([_]ImageDescription{ l100, l400, l1000 }) |description| {
+    for ([_]ImageDescription{ l100, l400, l600, l1000 }) |description| {
         try std.testing.expectEqual(wlr.color.NamedPrimaries.bt2020, description.primaries);
         try std.testing.expectEqual(wlr.color.TransferFunction.st2084_pq, description.transfer_function);
         try std.testing.expect(description.max_fall <= description.max_cll);
@@ -369,10 +383,14 @@ test "auto level picks the nearest preset to the EDID peak" {
     try std.testing.expectEqual(HdrLevel.l100, pickAutoLevel(250.0, 0).?);
     try std.testing.expectEqual(HdrLevel.l400, pickAutoLevel(251.0, 0).?);
     try std.testing.expectEqual(HdrLevel.l400, pickAutoLevel(400.0, 0).?);
-    try std.testing.expectEqual(HdrLevel.l400, pickAutoLevel(600.0, 0).?);
-    try std.testing.expectEqual(HdrLevel.l400, pickAutoLevel(700.0, 0).?);
-    try std.testing.expectEqual(HdrLevel.l1000, pickAutoLevel(701.0, 0).?);
+    try std.testing.expectEqual(HdrLevel.l400, pickAutoLevel(500.0, 0).?);
+    try std.testing.expectEqual(HdrLevel.l600, pickAutoLevel(501.0, 0).?);
+    try std.testing.expectEqual(HdrLevel.l600, pickAutoLevel(600.0, 0).?);
+    try std.testing.expectEqual(HdrLevel.l600, pickAutoLevel(700.0, 0).?);
+    try std.testing.expectEqual(HdrLevel.l600, pickAutoLevel(800.0, 0).?);
+    try std.testing.expectEqual(HdrLevel.l1000, pickAutoLevel(801.0, 0).?);
     try std.testing.expectEqual(HdrLevel.l1000, pickAutoLevel(1500.0, 0).?);
     // The frame-average value is a fallback when no peak is advertised.
     try std.testing.expectEqual(HdrLevel.l400, pickAutoLevel(0, 400.0).?);
+    try std.testing.expectEqual(HdrLevel.l600, pickAutoLevel(0, 600.0).?);
 }

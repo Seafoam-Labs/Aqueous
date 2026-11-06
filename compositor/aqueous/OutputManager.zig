@@ -404,6 +404,7 @@ fn applySpecToState(spec: *const OutputConfig.Spec, wlr_output: *wlr.Output, sta
         .auto => Output.hdr.autoLevel(wlr_output) orelse .l1000,
         .l100 => .l100,
         .l400 => .l400,
+        .l600 => .l600,
         .l1000 => .l1000,
     };
     if (spec.sdr_white_level) |white| state.sdr_white_level = white;
@@ -550,7 +551,7 @@ fn handleManagerApply(_: *wl.Listener(*wlr.OutputConfigurationV1), config: *wlr.
             log.debug("head {s}: enabled scale={d} transform={d} adaptive_sync={}", .{
                 head.state.output.name,
                 head.state.scale,
-                @intFromEnum(head.state.transform),
+                @backingInt(head.state.transform),
                 head.state.adaptive_sync_enabled,
             });
             const previous = output.scheduled.state;

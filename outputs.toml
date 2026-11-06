@@ -32,7 +32,7 @@
 # fullscreen_only_adaptive_sync = true
 # hdr = false
 # HDR peak-luminance preset used for the HDR10 mastering metadata: 100, 400,
-# or 1000 (cd/m²). "auto" picks the preset nearest the display's EDID
+# 600, or 1000 (cd/m²). "auto" picks the preset nearest the display's EDID
 # desired-content peak luminance (falling back to 1000 when unknown).
 # Defaults to 1000 when omitted.
 # hdr_level = "auto"

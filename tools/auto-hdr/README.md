@@ -114,7 +114,7 @@ pipeline checks; do the real runs once a supported ROCm stack is installed
   the shader's `white` placement; HDR targets are the original scene in
   working units; `peak_rel = HdrLevel.nits() / 203`.
 - Peaks are sampled from the compositor's expansion-capable presets
-  (400 and 1000 nits → 1.97 / 4.93) with optional jitter.
+  (400, 600, and 1000 nits → 1.97 / 2.96 / 4.93) with optional jitter.
 - Option C's `analytic_expand` is a literal mirror of
   `compositor/aqueous/auto_hdr.zig` (knee 0.8, smoothstep mask, peak clamp).
 

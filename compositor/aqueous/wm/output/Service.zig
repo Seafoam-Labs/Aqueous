@@ -1331,6 +1331,7 @@ fn jsonHdrLevelChoice(value: std.json.Value) ?Config.HdrLevelChoice {
 fn intToHdrLevelChoice(value: i64) ?Config.HdrLevelChoice {
     if (value == 100) return .l100;
     if (value == 400) return .l400;
+    if (value == 600) return .l600;
     if (value == 1000) return .l1000;
     return null;
 }
