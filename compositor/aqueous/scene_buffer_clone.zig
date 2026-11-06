@@ -10,6 +10,11 @@ extern fn wlr_scene_buffer_set_primaries(buffer: *wlr.SceneBuffer, value: wlr.co
 extern fn wlr_scene_buffer_set_color_encoding(buffer: *wlr.SceneBuffer, value: wlr.color.Encoding) void;
 extern fn wlr_scene_buffer_set_color_range(buffer: *wlr.SceneBuffer, value: wlr.color.Range) void;
 
+// Aqueous wlroots patch 0043. Snapshots have no surface from which to recover
+// the fixed scRGB stimulus mapping. Use an integer setter at the C ABI boundary.
+extern fn wlr_scene_buffer_set_windows_scrgb(buffer: *wlr.SceneBuffer, value: c_int) void;
+extern fn wlr_scene_buffer_get_windows_scrgb(buffer: *const wlr.SceneBuffer) bool;
+
 /// Copy the frozen buffer's rendering state, without borrowing surface identity
 /// or listeners. Compositor-specific effects are attached by the caller.
 pub fn clone(target: *wlr.SceneTree, source: *wlr.SceneBuffer, x: i32, y: i32) !*wlr.SceneBuffer {
@@ -25,6 +30,7 @@ pub fn clone(target: *wlr.SceneTree, source: *wlr.SceneBuffer, x: i32, y: i32) !
     wlr_scene_buffer_set_primaries(snapshot, source.primaries);
     wlr_scene_buffer_set_color_encoding(snapshot, source.color_encoding);
     wlr_scene_buffer_set_color_range(snapshot, source.color_range);
+    wlr_scene_buffer_set_windows_scrgb(snapshot, @intFromBool(wlr_scene_buffer_get_windows_scrgb(source)));
     return snapshot;
 }
 
@@ -85,9 +91,47 @@ test "snapshot preserves default SDR properties and destroying it leaves the sou
     try std.testing.expectEqual(source.primaries, snapshot.primaries);
     try std.testing.expectEqual(source.color_encoding, snapshot.color_encoding);
     try std.testing.expectEqual(source.color_range, snapshot.color_range);
+    try std.testing.expect(!wlr_scene_buffer_get_windows_scrgb(snapshot));
     try std.testing.expectEqual(source.filter_mode, snapshot.filter_mode);
     try std.testing.expectEqual(@as(f32, 1), snapshot.opacity);
     snapshot.node.destroy();
     source.setOpacity(0.5);
     try std.testing.expectEqual(@as(f32, 0.5), source.opacity);
+}
+
+test "snapshot field offsets agree with patched C scene buffer" {
+    const c = @import("c");
+    // The new flag is accessed through C functions, not the pinned upstream
+    // binding. Check every field directly accessed by clone against our headers.
+    inline for (.{ "node", "buffer", "dst_width", "dst_height", "src_box", "transform", "opacity", "opaque_region", "filter_mode", "transfer_function", "primaries", "color_encoding", "color_range" }) |field| {
+        try std.testing.expectEqual(@offsetOf(c.struct_wlr_scene_buffer, field), @offsetOf(wlr.SceneBuffer, field));
+    }
+}
+
+test "scRGB snapshot mapping survives source changes, destruction and cloning again" {
+    const scene = try wlr.Scene.create();
+    defer scene.tree.node.destroy();
+    const source = try scene.tree.createSceneBuffer(null);
+    try std.testing.expect(!wlr_scene_buffer_get_windows_scrgb(source));
+    wlr_scene_buffer_set_transfer_function(source, .ext_linear);
+    wlr_scene_buffer_set_primaries(source, .srgb);
+    wlr_scene_buffer_set_windows_scrgb(source, 1);
+
+    const snapshot = try clone(&scene.tree, source, 0, 0);
+    try std.testing.expect(wlr.SceneSurface.tryFromBuffer(snapshot) == null);
+    try std.testing.expect(wlr_scene_buffer_get_windows_scrgb(snapshot));
+    try std.testing.expectEqual(wlr.color.TransferFunction.ext_linear, snapshot.transfer_function);
+    try std.testing.expectEqual(wlr.color.NamedPrimaries.srgb, snapshot.primaries);
+
+    wlr_scene_buffer_set_windows_scrgb(source, 0);
+    const ordinary_linear = try clone(&scene.tree, source, 0, 0);
+    try std.testing.expect(!wlr_scene_buffer_get_windows_scrgb(ordinary_linear));
+    try std.testing.expect(wlr_scene_buffer_get_windows_scrgb(snapshot));
+    source.node.destroy();
+    try std.testing.expect(wlr_scene_buffer_get_windows_scrgb(snapshot));
+
+    const second = try clone(&scene.tree, snapshot, 0, 0);
+    snapshot.node.destroy();
+    try std.testing.expect(wlr_scene_buffer_get_windows_scrgb(second));
+    try std.testing.expectEqual(wlr.color.TransferFunction.ext_linear, second.transfer_function);
 }

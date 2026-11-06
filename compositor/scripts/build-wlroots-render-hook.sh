@@ -49,6 +49,7 @@ patch_files=(
     "$here/patches/wlroots/0040-hidden-fifo-pacing.patch"
     "$here/patches/wlroots/0041-vulkan-semaphore-import-lifecycle.patch"
     "$here/patches/wlroots/0042-vulkan-pass-requirements.patch"
+    "$here/patches/wlroots/0043-scene-buffer-windows-scrgb.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -179,6 +180,9 @@ cc -std=c11 -Wall -Wextra -Werror -I"$source_dir/include" \
 bash "$here/scripts/test-screencopy-sdr.sh" "$source_dir" "$prefix" ||
     die "10-bit SDR screencopy conversion failed"
 
+python3 "$here/scripts/test-scene-scrgb.py" "$source_dir" "$prefix" ||
+    die "scene scRGB snapshot mapping or color-state transitions failed"
+
 library="$prefix/lib/libwlroots-0.20.so"
 [ -f "$library" ] || die "patched wlroots library was not installed"
 for symbol in \
@@ -228,6 +232,8 @@ for symbol in \
     wlr_output_set_client_projection_handler \
     wlr_xdg_output_manager_v1_update \
     wlr_scene_buffer_set_force_blend \
+    wlr_scene_buffer_set_windows_scrgb \
+    wlr_scene_buffer_get_windows_scrgb \
     wlr_scene_rect_set_force_blend \
     wlr_vk_renderer_enable_offscreen \
     wlr_vk_render_pass_run_offscreen \

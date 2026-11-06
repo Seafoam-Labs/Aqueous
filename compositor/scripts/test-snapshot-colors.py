@@ -4,6 +4,7 @@
 Uses an isolated nested Vulkan compositor (SDR output). This does not establish
 hardware HDR correctness. Requires Pillow, grim, wlrctl, and Wayland development
 tools. Run against an unpatched compositor with --compositor to verify failure.
+Use --scrgb to check predefined Windows-scRGB snapshots on this SDR output.
 Run graphical tests serially: obscured nested windows may stop receiving frames.
 """
 import argparse
@@ -23,6 +24,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--compositor", type=Path, default=ROOT / "zig-out/bin/aqueous")
 parser.add_argument("--opacity", type=float, default=1.0)
 parser.add_argument("--blur", action="store_true")
+parser.add_argument("--scrgb", action="store_true")
 parser.add_argument("--fullscreen", action="store_true", help="Check fullscreen workspace snapshots; omit the resize case")
 args = parser.parse_args()
 assert 0 < args.opacity <= 1
@@ -133,9 +135,10 @@ def distance(a, b):
 try:
     launch([args.compositor.resolve(), "-no-xwayland", "-policy", "internal",
             "-log-level", "debug", "-c", "true"], "compositor")
-    socket = wait_for(lambda: next(runtime.glob("wayland-*"), None), "no Wayland socket")
+    socket = wait_for(lambda: next((p for p in runtime.glob("wayland-*") if p.is_socket()), None),
+                      "no Wayland socket")
     env["WAYLAND_DISPLAY"] = socket.name
-    launch([work / "client"], "client")
+    launch([work / "client", *(["--scrgb"] if args.scrgb else [])], "client")
     window = wait_for(lambda: next((w for w in windows() if w["app_id"] == "aqueous.snapshot-color"), None),
                       "color-managed client did not map")
     if args.fullscreen:

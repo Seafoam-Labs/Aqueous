@@ -120,7 +120,9 @@ static void closed(void *data, struct xdg_toplevel *top) {
 static const struct xdg_toplevel_listener toplevel_listener = {
     .configure = size_changed, .close = closed,
 };
-int main(void) {
+int main(int argc, char **argv) {
+    bool scrgb = argc == 2 && !strcmp(argv[1], "--scrgb");
+    assert(argc == 1 || scrgb);
     display = wl_display_connect(NULL);
     assert(display);
     struct wl_registry *registry = wl_display_get_registry(display);
@@ -128,13 +130,18 @@ int main(void) {
     assert(wl_display_roundtrip(display) >= 0);
     assert(compositor && shm && wm && colors);
     wp_color_manager_v1_add_listener(colors, &color_listener, NULL);
-    struct wp_image_description_creator_params_v1 *creator =
-        wp_color_manager_v1_create_parametric_creator(colors);
-    wp_image_description_creator_params_v1_set_tf_named(creator,
-        WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_GAMMA22);
-    wp_image_description_creator_params_v1_set_primaries_named(creator,
-        WP_COLOR_MANAGER_V1_PRIMARIES_BT2020);
-    struct wp_image_description_v1 *description = wp_image_description_creator_params_v1_create(creator);
+    struct wp_image_description_v1 *description;
+    if (scrgb) {
+        description = wp_color_manager_v1_create_windows_scrgb(colors);
+    } else {
+        struct wp_image_description_creator_params_v1 *creator =
+            wp_color_manager_v1_create_parametric_creator(colors);
+        wp_image_description_creator_params_v1_set_tf_named(creator,
+            WP_COLOR_MANAGER_V1_TRANSFER_FUNCTION_GAMMA22);
+        wp_image_description_creator_params_v1_set_primaries_named(creator,
+            WP_COLOR_MANAGER_V1_PRIMARIES_BT2020);
+        description = wp_image_description_creator_params_v1_create(creator);
+    }
     wp_image_description_v1_add_listener(description, &description_listener, NULL);
     while (!description_ready) assert(wl_display_dispatch(display) >= 0);
     surface = wl_compositor_create_surface(compositor);

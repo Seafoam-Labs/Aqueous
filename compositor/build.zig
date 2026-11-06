@@ -927,6 +927,7 @@ pub fn build(b: *Build) !void {
             .use_lld = use_llvm,
         });
         scene_buffer_clone_test.root_module.addImport("wlroots", wlroots);
+        scene_buffer_clone_test.root_module.addImport("c", translate_c.mod);
         const run_scene_buffer_clone_test = b.addRunArtifact(scene_buffer_clone_test);
         const snapshot_test_step = b.step("test-snapshot", "Test scene-buffer snapshot rendering state");
         snapshot_test_step.dependOn(&run_scene_buffer_clone_test.step);

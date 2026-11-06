@@ -79,6 +79,8 @@ for symbol in \
     wlr_scene_output_set_rect_render_hook \
     wlr_scene_output_set_render_hooks \
     wlr_scene_buffer_set_force_blend \
+    wlr_scene_buffer_set_windows_scrgb \
+    wlr_scene_buffer_get_windows_scrgb \
     wlr_scene_rect_set_force_blend \
     wlr_vk_renderer_enable_offscreen \
     wlr_vk_render_pass_run_offscreen \
