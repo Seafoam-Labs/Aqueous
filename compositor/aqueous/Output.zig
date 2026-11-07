@@ -154,7 +154,7 @@ pub const State = struct {
             .custom => |mode| .{ mode.width, mode.height },
             .none => .{ 0, 0 },
         };
-        if (@mod(@intFromEnum(state.transform), 2) != 0) {
+        if (@mod(@backingInt(state.transform), 2) != 0) {
             mem.swap(i32, &w, &h);
         }
         return .{
@@ -170,7 +170,7 @@ pub const State = struct {
             .custom => |mode| .{ mode.width, mode.height },
             .none => .{ 0, 0 },
         };
-        if (@mod(@intFromEnum(state.transform), 2) != 0) mem.swap(i32, &width, &height);
+        if (@mod(@backingInt(state.transform), 2) != 0) mem.swap(i32, &width, &height);
         return .{ width, height };
     }
 
@@ -676,7 +676,7 @@ pub fn create(wlr_output: *wlr.Output) !void {
 fn defaultTransform(wlr_output: *wlr.Output) wl.Output.Transform {
     if (!wlr_output.isDrm()) return .normal;
     const kernel: wl.Output.Transform =
-        @enumFromInt(c.wlr_drm_connector_get_panel_orientation(@ptrCast(wlr_output)));
+        @fromBackingInt(@intCast(c.wlr_drm_connector_get_panel_orientation(@ptrCast(wlr_output))));
     if (kernel != .normal) {
         log.info("output {s}: using kernel panel orientation {s}", .{ wlr_output.name, @tagName(kernel) });
         return kernel;
@@ -839,7 +839,7 @@ pub fn damageBufferEffects(output: *Output, buffer: *wlr.SceneBuffer) void {
     if (width <= 0 or height <= 0) {
         width = buffer.private.buffer_width;
         height = buffer.private.buffer_height;
-        if (@mod(@intFromEnum(buffer.transform), 2) != 0) mem.swap(c_int, &width, &height);
+        if (@mod(@backingInt(buffer.transform), 2) != 0) mem.swap(c_int, &width, &height);
     }
     var box = nodeEffectBox(&buffer.node, .{
         .x = 0,
@@ -1292,7 +1292,7 @@ fn blurOwnerEffect(
     radii = transformRadii(radii, transform);
     var transformed_width, var transformed_height =
         physicalDimensions(state);
-    if (@mod(@intFromEnum(state.transform), 2) != 0) {
+    if (@mod(@backingInt(state.transform), 2) != 0) {
         mem.swap(i32, &transformed_width, &transformed_height);
     }
     box.transform(
@@ -1434,7 +1434,7 @@ pub fn setFullBlurDamage(
 ) void {
     var width, var height = physicalDimensions(output.effectRenderState());
     if (@mod(
-        @intFromEnum(output.effectRenderState().transform),
+        @backingInt(output.effectRenderState().transform),
         2,
     ) != 0) {
         mem.swap(i32, &width, &height);
@@ -1660,15 +1660,27 @@ fn slideDirection(output: *Output, prev: *Workspace, next: *Workspace) i32 {
     return 1;
 }
 
+/// Hide the live scene nodes of a workspace that is sliding out. During a
+/// workspace-swap slide those trees are parked one output-width off-screen and
+/// kept invisible solely because `prev_workspace` still names their workspace.
+/// Clearing that field before the next `renderFinish` disables the trees lets
+/// `applyOpacity` restore their opacity while they sit over the neighboring
+/// output, flashing the outgoing workspace on that output for one frame.
+fn hideInactiveWorkspaceWindows(workspace: *Workspace) void {
+    var it = workspace.windows.iterator(.forward);
+    while (it.next()) |window| {
+        window.cancelSlide();
+        window.tree.node.setEnabled(false);
+        window.popup_tree.node.setEnabled(false);
+    }
+}
+
 /// Abort any in-flight workspace-swap slide, tearing down the participating
-/// windows' clones so they cannot outlive their workspace (e.g. when an output
+/// windows' clones so they cannot outlive their workspace (e.g., when an output
 /// is disconnected, migrated, or cleared mid-transition).
 pub fn cancelTransition(output: *Output) void {
     if (comptime !fx.anim_enabled) return;
-    if (output.prev_workspace) |prev| {
-        var it = prev.windows.iterator(.forward);
-        while (it.next()) |w| w.cancelSlide();
-    }
+    if (output.prev_workspace) |prev| hideInactiveWorkspaceWindows(prev);
     if (output.active_workspace) |active| {
         var it = active.windows.iterator(.forward);
         while (it.next()) |w| w.cancelSlide();
@@ -1703,6 +1715,10 @@ fn finalizeTransition(output: *Output) void {
     // here would cancel the transition before it visibly begins.
     if (!output.transition_armed) return;
     if (output.hasActiveAnimations()) return;
+    // Hide the outgoing trees while `prev_workspace` still keeps them
+    // transparent. Clearing the field first restores their opacity before the
+    // next renderFinish disables them, flashing them on the neighbor.
+    hideInactiveWorkspaceWindows(prev);
     output.prev_workspace = null;
     output.transition_dir = 0;
     output.transition_armed = false;
@@ -2725,7 +2741,7 @@ fn prepareOverlayCandidate(
         .buffer_height = dmabuf.height,
         .destination = overlayDestination(output, window),
         .output_scale_bits = @bitCast(output.current.scale),
-        .output_transform = @intCast(@intFromEnum(output.current.transform)),
+        .output_transform = @intCast(@backingInt(output.current.transform)),
         .output_width = output.current.dimensions()[0],
         .output_height = output.current.dimensions()[1],
         .adaptive_sync = output.actualAdaptiveSync(),

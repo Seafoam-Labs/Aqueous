@@ -33,6 +33,7 @@ const visual_state = @import("visual_state.zig");
 const Scene = @import("Scene.zig");
 const SceneNodeData = @import("SceneNodeData.zig");
 const Seat = @import("Seat.zig");
+const WindowInfoManager = @import("WindowInfoManager.zig");
 const WmNode = @import("WmNode.zig");
 const Workspace = @import("Workspace.zig");
 const WorkspaceManager = @import("WorkspaceManager.zig");
@@ -3205,6 +3206,30 @@ pub fn applyOpacity(window: *Window) void {
     // An outgoing live tree sits at its off-screen target. Keep it invisible
     // even on the snapshot teardown frame, so it cannot flash on a neighbor.
     const outgoing = if (window.workspace) |ws| ws.output.prev_workspace == ws else false;
+    if (WindowInfoManager.windowStateDiagnostics()) {
+        // A window on an inactive workspace must never be left enabled outside
+        // its own output: that state renders the window on a neighboring output.
+        // The transition end clears prev_workspace before the next renderFinish
+        // disables the live tree, so check the invariant at the exact point where
+        // opacity is restored.
+        if (window.workspace) |ws| {
+            const output_box = ws.output.current.box();
+            const window_box: wlr.Box = .{
+                .x = window.box.x,
+                .y = window.box.y,
+                .width = window.box.width,
+                .height = window.box.height,
+            };
+            var visible: wlr.Box = undefined;
+            if (!outgoing and !ws.isActive() and opacity > 0 and
+                window.tree.node.enabled and window.state == .mapped and
+                !window.rendering_requested.hidden and !window.overview_hidden and
+                !visible.intersection(&window_box, &output_box))
+            {
+                log.warn("transition invariant: opaque live window outside its output on inactive workspace {s}", .{ws.output.policyName()});
+            }
+        }
+    }
     const live_opacity: f32 = if (outgoing) 0 else opacity;
 
     fx.setTreeOpacity(window.surfaces.saved_tree, live_opacity);

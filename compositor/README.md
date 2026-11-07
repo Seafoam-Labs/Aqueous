@@ -110,6 +110,12 @@ The harness uses a private headless Vulkan session. See
 [`docs/live-slide-content-plan.md`](../docs/live-slide-content-plan.md) for the
 implementation and validation record.
 
+`scripts/test-workspace-transition-finalize.sh` covers issue #106. It verifies
+that the outgoing workspace's live trees are disabled before the transition
+clears `prev_workspace`, so finalizing a swap on one output cannot flash the
+previous workspace on a neighboring output. It uses the opt-in window-state
+diagnostics instead of relying on screencopy timing.
+
 The toolchain is Zig 0.17.0. Bindings use the upstream Zig 0.17 releases of
 zig-wayland (0.7.0), zig-pixman (0.4.0), zig-xkbcommon (0.5.0), and
 translate-c (2.0.2). The portal picker uses the upstream zig-gobject

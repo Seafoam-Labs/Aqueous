@@ -25,9 +25,17 @@ extern fn getenv([*:0]const u8) ?[*:0]const u8;
 // Opt-in, read-only diagnostics for timing-sensitive lifecycle tests. Scene
 // requests do not schedule frames, unlike screencopy, so inspect these before
 // taking a screenshot of a potentially stalled output.
-fn windowStateDiagnostics() bool {
-    const value = getenv("AQUEOUS_DEBUG_WINDOW_STATE") orelse return false;
-    return std.mem.eql(u8, std.mem.span(value), "1");
+var window_state_diagnostics: ?bool = null;
+
+pub fn windowStateDiagnostics() bool {
+    if (window_state_diagnostics) |enabled| return enabled;
+    const value = getenv("AQUEOUS_DEBUG_WINDOW_STATE") orelse {
+        window_state_diagnostics = false;
+        return false;
+    };
+    const enabled = std.mem.eql(u8, std.mem.span(value), "1");
+    window_state_diagnostics = enabled;
+    return enabled;
 }
 
 global: *wl.Global,
