@@ -193,7 +193,10 @@ pub fn policyRequestFocus(seat: *Seat, handle: u64) void {
     const ref: Window.Ref = @bitCast(Window.resolveModalHandle(handle));
     if (ref.get()) |window| {
         seat.modal_focus_origin = .{ .requested = @bitCast(handle), .resolved = ref };
-        if (window.workspace) |workspace| seat.selected_output = workspace.output;
+        if (window.workspace) |workspace| {
+            seat.selected_output = workspace.output;
+            seat.selected_output_from_pointer = false;
+        }
         seat.wm_requested.focus = .{ .window = ref };
     }
 }
@@ -207,11 +210,24 @@ pub fn policyClearFocus(seat: *Seat) void {
 pub fn policySelectOutput(seat: *Seat, output: *Output) void {
     defer server.shell_manager.dirty();
     seat.selected_output = output;
+    seat.selected_output_from_pointer = false;
+}
+
+/// Select an output from physical pointer motion. Unlike an explicit selection,
+/// this is an action target only and must not drive manage-cycle focus
+/// restoration to one of the output's windows.
+pub fn policySelectOutputFromPointer(seat: *Seat, output: *Output) void {
+    defer server.shell_manager.dirty();
+    seat.selected_output = output;
+    seat.selected_output_from_pointer = true;
 }
 
 pub fn policyForgetOutput(seat: *Seat, output: *Output) void {
     defer server.shell_manager.dirty();
-    if (seat.selected_output == output) seat.selected_output = null;
+    if (seat.selected_output == output) {
+        seat.selected_output = null;
+        seat.selected_output_from_pointer = false;
+    }
 }
 
 wlr_seat: *wlr.Seat,
@@ -223,6 +239,11 @@ destroying: bool = false,
 /// Output targeted by keyboard-driven output/workspace actions. This remains
 /// set when keyboard surface focus is cleared on an empty output.
 selected_output: ?*Output = null,
+
+/// True when `selected_output` was last set by physical pointer motion.
+/// Pointer-derived selections are action targets only; they must not drive
+/// focus restoration in the manage cycle.
+selected_output_from_pointer: bool = false,
 
 object: ?*aqueous.SeatV1 = null,
 layer_shell: LayerShellSeat = .{},
@@ -1017,7 +1038,10 @@ pub fn focus(seat: *Seat, new_focus: Focus) void {
     }
     seat.focused = new_focus;
     if (new_focus == .window) {
-        if (new_focus.window.workspace) |workspace| seat.selected_output = workspace.output;
+        if (new_focus.window.workspace) |workspace| {
+            seat.selected_output = workspace.output;
+            seat.selected_output_from_pointer = false;
+        }
     }
 
     seat.keyboardEnterOrLeave(target_surface);

@@ -714,7 +714,7 @@ fn processMotionRelativeInternal(
     switch (cursor.mode) {
         .passthrough, .drag, .ignore, .down => {
             cursor.move(&event.mapping, dx, dy);
-            server.aqueous.handlePointerMotion(cursor.wlr_cursor.x, cursor.wlr_cursor.y);
+            server.aqueous.handlePointerMotion(cursor.seat, cursor.wlr_cursor.x, cursor.wlr_cursor.y);
 
             switch (cursor.mode) {
                 .passthrough, .drag => {
@@ -745,7 +745,7 @@ fn processMotionRelativeInternal(
             data.delta_y = dy - @trunc(dy);
 
             cursor.move(&event.mapping, dx, dy);
-            server.aqueous.handlePointerMotion(cursor.wlr_cursor.x, cursor.wlr_cursor.y);
+            server.aqueous.handlePointerMotion(cursor.seat, cursor.wlr_cursor.x, cursor.wlr_cursor.y);
             cursor.seat.opUpdate(@intFromFloat(cursor.wlr_cursor.x), @intFromFloat(cursor.wlr_cursor.y));
         },
     }

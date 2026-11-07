@@ -304,6 +304,25 @@ move_to_output_right = "Super+Ctrl+Alt+Right"
                 time.sleep(.15)
                 assert pointer_xy() == point, 'pointer focus caused a warp'
 
+                # Physical motion selects the output under the pointer, even when
+                # its active workspace has no windows. This is an action target,
+                # not a focus change: the focused window stays on the other output.
+                lx, ly = center(left)
+                px, py = pointer_xy()
+                subprocess.run(['wlrctl', 'pointer', 'move', str(lx - px), str(ly - py)],
+                               env=env, check=True, timeout=5)
+                wait_for(lambda: abs(pointer_xy()[0] - lx) < 2 and abs(pointer_xy()[1] - ly) < 2)
+                assert selected(left), (left, right, pointer_xy(), records('seat'))
+                assert focused_id() == b, 'empty output selection stole focus'
+                # A manage cycle while the pointer is on the empty output must not
+                # restore focus to one of its windows.
+                time.sleep(.15)
+                assert selected(left) and focused_id() == b
+                # Moving back over the focused window restores the action target.
+                point = move_inside(b)
+                wait_for(lambda: selected(right) and focused_id() == b)
+                assert pointer_xy() == point, 'restoring the pointer output moved the pointer'
+
                 # Keyboard cycling and direction changes move into the destination.
                 send(inputs, 'chord 15 64')  # Super+Tab
                 wait_for(lambda: focused_id() == a and inside(window_by_id(a)))

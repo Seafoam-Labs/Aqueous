@@ -388,6 +388,9 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
     var cycle_focus = transactionFocus(aqueous.requested_stack_focus, focused);
     const new_window_anchor = cycle_focus;
     var cycle_selected_output_id = aqueous.api.selectedOutputId();
+    // A pointer-derived selected output is an action target, not a focus
+    // request. Do not let it drive replacement focus below.
+    const pointer_selected_output = aqueous.api.selectedOutputFromPointer();
     // Direct pointer, keybinding, or client activation requests are newer and
     // more intentional than admission focus. Never overwrite one which was
     // coalesced into this management transaction.
@@ -651,7 +654,9 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             }
         }
         const focus_valid = if (cycle_focus) |handle| containsWindow(focusable.items, handle) else false;
-        if (!focus_valid and !non_window_keyboard_focus and cycle_selected_output_id == output.id) {
+        if (!focus_valid and !non_window_keyboard_focus and cycle_selected_output_id == output.id and
+            !pointer_selected_output)
+        {
             var target = aqueous.focus_history.pick(workspace_key, focusable.items, focusCandidateValid);
             if (target == 0 and focusable.items.len > 0) target = focusable.items[0].handle;
             if (target != 0 and target != aqueous.pending_focus.window) {
@@ -1673,12 +1678,41 @@ pub fn handleWindowInteraction(aqueous: *Aqueous, handle: layout_types.Handle) v
     }
 }
 
-pub fn handlePointerMotion(aqueous: *Aqueous, x: f64, y: f64) void {
+pub fn handlePointerMotion(aqueous: *Aqueous, seat: *Seat, x: f64, y: f64) void {
     if (aqueous.overview != null) {
         _ = aqueous.updateOverviewHover(x, y);
         return;
     }
+
+    aqueous.trackPointerOutput(seat, x, y);
+
     if (aqueous.drag) |*drag| aqueous.updateInteractiveDrag(drag, x, y);
+}
+
+/// Physical pointer motion makes the output under the pointer the target for
+/// output/workspace/window actions. This is independent of
+/// `focus_follows_mouse`: hovering an empty output selects it without changing
+/// keyboard focus.
+fn trackPointerOutput(aqueous: *Aqueous, seat: *Seat, x: f64, y: f64) void {
+    if (!aqueous.mode.runsInternal()) return;
+
+    const target = aqueous.api.outputTargetAt(x, y, false) orelse return;
+    const current = if (seat.selected_output) |output| output.policyId() else null;
+    if (current == target.id) return;
+
+    // Moving back onto the output that owns keyboard focus is not a pointer
+    // selection; keep explicit provenance so replacement focus still works.
+    if (seat.focused == .window) {
+        if (seat.focused.window.workspace) |workspace| {
+            if (workspace.output.policyId() == target.id) {
+                _ = aqueous.api.selectOutput(target.id);
+                return;
+            }
+        }
+    }
+
+    log.debug("pointer selected output {d}", .{target.id});
+    _ = aqueous.api.selectOutputFromPointer(seat, target.id);
 }
 
 pub fn updateInteractiveDrag(aqueous: *Aqueous, drag: *Drag, x: f64, y: f64) void {

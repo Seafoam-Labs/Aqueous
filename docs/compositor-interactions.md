@@ -504,10 +504,18 @@ the user navigate to an empty output: Aqueous selects the output, clears
 surface focus, and still knows where the next workspace or window action
 belongs.
 
-Output focus selection prefers, in order, explicit seat selection, the output
-of the focused window, configured primary output, the output under the cursor,
-and finally the first usable output. Left/right output navigation uses physical
-output rectangles rather than iterator order.
+Physical pointer motion also updates the selected output to the enabled output
+under the pointer, even when that output's active workspace is empty. This is
+an action target, not a focus request: it does not change keyboard focus and is
+not gated by `focus_follows_mouse`. A pointer-derived selection is recorded as
+such so the manage cycle never restores focus to a window on that output; any
+subsequent window focus or explicit output/workspace action replaces it with a
+normal selection.
+
+Output focus selection prefers, in order, explicit seat selection (including
+pointer motion), the output of the focused window, configured primary output,
+the output under the cursor, and finally the first usable output. Left/right
+output navigation uses physical output rectangles rather than iterator order.
 
 `input.mouse_follows_focus = true` moves the pointer into newly focused windows
 following keyboard or wheel-bound navigation, activation, workspace restoration,
@@ -530,10 +538,13 @@ option is disabled. When enabled, they use the focused window, retaining the
 output-center fallback on empty outputs (including moves to another output).
 
 Pointer motion updates hover state and can request focus when
-`focus_follows_mouse` is enabled. Normal clicks are delivered through scene
-hit-testing. Modifier drags are intercepted before client delivery. Holding
-the configured pointer-untrap binding temporarily suppresses pointer
-constraints and restores them on key release.
+`focus_follows_mouse` is enabled. Regardless of that option, physical motion
+makes the output under the pointer the selected output for output/workspace/
+window actions; hovering an empty output therefore targets it for launchers,
+new windows, and movement actions without stealing keyboard focus. Normal
+clicks are delivered through scene hit-testing. Modifier drags are intercepted
+before client delivery. Holding the configured pointer-untrap binding
+temporarily suppresses pointer constraints and restores them on key release.
 
 Client-side drag and drop is a temporary exception to focus-follows-mouse.
 wlroots owns both pointer and keyboard grabs for the duration of a pointer

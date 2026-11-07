@@ -320,8 +320,7 @@ pub fn selectOutput(api: CompositorApi, output_id: u64) bool {
 
 pub fn selectOutputOnSeat(_: CompositorApi, output_id: u64, name: ?[]const u8) bool {
     const output = outputById(output_id) orelse return false;
-    const box = output.policyFullBox();
-    if (output.active_workspace == null or box.width <= 0 or box.height <= 0) return false;
+    if (!usableOutput(output)) return false;
     var seats = server.input_manager.seats.iterator(.forward);
     while (seats.next()) |seat| {
         if (name) |value| if (!std.mem.eql(u8, value, std.mem.span(seat.wlr_seat.name))) continue;
@@ -329,6 +328,27 @@ pub fn selectOutputOnSeat(_: CompositorApi, output_id: u64, name: ?[]const u8) b
         return true;
     }
     return false;
+}
+
+/// Record the output under the physical pointer as the target for
+/// output/workspace/window actions. This is deliberately distinct from focus:
+/// the pointer may select an empty output without changing keyboard focus.
+pub fn selectOutputFromPointer(_: CompositorApi, seat: *Seat, output_id: u64) bool {
+    const output = outputById(output_id) orelse return false;
+    if (!usableOutput(output)) return false;
+    seat.policySelectOutputFromPointer(output);
+    return true;
+}
+
+pub fn selectedOutputFromPointer(_: CompositorApi) bool {
+    var seats = server.input_manager.seats.iterator(.forward);
+    if (seats.next()) |seat| return seat.selected_output_from_pointer;
+    return false;
+}
+
+fn usableOutput(output: *Output) bool {
+    const box = output.policyFullBox();
+    return output.active_workspace != null and box.width > 0 and box.height > 0;
 }
 
 pub fn closeWindow(_: CompositorApi, handle: layout.Handle) void {
@@ -366,6 +386,7 @@ fn selectedOutput(_: CompositorApi) ?*Output {
             // normally clears this eagerly; validation here also covers soft
             // disable and layout removal.
             seat.selected_output = null;
+            seat.selected_output_from_pointer = false;
         }
 
         if (seat.focused == .window) {
