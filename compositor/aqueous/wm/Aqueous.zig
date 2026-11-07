@@ -104,6 +104,10 @@ pub const Drag = struct {
     layout_key: LayoutStateKey = .{ .output = 0, .workspace = 0 },
     awaiting_layout: ?layout_types.Handle = null,
     click_eligible: bool = true,
+    /// Edges moved by a resize drag. Floating modifier drags hit-test the
+    /// pointer quadrant so the opposing corner stays anchored; the default
+    /// applies to scrolling drags, which latch an axis on first motion, and
+    /// client drags, which are assigned the requested edges explicitly.
     resize_edges: pointer_drag.ResizeEdges = .{ .bottom = true, .right = true },
     resize_axis: ?pointer_drag.ResizeAxis = null,
     constraints: geometry.Constraints = .{},
@@ -1541,6 +1545,13 @@ pub fn handlePointerButton(aqueous: *Aqueous, button: u32, modifiers: u32, press
             .action = drag_action,
             .layout_key = layout_key,
             .layout_floating = layout_floating,
+            // Hit-test the on-screen rect so the corner opposing the pointer
+            // stays anchored, even when the drag started from restored
+            // snap geometry elsewhere.
+            .resize_edges = if (drag_action == .resize_floating)
+                pointer_drag.edgesForPointer(target.geometry, x, y)
+            else
+                .{},
             .constraints = aqueous.api.windowConstraints(target.handle),
         };
         if (!layout_floating and drag_action != .resize_scrolling) {

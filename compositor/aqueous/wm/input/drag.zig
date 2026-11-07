@@ -53,6 +53,22 @@ pub fn selectResizeAxis(current: ?ResizeAxis, dx: i32, dy: i32) ?ResizeAxis {
     return if (horizontal > vertical) .horizontal else .vertical;
 }
 
+/// Pick the resize edges from the pointer's quadrant within the grabbed
+/// window. The opposing corner stays anchored during the drag. Degenerate
+/// rectangles fall back to the default bottom-right corner. An exact center
+/// tie favors bottom-right.
+pub fn edgesForPointer(rect: types.Rect, x: f64, y: f64) ResizeEdges {
+    if (rect.width <= 0 or rect.height <= 0) return .{ .bottom = true, .right = true };
+    const center_x: f64 = @floatFromInt(@as(i64, rect.x) * 2 + rect.width);
+    const center_y: f64 = @floatFromInt(@as(i64, rect.y) * 2 + rect.height);
+    return .{
+        .top = y * 2.0 < center_y,
+        .bottom = y * 2.0 >= center_y,
+        .left = x * 2.0 < center_x,
+        .right = x * 2.0 >= center_x,
+    };
+}
+
 pub fn edgesForAxis(edges: ResizeEdges, axis: ResizeAxis) ResizeEdges {
     var selected = edges;
     switch (axis) {
@@ -205,6 +221,37 @@ test "drop zones distinguish vertical stacks from adjacent columns" {
     try std.testing.expectEqual(types.DropZone.stack_after, dropZone(geometry, 250, 220));
     try std.testing.expectEqual(types.DropZone.column_before, dropZone(geometry, 120, 140));
     try std.testing.expectEqual(types.DropZone.column_after, dropZone(geometry, 380, 140));
+}
+
+test "pointer quadrants select the opposing resize anchor" {
+    const rect: types.Rect = .{ .x = 100, .y = 50, .width = 300, .height = 200 };
+    try std.testing.expectEqual(
+        ResizeEdges{ .top = true, .left = true },
+        edgesForPointer(rect, 120, 60),
+    );
+    try std.testing.expectEqual(
+        ResizeEdges{ .top = true, .right = true },
+        edgesForPointer(rect, 380, 60),
+    );
+    try std.testing.expectEqual(
+        ResizeEdges{ .bottom = true, .left = true },
+        edgesForPointer(rect, 120, 240),
+    );
+    try std.testing.expectEqual(
+        ResizeEdges{ .bottom = true, .right = true },
+        edgesForPointer(rect, 380, 240),
+    );
+    // Exact center favors the default bottom-right corner.
+    try std.testing.expectEqual(
+        ResizeEdges{ .bottom = true, .right = true },
+        edgesForPointer(rect, 250, 150),
+    );
+    // Degenerate rectangles keep the default corner.
+    const degenerate: types.Rect = .{ .x = 0, .y = 0, .width = 0, .height = 100 };
+    try std.testing.expectEqual(
+        ResizeEdges{ .bottom = true, .right = true },
+        edgesForPointer(degenerate, 50, 50),
+    );
 }
 
 test "floating resize preserves the requested edge anchors" {
