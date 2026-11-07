@@ -149,7 +149,9 @@ pub const Snapshot = struct {
     scrolling_column_fraction: f64 = 0.5,
     scrolling_center_focused: bool = true,
     scrolling_follow_new: bool = true,
-    scrolling_open_new_windows_to_right: bool = false,
+    /// Placement of new scrolling windows relative to the focus anchor. The
+    /// legacy `open_new_windows_to_right` boolean maps onto right/append.
+    scrolling_new_window_position: types.NewWindowPosition = .append,
     scrolling_prefer_vertical_on_portrait: bool = false,
     scrolling_snap: bool = false,
     scrolling_overscroll: bool = true,
@@ -392,7 +394,12 @@ fn applyOptions(snapshot: *Snapshot, id: LayoutId, key: []const u8, value: []con
             if (std.mem.eql(u8, key, "column_fraction")) snapshot.scrolling_column_fraction = parseRatio(plain) orelse snapshot.scrolling_column_fraction;
             if (std.mem.eql(u8, key, "center_focused")) snapshot.scrolling_center_focused = parseBool(plain) orelse snapshot.scrolling_center_focused;
             if (std.mem.eql(u8, key, "follow_new_windows")) snapshot.scrolling_follow_new = parseBool(plain) orelse snapshot.scrolling_follow_new;
-            if (std.mem.eql(u8, key, "open_new_windows_to_right")) snapshot.scrolling_open_new_windows_to_right = parseBool(plain) orelse snapshot.scrolling_open_new_windows_to_right;
+            if (std.mem.eql(u8, key, "new_window_position")) snapshot.scrolling_new_window_position = parseNewWindowPosition(plain) orelse snapshot.scrolling_new_window_position;
+            // Deprecated alias for `new_window_position = "right"`. Both keys
+            // write the same field, so the later key in the file wins.
+            if (std.mem.eql(u8, key, "open_new_windows_to_right")) {
+                if (parseBool(plain)) |enabled| snapshot.scrolling_new_window_position = if (enabled) .right else .append;
+            }
             if (std.mem.eql(u8, key, "prefer_vertical_on_portrait")) snapshot.scrolling_prefer_vertical_on_portrait = parseBool(plain) orelse snapshot.scrolling_prefer_vertical_on_portrait;
             if (std.mem.eql(u8, key, "snap_to_columns")) snapshot.scrolling_snap = parseBool(plain) orelse snapshot.scrolling_snap;
             if (std.mem.eql(u8, key, "allow_overscroll")) snapshot.scrolling_overscroll = parseBool(plain) orelse snapshot.scrolling_overscroll;
@@ -518,6 +525,20 @@ fn parseRatio(value: []const u8) ?f64 {
 fn parseBool(value: []const u8) ?bool {
     if (std.mem.eql(u8, value, "true")) return true;
     if (std.mem.eql(u8, value, "false")) return false;
+    return null;
+}
+
+fn parseNewWindowPosition(value: []const u8) ?types.NewWindowPosition {
+    const positions = [_]struct { text: []const u8, position: types.NewWindowPosition }{
+        .{ .text = "append", .position = .append },
+        .{ .text = "right", .position = .right },
+        .{ .text = "left", .position = .left },
+        .{ .text = "above", .position = .above },
+        .{ .text = "below", .position = .below },
+    };
+    for (positions) |entry| {
+        if (std.mem.eql(u8, value, entry.text)) return entry.position;
+    }
     return null;
 }
 
@@ -848,24 +869,55 @@ test "composable sidecar can complete a base slot one field at a time" {
     try std.testing.expectEqual(LayoutId.rows, snapshot.composable[0].layout);
 }
 
-test "scrolling right insertion defaults off and reloads preserve valid values" {
+test "scrolling new window position defaults to append and reloads preserve valid values" {
     var snapshot: Snapshot = .{};
-    try std.testing.expect(!snapshot.scrolling_open_new_windows_to_right);
+    try std.testing.expectEqual(types.NewWindowPosition.append, snapshot.scrolling_new_window_position);
+    apply(&snapshot,
+        \\[layout.options.scrolling]
+        \\new_window_position = "left"
+    );
+    try std.testing.expectEqual(types.NewWindowPosition.left, snapshot.scrolling_new_window_position);
+    for ([_][]const u8{ "above", "below" }) |value| {
+        const source = try std.fmt.allocPrint(std.testing.allocator, "[layout.options.scrolling]\nnew_window_position = \"{s}\"\n", .{value});
+        defer std.testing.allocator.free(source);
+        apply(&snapshot, source);
+        try std.testing.expectEqual(std.meta.stringToEnum(types.NewWindowPosition, value).?, snapshot.scrolling_new_window_position);
+    }
+    // Invalid values keep the last valid selection.
+    apply(&snapshot,
+        \\[layout.options.scrolling]
+        \\new_window_position = "sideways"
+    );
+    try std.testing.expectEqual(types.NewWindowPosition.below, snapshot.scrolling_new_window_position);
+    // The deprecated boolean alias maps onto right/append.
     apply(&snapshot,
         \\[layout.options.scrolling]
         \\open_new_windows_to_right = true
     );
-    try std.testing.expect(snapshot.scrolling_open_new_windows_to_right);
+    try std.testing.expectEqual(types.NewWindowPosition.right, snapshot.scrolling_new_window_position);
     apply(&snapshot,
         \\[layout.options.scrolling]
         \\open_new_windows_to_right = "right"
     );
-    try std.testing.expect(snapshot.scrolling_open_new_windows_to_right);
+    try std.testing.expectEqual(types.NewWindowPosition.right, snapshot.scrolling_new_window_position);
     apply(&snapshot,
         \\[layout.options.scrolling]
         \\open_new_windows_to_right = false
     );
-    try std.testing.expect(!snapshot.scrolling_open_new_windows_to_right);
+    try std.testing.expectEqual(types.NewWindowPosition.append, snapshot.scrolling_new_window_position);
+    // Both keys write the same field: the later key in the file wins.
+    apply(&snapshot,
+        \\[layout.options.scrolling]
+        \\new_window_position = "above"
+        \\open_new_windows_to_right = true
+    );
+    try std.testing.expectEqual(types.NewWindowPosition.right, snapshot.scrolling_new_window_position);
+    apply(&snapshot,
+        \\[layout.options.scrolling]
+        \\open_new_windows_to_right = true
+        \\new_window_position = "above"
+    );
+    try std.testing.expectEqual(types.NewWindowPosition.above, snapshot.scrolling_new_window_position);
 }
 
 test "single window defaults overlays aliases and invalid values" {

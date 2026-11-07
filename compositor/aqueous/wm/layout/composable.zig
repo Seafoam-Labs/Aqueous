@@ -38,7 +38,7 @@ pub fn arrange(
     // Admission may already have replaced focused with an unassigned arrival.
     // Select the region containing the pre-admission anchor before assigning
     // new members, including a region switch coalesced into this transaction.
-    if (snapshot.scrolling_open_new_windows_to_right) {
+    if (snapshot.scrolling_new_window_position != .append) {
         if (snapshot.layoutOptions(.composable).new_window_anchor) |handle| {
             if (state.membership.get(handle)) |slot| {
                 if (state.enabled[slot]) state.active = slot;

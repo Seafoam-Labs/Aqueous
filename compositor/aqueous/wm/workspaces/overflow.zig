@@ -76,7 +76,7 @@ pub fn plan(a: std.mem.Allocator, area: types.Rect, workspaces: []Workspace, sou
                 sink.state.standalone.scrolling = .{};
                 sink.state.standalone.game_mode.rule_layout_owned = false;
                 sink.layout.default = .scrolling;
-                sink.layout.scrolling_open_new_windows_to_right = false;
+                sink.layout.scrolling_new_window_position = .append;
                 sink.force_scrolling = true;
                 sink.layout_locked = true;
                 sink.changed = true;

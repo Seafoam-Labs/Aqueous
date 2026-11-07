@@ -32,7 +32,7 @@ master_count = 1
 [layout.options.scrolling]
 column_fraction = "0.5"
 center_focused = "true"
-open_new_windows_to_right = false
+new_window_position = "append"
 prefer_vertical_on_portrait = "false"
 focus_follows_mouse_delay_ms = 0
 
@@ -258,18 +258,31 @@ region active and requests an immediate rearrangement.
 ## Scrolling columns
 
 The scrolling engine owns an ordered list of columns. By default, new windows
-begin in their own column at the far right. Set
-`open_new_windows_to_right = true` in `[layout.options.scrolling]` to insert each
-new column immediately to the right of the focused window's column instead.
-For example, opening D with B focused changes `A B C` to `A B D C`.
-This option defaults to false and takes precedence over portrait stacking.
-The insertion anchor is the focus before automatic new-window focus; when it
-is not a surviving member of this instance, the last locally focused member
-is used, then the far right. Multiple arrivals retain their input order.
-It applies to windows newly entering this layout instance, including windows
-moved into its workspace or region. Reloading the setting does not reorder
-existing columns. `input.focus_new_windows` still controls keyboard focus, and
-`follow_new_windows` retains its viewport-following behavior.
+begin in their own column at the far right. Set `new_window_position` in
+`[layout.options.scrolling]` to place them relative to the focused window
+instead:
+
+- `append` (default) — a new column at the far right of the order.
+- `right` — a new column immediately after the anchor's column. Opening D
+  with B focused changes `A B C` to `A B D C`.
+- `left` — a new column immediately before the anchor's column: `A B C`
+  becomes `A D B C`.
+- `above` — joins the anchor's column, inserted before its row.
+- `below` — joins the anchor's column, inserted after its row.
+
+Any explicit position takes precedence over portrait stacking. The deprecated
+`open_new_windows_to_right` boolean remains accepted and maps `true` to
+`right` and `false` to `append`; when both keys appear in one file, the later
+one wins. The insertion anchor is the focus before automatic new-window focus;
+when it is not a surviving member of this instance, the last locally focused
+member is used. Without any anchor, `left` prepends, `right` appends, and
+`above`/`below` join the top or bottom of the last column, or begin a new
+column when the order is empty. Multiple arrivals retain their input order.
+Placement applies to windows newly entering this layout instance, including
+windows moved into its workspace or region. Reloading the setting does not
+reorder existing columns. `input.focus_new_windows` still controls keyboard
+focus, and `follow_new_windows` retains its viewport-following behavior; a
+vertical arrival (`above`/`below`) pans within its column to stay visible.
 
 Setting
 `prefer_vertical_on_portrait = true` adds future windows to the bottom of the

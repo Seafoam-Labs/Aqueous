@@ -734,11 +734,11 @@ test "right insertion and pre-admission focus route through standalone and game 
         snapshot.default = id;
         config.apply(&snapshot,
             \\[layout.options.scrolling]
-            \\open_new_windows_to_right = true
+            \\new_window_position = "right"
         );
         const game_options: game_mode.Options = .{
             .fallback = .scrolling,
-            .scrolling_options = .{ .open_new_windows_to_right = snapshot.scrolling_open_new_windows_to_right },
+            .scrolling_options = .{ .new_window_position = snapshot.scrolling_new_window_position },
         };
         var state: State = .{};
         defer state.deinit(std.testing.allocator);
@@ -756,7 +756,7 @@ test "right insertion routes through game remainder and keeps its anchor fixed" 
     snapshot.default = .game_mode;
     const initial = [_]types.Window{ .{ .handle = 99 }, .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
     const area: types.Rect = .{ .x = 0, .y = 0, .width = 1200, .height = 800 };
-    const game_options: game_mode.Options = .{ .scrolling_options = .{ .open_new_windows_to_right = true } };
+    const game_options: game_mode.Options = .{ .scrolling_options = .{ .new_window_position = .right } };
     var state: State = .{};
     defer state.deinit(std.testing.allocator);
     const game = gameModeState(&state);

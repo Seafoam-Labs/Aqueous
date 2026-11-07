@@ -136,18 +136,24 @@ with tempfile.TemporaryDirectory(prefix='aqueous-dms-helper-') as temporary:
         assert (config/'rules.toml').read_bytes() == before_rules
         applied = call('apply', dict(protocol=1, expected_generation=applied['generation'],
             window_rule_changes=[dict(id=rule['id'], op='delete')]), shell=shell)
-    # Scrolling insertion is a shared schema boolean and persists to layout.toml.
-    field_id = 'layout.options.scrolling.open_new_windows_to_right'
+    # Scrolling placement is a shared schema select and persists to layout.toml.
+    field_id = 'layout.options.scrolling.new_window_position'
     field = next(f for f in call('snapshot')['fields'] if f['id'] == field_id)
-    assert field['type'] == 'boolean' and field['default'] is False
-    for value in [True, False]:
+    assert field['type'] == 'select' and field['default'] == 'append'
+    assert field['options'] == ['append', 'right', 'left', 'above', 'below']
+    for value in ['right', 'append']:
         change = dict(protocol=1,expected_generation=applied['generation'],
                       changes=[dict(id=field_id,value=value)])
         call('validate',change)
         applied = call('apply',change)
         field = next(f for f in call('snapshot')['fields'] if f['id'] == field_id)
-        assert field['configured'] and field['value'] is value
-        assert 'open_new_windows_to_right = ' + str(value).lower() in (config/'layout.toml').read_text()
+        assert field['configured'] and field['value'] == value
+        assert f'new_window_position = "{value}"' in (config/'layout.toml').read_text()
+    # An unknown option is rejected and leaves the persisted file untouched.
+    before_layout = (config/'layout.toml').read_bytes()
+    call('validate', dict(protocol=1, expected_generation=applied['generation'],
+                          changes=[dict(id=field_id, value='sideways')]), success=False)
+    assert (config/'layout.toml').read_bytes() == before_layout
     # Both shells consume the shared input schema and persist explicit false.
     field_id = 'input.mouse_follows_focus'
     for shell in ['dms', 'noctalia']:

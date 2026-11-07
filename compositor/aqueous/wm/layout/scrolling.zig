@@ -58,7 +58,9 @@ pub const Options = struct {
     column_width: f64 = 0.5,
     center_focused: bool = true,
     follow_new_windows: bool = true,
-    open_new_windows_to_right: bool = false,
+    /// Where a newly managed window is placed relative to the focus anchor.
+    /// Any explicit position takes precedence over portrait stacking.
+    new_window_position: types.NewWindowPosition = .append,
     prefer_vertical_on_portrait: bool = false,
     snap_to_columns: bool = false,
     allow_overscroll: bool = true,
@@ -75,12 +77,14 @@ pub fn arrange(
     options: types.Options,
     scrolling_options: Options,
 ) ![]types.Placement {
-    const prefer_vertical = !scrolling_options.open_new_windows_to_right and
+    const position = scrolling_options.new_window_position;
+    const prefer_vertical = position == .append and
         scrolling_options.prefer_vertical_on_portrait and usable_area.height > usable_area.width;
-    const added = try sync(state, allocator, windows, focused, options.new_window_anchor, prefer_vertical, scrolling_options.open_new_windows_to_right);
+    const added = try sync(state, allocator, windows, focused, options.new_window_anchor, prefer_vertical, position);
     state.prefer_vertical = prefer_vertical;
     if (added) |location| {
-        if (prefer_vertical and scrolling_options.follow_new_windows) {
+        const vertical_arrival = prefer_vertical or position == .above or position == .below;
+        if (vertical_arrival and scrolling_options.follow_new_windows) {
             const column = &state.columns.items[location.column];
             column.viewport_anchor = column.windows.items[location.row];
             column.viewport_dirty = true;
@@ -542,7 +546,7 @@ fn sync(
     focused: ?types.Handle,
     new_window_anchor: ?types.Handle,
     prefer_vertical: bool,
-    open_to_right: bool,
+    position: types.NewWindowPosition,
 ) !?Location {
     var column_index: usize = 0;
     while (column_index < state.columns.items.len) {
@@ -560,7 +564,7 @@ fn sync(
         if (column.windows.items.len == 0) {
             var removed = state.columns.orderedRemove(column_index);
             removed.deinit(allocator);
-            if (open_to_right) {
+            if (position != .append) {
                 if (column_index < state.focused_column) state.focused_column -= 1;
                 if (column_index < state.viewport_column) state.viewport_column -= 1;
             }
@@ -586,13 +590,39 @@ fn sync(
 
     // Resolve once against surviving columns, before any arrival (including a
     // newly focused window) is inserted. Advance the insertion cursor so a batch
-    // retains its input order instead of reversing after the anchor.
+    // retains its input order instead of reversing after the anchor. Anchor
+    // positions additionally resolve a row inside the anchor's column.
     var insert_at = state.columns.items.len;
-    if (open_to_right) {
+    var insert_row: ?usize = null;
+    if (position != .append) {
         const anchor = new_window_anchor orelse focused;
         const location = if (anchor) |handle| locate(state, handle) else null;
         const previous = if (state.last_local_focus) |handle| locate(state, handle) else null;
-        if (location orelse previous) |target| insert_at = target.column + 1;
+        if (location orelse previous) |target| {
+            switch (position) {
+                .right => insert_at = target.column + 1,
+                .left => insert_at = target.column,
+                .above => {
+                    insert_at = target.column;
+                    insert_row = target.row;
+                },
+                .below => {
+                    insert_at = target.column;
+                    insert_row = target.row + 1;
+                },
+                .append => unreachable,
+            }
+        } else switch (position) {
+            // Without any anchor, fall back to the matching layout edge: left
+            // prepends, right appends, and vertical positions join the last
+            // column (a new column when the order is empty).
+            .left => insert_at = 0,
+            .above, .below => if (state.columns.items.len > 0) {
+                insert_at = state.columns.items.len - 1;
+                insert_row = if (position == .above) 0 else state.columns.items[insert_at].windows.items.len;
+            },
+            .right, .append => {},
+        }
     }
     var added: ?Location = null;
     for (windows) |window| {
@@ -603,14 +633,21 @@ fn sync(
             added = .{ .column = target_column.?, .row = column.windows.items.len - 1 };
             continue;
         }
+        if (insert_row) |row| {
+            const column = &state.columns.items[insert_at];
+            try column.windows.insert(allocator, row, window.handle);
+            added = .{ .column = insert_at, .row = row };
+            insert_row = row + 1;
+            continue;
+        }
         var column = try singleWindowColumn(allocator, window.handle);
-        const index = if (open_to_right) insert_at else state.columns.items.len;
+        const index = if (position != .append) insert_at else state.columns.items.len;
         const old_columns = state.columns.items.len;
         state.columns.insert(allocator, index, column) catch |err| {
             column.deinit(allocator);
             return err;
         };
-        if (open_to_right) {
+        if (position != .append) {
             if (state.focused_column < old_columns and index <= state.focused_column) state.focused_column += 1;
             if (state.viewport_column < old_columns and index <= state.viewport_column) state.viewport_column += 1;
             insert_at += 1;
@@ -1373,7 +1410,7 @@ test "right insertion preserves batch order with and without automatic focus" {
             for ([_]bool{ false, true }) |follow| {
                 var state: State = .{};
                 defer state.deinit(std.testing.allocator);
-                const options: Options = .{ .open_new_windows_to_right = enabled, .follow_new_windows = follow };
+                const options: Options = .{ .new_window_position = if (enabled) .right else .append, .follow_new_windows = follow };
                 var placements = try arrange(std.testing.allocator, &state, landscape_area, &initial, 1, test_gaps, options);
                 std.testing.allocator.free(placements);
                 // Focus moved to 2 in the same transaction that admitted the
@@ -1393,7 +1430,7 @@ test "right insertion preserves batch order with and without automatic focus" {
 test "right insertion uses current local focus then retained local history then the end" {
     const initial = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
     const arrivals = initial ++ [_]types.Window{.{ .handle = 4 }};
-    const options: Options = .{ .open_new_windows_to_right = true };
+    const options: Options = .{ .new_window_position = .right };
     const cases = [_]struct { previous: ?types.Handle, current: ?types.Handle, expected: []const types.Handle }{
         .{ .previous = 1, .current = 2, .expected = &.{ 1, 2, 4, 3 } },
         .{ .previous = 1, .current = 4, .expected = &.{ 1, 4, 2, 3 } },
@@ -1420,7 +1457,7 @@ test "right insertion follows actual arrival despite simultaneous removal and fa
     for ([_]bool{ false, true }) |follow| {
         var state: State = .{};
         defer state.deinit(std.testing.allocator);
-        const options: Options = .{ .open_new_windows_to_right = true, .follow_new_windows = follow };
+        const options: Options = .{ .new_window_position = .right, .follow_new_windows = follow };
         var placements = try arrange(std.testing.allocator, &state, landscape_area, &initial, 2, test_gaps, options);
         std.testing.allocator.free(placements);
         placements = try arrange(std.testing.allocator, &state, landscape_area, &.{ .{ .handle = 2 }, .{ .handle = 3 }, .{ .handle = 4 } }, null, test_gaps, options);
@@ -1444,7 +1481,7 @@ test "right insertion overrides portrait stacking and reload does not regroup ex
     try std.testing.expect(try consumeFromRight(&state, std.testing.allocator, 1));
     state.columns.items[0].width_override = 37;
     try state.height_overrides.put(std.testing.allocator, 2, 45);
-    options.open_new_windows_to_right = true;
+    options.new_window_position = .right;
     placements = try arrange(std.testing.allocator, &state, portrait_area, &initial, 2, test_gaps, options);
     std.testing.allocator.free(placements);
     try std.testing.expectEqual(@as(usize, 2), state.columns.items.len);
@@ -1457,7 +1494,7 @@ test "right insertion overrides portrait stacking and reload does not regroup ex
     try std.testing.expectEqual(@as(?i32, 37), state.columns.items[0].width_override);
     try std.testing.expectEqual(@as(?i32, 45), state.height_overrides.get(2));
     try std.testing.expect(!prefersVerticalScroll(&state, 2));
-    options.open_new_windows_to_right = false;
+    options.new_window_position = .append;
     placements = try arrange(std.testing.allocator, &state, portrait_area, &arrivals, 2, test_gaps, options);
     std.testing.allocator.free(placements);
     try expectColumnOrder(&state, &.{ 1, 2, 4, 3 });
@@ -1471,7 +1508,7 @@ test "right insertion preserves a manually selected viewport column" {
     var state: State = .{};
     defer state.deinit(std.testing.allocator);
     const initial = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
-    const options: Options = .{ .open_new_windows_to_right = true, .follow_new_windows = false };
+    const options: Options = .{ .new_window_position = .right, .follow_new_windows = false };
     var placements = try arrange(std.testing.allocator, &state, landscape_area, &initial, 1, test_gaps, options);
     std.testing.allocator.free(placements);
     state.viewport_column = 2;
@@ -1480,6 +1517,71 @@ test "right insertion preserves a manually selected viewport column" {
     try expectColumnOrder(&state, &.{ 1, 4, 2, 3 });
     try std.testing.expectEqual(@as(usize, 3), state.viewport_column);
     try std.testing.expectEqual(@as(usize, 0), state.focused_column);
+}
+
+test "left insertion mirrors right insertion and preserves batch order" {
+    const initial = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+    const arrivals = initial ++ [_]types.Window{ .{ .handle = 4 }, .{ .handle = 5 } };
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const options: Options = .{ .new_window_position = .left };
+    var placements = try arrange(std.testing.allocator, &state, landscape_area, &initial, 1, test_gaps, options);
+    std.testing.allocator.free(placements);
+    // The runtime anchor takes priority over the focused window, matching the
+    // right-insertion contract; the batch keeps its input order left to right.
+    var runtime = test_gaps;
+    runtime.new_window_anchor = 2;
+    placements = try arrange(std.testing.allocator, &state, landscape_area, &arrivals, 2, runtime, options);
+    defer std.testing.allocator.free(placements);
+    try expectColumnOrder(&state, &.{ 1, 4, 5, 2, 3 });
+}
+
+test "above and below insertion join the focused column stack in batch order" {
+    const initial = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+    const arrivals = initial ++ [_]types.Window{ .{ .handle = 4 }, .{ .handle = 5 } };
+    for ([_]types.NewWindowPosition{ .above, .below }) |position| {
+        var state: State = .{};
+        defer state.deinit(std.testing.allocator);
+        const options: Options = .{ .new_window_position = position };
+        var placements = try arrange(std.testing.allocator, &state, landscape_area, &initial, 2, test_gaps, options);
+        std.testing.allocator.free(placements);
+        placements = try arrange(std.testing.allocator, &state, landscape_area, &arrivals, 2, test_gaps, options);
+        defer std.testing.allocator.free(placements);
+        try expectColumnOrder(&state, if (position == .above) &.{ 1, 4, 5, 2, 3 } else &.{ 1, 2, 4, 5, 3 });
+        try std.testing.expectEqual(@as(usize, 3), state.columns.items.len);
+        // A vertical arrival pans its column to the newest member.
+        try std.testing.expectEqual(@as(?types.Handle, 5), state.columns.items[1].viewport_anchor);
+    }
+}
+
+test "left insertion preserves and shifts a manually selected viewport column" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const initial = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
+    const options: Options = .{ .new_window_position = .left, .follow_new_windows = false };
+    var placements = try arrange(std.testing.allocator, &state, landscape_area, &initial, 1, test_gaps, options);
+    std.testing.allocator.free(placements);
+    state.viewport_column = 2;
+    // Anchor 1 inserts at column 0, so the manual viewport shifts right.
+    placements = try arrange(std.testing.allocator, &state, landscape_area, &(initial ++ [_]types.Window{.{ .handle = 4 }}), 1, test_gaps, options);
+    defer std.testing.allocator.free(placements);
+    try expectColumnOrder(&state, &.{ 4, 1, 2, 3 });
+    try std.testing.expectEqual(@as(usize, 3), state.viewport_column);
+}
+
+test "vertical insertion without an anchor falls back to the last column" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const initial = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
+    const options: Options = .{ .new_window_position = .above, .prefer_vertical_on_portrait = true };
+    var placements = try arrange(std.testing.allocator, &state, landscape_area, &initial, null, test_gaps, options);
+    std.testing.allocator.free(placements);
+    // No focus and no local history: the arrival joins the top of the last
+    // column instead of creating one.
+    placements = try arrange(std.testing.allocator, &state, landscape_area, &(initial ++ [_]types.Window{.{ .handle = 3 }}), null, test_gaps, options);
+    defer std.testing.allocator.free(placements);
+    try expectColumnOrder(&state, &.{ 1, 3, 2 });
+    try std.testing.expectEqual(@as(usize, 2), state.columns.items.len);
 }
 
 test "fractional columns use local footprints and recompute without changing height" {

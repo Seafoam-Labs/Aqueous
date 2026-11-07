@@ -42,7 +42,7 @@
 # column_fraction = 0.5              # 0.01 through 0.99
 # center_focused = true
 # follow_new_windows = true
-# open_new_windows_to_right = false
+# new_window_position = "append"     # append | right | left | above | below
 # prefer_vertical_on_portrait = false
 # snap_to_columns = false
 # allow_overscroll = true

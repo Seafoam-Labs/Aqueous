@@ -7,6 +7,11 @@ pub const Handle = u64;
 
 pub const StackLayer = enum { below, normal, above };
 
+/// Placement of a newly managed scrolling window relative to the focus anchor.
+/// `append` extends the far end of the column order; every other value inserts
+/// adjacent to the anchor and overrides portrait stacking.
+pub const NewWindowPosition = enum { append, right, left, above, below };
+
 pub const Rect = struct {
     x: i32,
     y: i32,
