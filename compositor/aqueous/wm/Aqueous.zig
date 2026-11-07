@@ -1783,7 +1783,7 @@ pub fn updateInteractiveDrag(aqueous: *Aqueous, drag: *Drag, x: f64, y: f64) voi
             const pointer_x = clampI32(@intFromFloat(x));
             const pointer_y = clampI32(@intFromFloat(y));
             const zone_candidate = !drag.dnd and aqueous.canSnapZones(drag.layout_key, drag.handle) and
-                aqueous.updateStackingSnapPreview(drag, target.id, area, pointer_x, pointer_y, options.floating_snap_threshold);
+                aqueous.updateStackingSnapPreview(drag, target.id, area, pointer_x, pointer_y, options.floating_snap_threshold, options.border);
             const edge_direction = if (!zone_candidate)
                 geometry.snapDirectionAt(area, pointer_x, pointer_y, options.floating_snap_threshold, options.floating_top_edge_maximize)
             else
@@ -1793,7 +1793,7 @@ pub fn updateInteractiveDrag(aqueous: *Aqueous, drag: *Drag, x: f64, y: f64) voi
                 const constrained = geometry.constrainSnap(target_geometry, direction, drag.constraints);
                 if (!drag.dnd) {
                     drag.snap_candidate = .{ .output_id = target.id, .geometry = constrained, .direction = direction };
-                    aqueous.api.showSnapOverlay(target.id, &.{constrained}, 0);
+                    aqueous.api.showSnapOverlay(target.id, &.{constrained}, 0, options.border);
                 } else {
                     // Protocol DnD owns its drop lifecycle; retain live edge snaps.
                     resolved_geometry = constrained;
@@ -1831,6 +1831,7 @@ fn updateStackingSnapPreview(
     pointer_x: i32,
     pointer_y: i32,
     activation_distance: i32,
+    border: layout_types.Border,
 ) bool {
     if (activation_distance <= 0) {
         drag.snap_candidate = null;
@@ -1863,7 +1864,7 @@ fn updateStackingSnapPreview(
     }
     var preview = targets.geometries;
     if (selected) |index| preview[index] = geometry.constrainSnap(preview[index], .center, drag.constraints);
-    aqueous.api.showSnapOverlay(output_id, preview[0..targets.count], selected);
+    aqueous.api.showSnapOverlay(output_id, preview[0..targets.count], selected, border);
     if (selected) |index| {
         drag.snap_candidate = .{
             .output_id = output_id,

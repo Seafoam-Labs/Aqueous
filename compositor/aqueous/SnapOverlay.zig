@@ -17,20 +17,30 @@ pub const Rect = struct {
     height: i32,
 };
 
+/// Premultiplied RGBA fill colors for the preview rects. Callers derive
+/// these from the configured window border colors.
+pub const Colors = struct {
+    normal: [4]f32,
+    selected: [4]f32,
+};
+
 tree: *wlr.SceneTree,
 rects: [max_zones]*wlr.SceneRect,
 output_id: u64 = 0,
 visible_count: u8 = 0,
 
-const normal_color: [4]f32 = .{ 0.12, 0.55, 1.0, 0.18 };
-const selected_color: [4]f32 = .{ 0.25, 0.72, 1.0, 0.42 };
+/// Fallback used until the first `show` supplies border-derived colors.
+const default_colors: Colors = .{
+    .normal = .{ 0.12, 0.55, 1.0, 0.18 },
+    .selected = .{ 0.25, 0.72, 1.0, 0.32 },
+};
 
 pub fn init(parent: *wlr.SceneTree) !SnapOverlay {
     const tree = try parent.createSceneTree();
     tree.node.setEnabled(false);
     var rects: [max_zones]*wlr.SceneRect = undefined;
     for (&rects) |*slot| {
-        slot.* = try tree.createSceneRect(1, 1, &normal_color);
+        slot.* = try tree.createSceneRect(1, 1, &default_colors.normal);
         slot.*.node.setEnabled(false);
         fx.setRectInputEnabled(slot.*, false);
         fx.setRectRadius(slot.*, 12);
@@ -38,7 +48,7 @@ pub fn init(parent: *wlr.SceneTree) !SnapOverlay {
     return .{ .tree = tree, .rects = rects };
 }
 
-pub fn show(overlay: *SnapOverlay, output_id: u64, rects: []const Rect, selected: ?usize) void {
+pub fn show(overlay: *SnapOverlay, output_id: u64, rects: []const Rect, selected: ?usize, colors: Colors) void {
     overlay.hideRects();
     const count = @min(rects.len, max_zones);
     for (rects[0..count], 0..) |rect, index| {
@@ -46,7 +56,7 @@ pub fn show(overlay: *SnapOverlay, output_id: u64, rects: []const Rect, selected
         const node = overlay.rects[index];
         node.node.setPosition(rect.x, rect.y);
         node.setSize(rect.width, rect.height);
-        node.setColor(if (selected != null and selected.? == index) &selected_color else &normal_color);
+        node.setColor(if (selected != null and selected.? == index) &colors.selected else &colors.normal);
         node.node.setEnabled(true);
     }
     overlay.output_id = output_id;

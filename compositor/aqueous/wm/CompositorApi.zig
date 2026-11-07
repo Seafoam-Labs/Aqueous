@@ -126,7 +126,21 @@ pub fn setLegacyServerDecorationForce(_: CompositorApi, force_ssd: bool) void {
     server.legacy_server_decoration.setForceSsd(force_ssd);
 }
 
-pub fn showSnapOverlay(_: CompositorApi, output_id: u64, geometries: []const layout.Rect, selected: ?usize) void {
+/// Fraction of the configured border alpha applied to the snap preview so
+/// the translucent overlay stays dimmer than a real border.
+const snap_overlay_normal_alpha: f32 = 0.16;
+const snap_overlay_selected_alpha: f32 = 0.32;
+
+fn snapOverlayColor(argb: u32, alpha: f32) [4]f32 {
+    return .{
+        @as(f32, @floatFromInt((argb >> 16) & 0xff)) / 255.0,
+        @as(f32, @floatFromInt((argb >> 8) & 0xff)) / 255.0,
+        @as(f32, @floatFromInt(argb & 0xff)) / 255.0,
+        @as(f32, @floatFromInt((argb >> 24) & 0xff)) / 255.0 * alpha,
+    };
+}
+
+pub fn showSnapOverlay(_: CompositorApi, output_id: u64, geometries: []const layout.Rect, selected: ?usize, border: layout.Border) void {
     var rects: [@import("../SnapOverlay.zig").max_zones]@import("../SnapOverlay.zig").Rect = undefined;
     const count = @min(geometries.len, rects.len);
     for (geometries[0..count], 0..) |rect, index| rects[index] = .{
@@ -138,7 +152,10 @@ pub fn showSnapOverlay(_: CompositorApi, output_id: u64, geometries: []const lay
     if (server.scene.snap_overlay == null) {
         server.scene.snap_overlay = @import("../SnapOverlay.zig").init(&server.scene.wlr_scene.tree) catch return;
     }
-    server.scene.snap_overlay.?.show(output_id, rects[0..count], selected);
+    server.scene.snap_overlay.?.show(output_id, rects[0..count], selected, .{
+        .normal = snapOverlayColor(border.normal, snap_overlay_normal_alpha),
+        .selected = snapOverlayColor(border.focused, snap_overlay_selected_alpha),
+    });
     server.wm.dirtyWindowing();
 }
 
