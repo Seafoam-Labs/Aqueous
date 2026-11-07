@@ -203,6 +203,20 @@ pub fn sendInputMethodState(relay: *InputRelay) void {
     input_method.sendDone();
 }
 
+/// True if a text input is already focused on `surface`.
+///
+/// focus() asserts that it is only called on an actual focus change. Paths
+/// that may re-send focus for the current surface, such as the Xwayland
+/// focus/grab resync, must check this first.
+pub fn isFocusedOn(relay: *InputRelay, surface: ?*wlr.Surface) bool {
+    const target = surface orelse return false;
+    var it = relay.text_inputs.iterator(.forward);
+    while (it.next()) |text_input| {
+        if (text_input.wlr_text_input.focused_surface == target) return true;
+    }
+    return false;
+}
+
 pub fn focus(relay: *InputRelay, new_focus: ?*wlr.Surface) void {
     // Send leave events
     {

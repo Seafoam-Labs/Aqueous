@@ -1019,7 +1019,9 @@ pub fn focus(seat: *Seat, new_focus: Focus) void {
     if (std.meta.eql(new_focus, seat.focused)) {
         if (seat.wlr_seat.keyboard_state.focused_surface == target_surface) return;
         seat.keyboardEnterOrLeave(target_surface);
-        seat.relay.focus(target_surface);
+        // Logical focus did not change, so the text input may still be focused
+        // on the target surface. InputRelay.focus() requires a focus change.
+        if (!seat.relay.isFocusedOn(target_surface)) seat.relay.focus(target_surface);
         return;
     }
 
@@ -1088,7 +1090,7 @@ pub fn updatePointerConstraint(seat: *Seat, target_surface: ?*wlr.Surface) void 
 pub fn focusXwaylandGrabSurface(seat: *Seat, surface: *wlr.Surface) void {
     if (server.lock_manager.state != .unlocked or !surface.mapped) return;
     seat.keyboardEnterOrLeave(surface);
-    seat.relay.focus(surface);
+    if (!seat.relay.isFocusedOn(surface)) seat.relay.focus(surface);
 }
 
 /// Restore effective keyboard focus after the last Xwayland grab ends. Policy
@@ -1096,7 +1098,7 @@ pub fn focusXwaylandGrabSurface(seat: *Seat, surface: *wlr.Surface) void {
 pub fn restoreKeyboardFocusAfterXwaylandGrab(seat: *Seat) void {
     const surface = seat.focused.surface();
     seat.keyboardEnterOrLeave(surface);
-    seat.relay.focus(surface);
+    if (!seat.relay.isFocusedOn(surface)) seat.relay.focus(surface);
 }
 
 /// Apply a focus change initiated by a client-side protocol event. Such an
