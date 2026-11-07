@@ -52,11 +52,12 @@ build to check output transfers with real pointer events. `--compositor` and
 ## Workspace cycling
 
 Dwindle and reverse dwindle stop splitting before windows become unreadable.
-Their minimum content width is `max(client minimum, 320, ceil(usable width / 5))`;
-minimum height is `max(client minimum, 200, ceil(usable height / 4))`. Dimensions
-are logical pixels after output scaling and panel/strut reservations. Borders
-and gaps consume additional space. The same checks apply to focused splits.
-An output too small for even one minimum-sized window retains one bounded tile.
+Their minimum content size is `max(client minimum, 320 x 200)` logical pixels.
+The floor does not scale with output size, so larger displays admit more tiled
+windows instead of stretching a fixed handful across the screen. Dimensions are
+logical pixels after output scaling and panel/strut reservations. Borders and
+gaps consume additional space. The same checks apply to focused splits. An
+output too small for even one minimum-sized window retains one bounded tile.
 
 Overflow moves forward through workspaces on the same output, wrapping once
 and counting existing residents. The selected workspace stays active and

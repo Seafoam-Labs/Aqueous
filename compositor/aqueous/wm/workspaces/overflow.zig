@@ -187,11 +187,35 @@ fn expectReadable(a: std.mem.Allocator, workspace: *Workspace) !void {
     }
 }
 
-test "readability formula uses logical work area and rounds up" {
-    try std.testing.expectEqual(types.Size{ .width = 384, .height = 270 }, types.readableMinimum(test_area));
-    try std.testing.expectEqual(types.Size{ .width = 512, .height = 360 }, types.readableMinimum(.{ .x = 0, .y = 0, .width = 2560, .height = 1440 }));
-    try std.testing.expectEqual(types.Size{ .width = 385, .height = 271 }, types.readableMinimum(.{ .x = -1920, .y = 0, .width = 1921, .height = 1081 }));
-    try std.testing.expectEqual(types.Size{ .width = 320, .height = 200 }, types.readableMinimum(.{ .x = 0, .y = 0, .width = 800, .height = 600 }));
+test "readability minimum is a fixed floor" {
+    const expected: types.Size = .{ .width = 320, .height = 200 };
+    try std.testing.expectEqual(expected, types.readableMinimum(test_area));
+    try std.testing.expectEqual(expected, types.readableMinimum(.{ .x = 0, .y = 0, .width = 2560, .height = 1440 }));
+    try std.testing.expectEqual(expected, types.readableMinimum(.{ .x = -1920, .y = 0, .width = 1921, .height = 1081 }));
+    try std.testing.expectEqual(expected, types.readableMinimum(.{ .x = 0, .y = 0, .width = 800, .height = 600 }));
+}
+
+test "dwindle capacity grows with output size under a fixed floor" {
+    const a = std.testing.allocator;
+    const cases = [_]struct { area: types.Rect, count: usize }{
+        .{ .area = test_area, .count = 5 },
+        .{ .area = .{ .x = 0, .y = 0, .width = 3840, .height = 2160 }, .count = 7 },
+    };
+    for (cases) |case| {
+        var workspace = testWorkspace();
+        defer workspace.deinit(a);
+        try addWindows(a, &workspace, 1, case.count);
+        const placements = try workspace.arrange(a, case.area);
+        defer a.free(placements);
+        for (placements) |placement| try std.testing.expect(!placement.overflow);
+
+        try workspace.windows.append(a, .{ .handle = 1000 });
+        const extended = try workspace.arrange(a, case.area);
+        defer a.free(extended);
+        var overflows: usize = 0;
+        for (extended) |placement| overflows += @intFromBool(placement.overflow);
+        try std.testing.expectEqual(@as(usize, 1), overflows);
+    }
 }
 
 test "19 and 26 window transitions distribute readable dwindle tiles" {
@@ -236,10 +260,10 @@ test "admission fills partial workspaces skips full ones and wraps once" {
     try addWindows(a, &workspaces[8], 1, 7);
     const moves = try plan(a, test_area, &workspaces, 9);
     defer a.free(moves);
-    try std.testing.expectEqual(@as(usize, 3), moves.len);
-    try std.testing.expectEqual(@as(u32, 2), moves[0].destination);
-    try std.testing.expectEqual(@as(u32, 3), moves[1].destination);
-    try std.testing.expectEqual(@as(u32, 3), moves[2].destination);
+    try std.testing.expectEqual(@as(usize, 2), moves.len);
+    try std.testing.expectEqual(@as(u32, 1), moves[0].destination);
+    try std.testing.expectEqual(@as(u32, 2), moves[1].destination);
+    try std.testing.expectEqual(@as(usize, 5), workspaces[0].windows.items.len);
     try std.testing.expectEqual(@as(usize, 4), workspaces[1].windows.items.len);
     try std.testing.expectEqual(@as(u64, 200), workspaces[1].windows.items[0].handle);
 }
@@ -249,16 +273,16 @@ test "all full converts workspace nine to scrolling including source nine" {
     for ([_]usize{ 0, 8 }) |source| {
         var workspaces: [9]Workspace = @splat(testWorkspace());
         defer for (&workspaces) |*workspace| workspace.deinit(a);
-        for (&workspaces, 0..) |*workspace, index| try addWindows(a, workspace, index * 100 + 1, 4);
+        for (&workspaces, 0..) |*workspace, index| try addWindows(a, workspace, index * 100 + 1, 5);
         try addWindows(a, &workspaces[source], 1000, 22);
         const moves = try plan(a, test_area, &workspaces, @intCast(source + 1));
         defer a.free(moves);
         try std.testing.expect(workspaces[8].force_scrolling);
         try std.testing.expectEqual(config.LayoutId.scrolling, workspaces[8].layout.default);
-        try std.testing.expectEqual(@as(usize, 26), workspaces[8].windows.items.len);
+        try std.testing.expectEqual(@as(usize, 27), workspaces[8].windows.items.len);
         for (moves) |move| try std.testing.expectEqual(@as(u32, 9), move.destination);
         try expectReadable(a, &workspaces[8]);
-        for (0..4) |index| try std.testing.expectEqual(@as(u64, 801 + index), workspaces[8].windows.items[index].handle);
+        for (0..5) |index| try std.testing.expectEqual(@as(u64, 801 + index), workspaces[8].windows.items[index].handle);
     }
 }
 
@@ -287,12 +311,12 @@ test "incoming layout rules are included in destination capacity" {
     var destination = testWorkspace();
     defer destination.deinit(a);
     destination.layout.default = .floating;
-    try addWindows(a, &destination, 1, 4);
+    try addWindows(a, &destination, 1, 5);
     const rules = [_]LayoutRule{.{ .handle = 99, .layout = .dwindle }};
     destination.layout_rules = &rules;
     try std.testing.expect(!try admit(a, test_area, &destination, .{ .handle = 99 }));
     try std.testing.expectEqual(config.LayoutId.floating, destination.layout.default);
-    try std.testing.expectEqual(@as(usize, 4), destination.windows.items.len);
+    try std.testing.expectEqual(@as(usize, 5), destination.windows.items.len);
     destination.layout.default = .scrolling;
     destination.layout_locked = true;
     try std.testing.expect(try admit(a, test_area, &destination, .{ .handle = 99 }));

@@ -545,8 +545,8 @@ test "readable split includes borders client minima and excessive gaps" {
         defer a.free(placements);
         try std.testing.expect(!placements[0].overflow);
         try std.testing.expect(placements[1].overflow);
-        try std.testing.expect(placements[0].geometry.width >= 384);
-        try std.testing.expect(placements[0].geometry.height >= 270);
+        try std.testing.expect(placements[0].geometry.width >= 320);
+        try std.testing.expect(placements[0].geometry.height >= 200);
         try std.testing.expect(placements[0].geometry.x >= area.x);
         try std.testing.expect(placements[0].geometry.bottom() <= area.bottom());
     }

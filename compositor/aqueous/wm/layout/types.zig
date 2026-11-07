@@ -87,8 +87,8 @@ pub const Border = struct {
 };
 
 pub const Options = struct {
-    /// Injected from the full output's usable logical area by policy. Child
-    /// layouts inherit this rather than shrinking the readability threshold.
+    /// Fixed readability floor injected by policy. Child layouts inherit this
+    /// rather than shrinking the readability threshold per output.
     readable_minimum: ?Size = null,
     gaps_outer: i32 = 8,
     gaps_inner: i32 = 4,
@@ -146,11 +146,14 @@ pub const Placement = struct {
 
 pub const Size = struct { width: i32, height: i32 };
 
-pub fn readableMinimum(area: Rect) Size {
-    return .{
-        .width = @max(320, @as(i32, @intCast(@divTrunc(@as(i64, @max(0, area.width)) + 4, 5)))),
-        .height = @max(200, @as(i32, @intCast(@divTrunc(@as(i64, @max(0, area.height)) + 3, 4)))),
-    };
+/// Fixed readability floor in logical pixels. This deliberately does not scale
+/// with the output size, so larger displays admit more tiled windows instead of
+/// stretching a fixed handful across the screen. Client minimums still raise
+/// this floor per window.
+pub const readable_minimum: Size = .{ .width = 320, .height = 200 };
+
+pub fn readableMinimum(_: Rect) Size {
+    return readable_minimum;
 }
 
 pub const Direction = enum {
