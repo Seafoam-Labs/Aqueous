@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export AQUEOUS_DEBUG_WINDOW_STATE=1
+# Keep host configuration overrides out of the isolated test compositor.
+unset AQUEOUS_LAYOUT AQUEOUS_INPUT AQUEOUS_OUTPUTS AQUEOUS_RULES
 
 # Render-level regression for scrolling viewport containment. Three bright-red
 # windows belong to the left headless output; after focusing the middle column,
@@ -31,10 +34,11 @@ cp "$FIXTURES/scrolling-viewport-wm.toml" "$WM_CONFIG"
 chmod 700 "$RUNTIME"
 
 cleanup() {
+    local status=$?
     for pid in "${CLIENT_PIDS[@]:-}"; do kill "$pid" 2>/dev/null || true; done
     [ -z "$COMPOSITOR_PID" ] || kill "$COMPOSITOR_PID" 2>/dev/null || true
     [ -z "$COMPOSITOR_PID" ] || wait "$COMPOSITOR_PID" 2>/dev/null || true
-    rm -rf "$TEST_ROOT"
+    if [ "$status" = 0 ]; then rm -rf "$TEST_ROOT"; else echo "Artifacts: $TEST_ROOT" >&2; fi
 }
 trap cleanup EXIT
 
@@ -45,6 +49,10 @@ XDG_RUNTIME_DIR="$RUNTIME" \
 XDG_CONFIG_HOME="$RUNTIME/config" \
 HOME="$RUNTIME/home" \
 AQUEOUS_CONFIG="$WM_CONFIG" \
+AQUEOUS_RULES="$TEST_ROOT/rules.toml" \
+AQUEOUS_LAYOUT="$TEST_ROOT/layout.toml" \
+AQUEOUS_INPUT="$TEST_ROOT/input.toml" \
+AQUEOUS_OUTPUTS="$TEST_ROOT/outputs.toml" \
 GDK_BACKEND=wayland \
     "$AQUEOUS_COMPOSITOR_BIN" -no-xwayland -log-level info -c true >"$LOG" 2>&1 &
 COMPOSITOR_PID=$!
@@ -133,7 +141,7 @@ for _ in $(seq 1 100); do
     [ "$crossing" -gt 0 ] && break
     sleep 0.03
 done
-[ "$crossing" -gt 0 ] || die "focus change did not produce an edge-crossing scrolling placement"
+[ "$crossing" -gt 0 ] || { printf '%s\n' "$windows_json" >&2; die "focus change did not produce an edge-crossing scrolling placement"; }
 
 assert_output_clean() {
     local shot=$1 mean_red
@@ -156,51 +164,37 @@ left_focus=$(jq -r '.[] | select(.states | index("focused")) | .title' <<<"$wind
 
 # Return the keyboard viewport to the right. This is the direction in which the
 # newly focused window has a lower/left sibling. Its compositor border must
-# travel inside the animation snapshot instead of remaining at the settled
+# travel with its original surface tree instead of remaining at the settled
 # target while the sibling slides across it.
 wlrctl keyboard type . modifiers SUPER
 
 observed_animation=0
 for _ in $(seq 1 30); do
     scene=$("$AQUEOUSCTL_BIN" scene 2>/dev/null || true)
-    active_snapshots=$(grep -F 'window animation snapshot [tree]' <<<"$scene" |
+    active_presentations=$(grep -F 'anim=true' <<<"$scene" |
         grep -vc ' disabled' || true)
-    [ "$active_snapshots" -gt 0 ] || {
+    [ "$active_presentations" -gt 0 ] || {
         sleep 0.01
         continue
     }
 
-    disabled_live_borders=$(grep -F 'border: left [rect] disabled' <<<"$scene" |
-        grep -vc 'animation border' || true)
-    active_animation_borders=$(grep -F 'animation border [tree]' <<<"$scene" |
-        grep -vc ' disabled' || true)
-    active_animation_left=$(grep -F 'animation border: left [rect]' <<<"$scene" |
-        grep -vc ' disabled' || true)
-    [ "$disabled_live_borders" -ge "$active_snapshots" ] ||
-        die "live destination borders remained enabled during animation"
-    [ "$active_animation_borders" -ge "$active_snapshots" ] ||
-        die "animation snapshots did not own an enabled border subtree"
-    [ "$active_animation_left" -ge "$active_snapshots" ] ||
-        die "animation border edges were not enabled with their snapshots"
-
-    snapshot_line=$(grep -nF 'window animation snapshot [tree]' <<<"$scene" |
-        grep -v ' disabled' | head -1 | cut -d: -f1)
-    snapshot_tail=$(tail -n +"$snapshot_line" <<<"$scene")
-    marker_line=$(grep -nF 'animation backdrop blur marker [rect]' <<<"$snapshot_tail" |
-        head -1 | cut -d: -f1)
-    surfaces_line=$(grep -nF 'animation surfaces [tree]' <<<"$snapshot_tail" |
-        head -1 | cut -d: -f1)
-    border_line=$(grep -nF 'animation border [tree]' <<<"$snapshot_tail" |
-        head -1 | cut -d: -f1)
-    [ "$marker_line" -lt "$surfaces_line" ] &&
-        [ "$surfaces_line" -lt "$border_line" ] ||
-        die "animation scene order was not blur marker, surfaces, border"
+    ! grep -F 'window animation snapshot' <<<"$scene" >/dev/null ||
+        die "retired animation tree still exists"
+    grep -F 'border: left [rect]' <<<"$scene" | grep -v ' disabled' >/dev/null ||
+        die "original borders were suppressed during presentation"
+    window_line=$(grep -nF 'anim=true' <<<"$scene" | head -1 | cut -d: -f1)
+    window_tail=$(tail -n +"$window_line" <<<"$scene")
+    marker_line=$(grep -nF 'backdrop blur marker [rect]' <<<"$window_tail" | head -1 | cut -d: -f1)
+    surfaces_line=$(grep -nF 'live surfaces [tree]' <<<"$window_tail" | head -1 | cut -d: -f1)
+    border_line=$(grep -nF 'border: left [rect]' <<<"$window_tail" | head -1 | cut -d: -f1)
+    [ "$marker_line" -lt "$surfaces_line" ] && [ "$surfaces_line" -lt "$border_line" ] ||
+        die "window scene order was not blur marker, surfaces, border"
 
     observed_animation=1
     break
 done
 [ "$observed_animation" = 1 ] ||
-    die "right-focus transition never exposed an animation snapshot"
+    die "right-focus transition never exposed a moving presentation"
 
 sleep 1
 windows_json=$("$AQUEOUSCTL_BIN" windows --json)
@@ -208,12 +202,10 @@ right_focus=$(jq -r '.[] | select(.states | index("focused")) | .title' <<<"$win
 [ "$right_focus" = aq-scroll-clip-three ] ||
     die "focus-follows-mouse snapped past the requested right column (focused=$right_focus)"
 settled_scene=$("$AQUEOUSCTL_BIN" scene)
-active_snapshots=$(grep -F 'window animation snapshot [tree]' <<<"$settled_scene" |
+active_presentations=$(grep -F 'anim=true' <<<"$settled_scene" |
     grep -vc ' disabled' || true)
-[ "$active_snapshots" = 0 ] ||
-    die "animation snapshot remained enabled after settling"
-grep -F 'animation border [tree] disabled' <<<"$settled_scene" >/dev/null ||
-    die "animation border remained enabled after settling"
+[ "$active_presentations" = 0 ] ||
+    die "presentation remained active after settling"
 grep -F 'border: left [rect]' <<<"$settled_scene" |
     grep -v 'animation border' |
     grep -v ' disabled' >/dev/null ||

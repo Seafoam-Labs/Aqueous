@@ -305,9 +305,9 @@ pub const SaveableSurfaces = struct {
     /// Clone the current live surface buffers into an arbitrary target tree,
     /// reusing the same per-buffer effect-metadata copy as `save`.
     /// Unlike `save`, this neither toggles `saved` nor disables the live tree, so
-    /// the clones can be displayed simultaneously with the live surfaces (used by
-    /// the cosmetic position-animation overlay). The observer runs immediately
-    /// after each clone is created, before Vulkan import can release the public
+    /// the clones can be displayed simultaneously with live surfaces for overview
+    /// cards. The observer runs after each clone is created, before Vulkan import
+    /// can release the public
     /// buffer handle needed to capture its original source geometry.
     pub fn cloneInto(
         surfaces: *const SaveableSurfaces,

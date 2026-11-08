@@ -46,7 +46,8 @@ def main():
         env.pop(key, None)
     env.update(XDG_RUNTIME_DIR=str(runtime), XDG_CONFIG_HOME=str(work / 'config'),
                XDG_CACHE_HOME=str(work / 'cache'), XDG_STATE_HOME=str(work / 'state'),
-               WLR_BACKENDS='headless', WLR_HEADLESS_OUTPUTS='2', WLR_RENDERER=args.renderer)
+               WLR_BACKENDS='headless', WLR_HEADLESS_OUTPUTS='2', WLR_RENDERER=args.renderer,
+               AQUEOUS_DEBUG_WINDOW_STATE='1')
     for key, filename in [('AQUEOUS_CONFIG', 'wm.toml'), ('AQUEOUS_RULES', 'rules.toml'),
                           ('AQUEOUS_LAYOUT', 'layout.toml'), ('AQUEOUS_INPUT', 'input.toml'),
                           ('AQUEOUS_OUTPUTS', 'outputs.toml')]:
@@ -135,11 +136,13 @@ focus_workspace_4 = "Super+4"
         row = image.crop((0, image.height // 2, image.width, image.height // 2 + 1))
         return Counter(row.get_flattened_data() if hasattr(row, 'get_flattened_data') else row.getdata())
 
-    def no_snapshots(label):
+    def settled_presentation(label):
         scene = ctl('scene')
         (work / f'{label}-scene.txt').write_text(scene)
-        assert not any('window animation snapshot [tree]' in line and 'disabled' not in line
-                       for line in scene.splitlines()), 'Enabled snapshot after settling'
+        assert 'anim=true' not in scene, 'Presentation still moving after settling'
+        assert 'window animation snapshot' not in scene, 'Retired animation tree present'
+        offsets = re.findall(r'presentation=(-?[0-9.]+),(-?[0-9.]+)', scene)
+        assert offsets and all(float(x) == 0 and float(y) == 0 for x, y in offsets), offsets
 
     def spawn(name, color):
         if args.xwayland and name == 'issue53-red':
@@ -222,7 +225,7 @@ focus_workspace_4 = "Super+4"
                 neighbor = capture(f'{label}-neighbor-{len(samples):03}', other)
                 assert neighbor.tobytes() == green_reference.tobytes(), f'{label}: slide leaked onto neighbor'
                 time.sleep(.02)
-            no_snapshots(label)
+            settled_presentation(label)
             final = row_counts(capture(f'{label}-settled', owner))
             assert final[target] > reference.width * .9, (label, final)
             # Require a visibly intermediate boundary early in the slide, not
@@ -263,20 +266,20 @@ focus_workspace_4 = "Super+4"
         time.sleep(.08)
         key(3)
         time.sleep(max(settle, .6))
-        no_snapshots('rapid-switch')
+        settled_presentation('rapid-switch')
         assert row_counts(capture('rapid-empty', owner))[K] == reference.width
         # Mode changes during a slide must settle into the new style.
         key(1)
         time.sleep(.08)
         state(red, False)
         time.sleep(max(settle, .6))
-        no_snapshots('toggle-during-slide')
+        settled_presentation('toggle-during-slide')
         assert row_counts(capture('toggle-settled', owner))[R] > reference.width * .9
         state(red, True)
         time.sleep(.15)
-        no_snapshots('fullscreen-toggle-snaps')
-        # Move the outgoing window to a third workspace while its snapshot is
-        # still visible. The old viewport must release that snapshot immediately.
+        settled_presentation('fullscreen-toggle-snaps')
+        # Move the outgoing window to a third workspace while its presentation is
+        # still visible. The old viewport must clear that presentation immediately.
         records = json.loads(ctl('shell', 'snapshot', '--json'))['upsert']
         owner_id = next(r['id'] for r in records if r['kind'] == 'output' and r['name'] == owner)
         third = next(r['id'] for r in records if r['kind'] == 'workspace' and
@@ -285,7 +288,7 @@ focus_workspace_4 = "Super+4"
         time.sleep(.08)
         ctl('window', 'move', '--id', red['id'], '--workspace-id', third, '--json')
         time.sleep(max(settle, .6))
-        no_snapshots('move-during-slide')
+        settled_presentation('move-during-slide')
         assert window('issue53-red')['workspace'] == 3
         assert row_counts(capture('move-settled', owner))[B] > reference.width * .9
         activate(red)
@@ -294,7 +297,7 @@ focus_workspace_4 = "Super+4"
         time.sleep(.08)
         ctl('overview', 'show', '--output', owner, '--json')
         time.sleep(.2)
-        no_snapshots('overview-during-slide')
+        settled_presentation('overview-during-slide')
         ctl('overview', 'hide', '--json')
         time.sleep(.2)
         activate(red)
@@ -304,7 +307,7 @@ focus_workspace_4 = "Super+4"
         response = outputs({'op': 'set', 'changes': [{'name': owner, 'x': owner_state['x'] + 20}]})
         assert response.get('ok'), response
         time.sleep(max(settle, .6))
-        no_snapshots('output-moved-during-slide')
+        settled_presentation('output-moved-during-slide')
         assert row_counts(capture('output-moved-settled', owner))[B] > reference.width * .9
         activate(red)
         time.sleep(max(settle, .6))
@@ -312,7 +315,7 @@ focus_workspace_4 = "Super+4"
         time.sleep(.08)
         ctl('window', 'close', '--id', red['id'], '--json')
         time.sleep(max(settle, .6))
-        no_snapshots('close-during-slide')
+        settled_presentation('close-during-slide')
         assert row_counts(capture('close-settled', owner))[B] > reference.width * .9
         activate(black)
         state(black, True)
@@ -322,7 +325,7 @@ focus_workspace_4 = "Super+4"
         response = outputs({'op': 'set', 'changes': [{'name': owner, 'enabled': False}]})
         assert response.get('ok'), response
         time.sleep(max(settle, .6))
-        no_snapshots('output-disabled')
+        settled_presentation('output-disabled')
         print('PASS interruption and output lifecycle checks', flush=True)
         success = True
     finally:

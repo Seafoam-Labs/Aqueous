@@ -51,7 +51,7 @@ patch_files=(
     "$here/patches/wlroots/0042-vulkan-pass-requirements.patch"
     "$here/patches/wlroots/0043-scene-buffer-windows-scrgb.patch"
     "$here/patches/wlroots/0044-color-management-extended-target-volume.patch"
-    "$here/patches/wlroots/0045-scene-live-snapshot.patch"
+    "$here/patches/wlroots/0045-scene-presentation.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -185,6 +185,9 @@ bash "$here/scripts/test-screencopy-sdr.sh" "$source_dir" "$prefix" ||
 python3 "$here/scripts/test-scene-scrgb.py" "$source_dir" "$prefix" ||
     die "scene scRGB snapshot mapping or color-state transitions failed"
 
+python3 "$here/scripts/test-scene-presentation.py" "$prefix" ||
+    die "scene presentation, clipping or input regression"
+
 library="$prefix/lib/libwlroots-0.20.so"
 [ -f "$library" ] || die "patched wlroots library was not installed"
 for symbol in \
@@ -236,7 +239,8 @@ for symbol in \
     wlr_scene_buffer_set_force_blend \
     wlr_scene_buffer_set_windows_scrgb \
     wlr_scene_buffer_get_windows_scrgb \
-    wlr_scene_buffer_snapshot_surface \
+    wlr_scene_node_set_presentation \
+    wlr_scene_node_presentation_coords \
     wlr_scene_rect_set_force_blend \
     wlr_vk_renderer_enable_offscreen \
     wlr_vk_render_pass_run_offscreen \

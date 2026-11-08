@@ -101,14 +101,13 @@ a private headless session. Use `--renderer vulkan` with an effects build.
 
 ## Building
 
-Workspace and scrolling slides display live client content while keeping input
-geometry at its settled destination. This requires private wlroots patch 0045
-for preview callbacks, presentation and captured explicit-sync lifetimes.
+Workspace and scrolling slides display original live client content while
+keeping input geometry at its settled destination. Private wlroots patch 0045
+provides presentation offsets and clips; ordinary surface callbacks,
+presentation feedback and explicit-sync ownership remain on the original nodes.
 Run `python3 scripts/test-live-slide.py`, repeat with `--child-only` and
-`--scrolling`, to verify callback-paced content through transitions and reversal.
-The harness uses a private headless Vulkan session. See
-[`docs/live-slide-content-plan.md`](../docs/live-slide-content-plan.md) for the
-implementation and validation record.
+`--scrolling`, to verify callback-paced content through transitions and reversal
+in a private headless Vulkan session.
 
 `scripts/test-workspace-transition-finalize.sh` covers issue #106. It verifies
 that the outgoing workspace's live trees are disabled before the transition
@@ -154,7 +153,21 @@ exceed that retention budget until completion; eviction never frees a pending
 submission's images. Source descriptors belong to individual submissions, not
 to retained swapchain views. Disabling blur evicts the scratch pool.
 
-Patch 0042 and render-hook API 11 make sampleable backdrops a per-pass
+Patch 0045 separates logical scene coordinates from presentation. Window and
+workspace slides translate the original live surface/decorations/popup trees;
+they do not clone buffers or add a second surface callback/release path. Input
+uses the settled layout coordinates. Visibility, output membership, damage and
+rendering use the presentation coordinates, with fixed output/layout clips.
+Transformed or clipped nodes require composition until the presentation state
+clears. Transaction and overview snapshots retain their separate ownership.
+
+`python3 scripts/test-scene-presentation.py .deps/wlroots-render-hook` exercises
+logical input gates, visual occlusion/clipping, old/new damage, output membership
+and node lifetime without a GPU. `test-live-slide.py` exercises callback-paced
+client commits during actual slides; `test-fullscreen-workspace-transition.py`
+checks adjacent-output pixels and transition interruption.
+
+Patch 0042 and render-hook API 12 make sampleable backdrops a per-pass
 requirement determined from visible scene nodes before choosing the framebuffer.
 Eligible linear/sRGB passes render directly; visible blur, gamma-2.2, HDR/PQ,
 LUTs and unsupported direct attachment formats retain the FP16 intermediate.
@@ -182,14 +195,14 @@ validation layer, set `VK_LAYER_PATH`, its library search path, and
 
 Rounded window content uses one mask aligned with window geometry, shared by
 the main surface and its subsurfaces. Client-side shadow padding and buffer
-transforms do not move the corners. Animation snapshots preserve the mask, and
-overview thumbnails scale it with their content. Rebuild the pinned wlroots
+transforms do not move the corners. Transaction and overview snapshots preserve
+the mask, and overview thumbnails scale it with their content. Rebuild the pinned wlroots
 dependency with patch 0033 before building Aqueous: masked single-pixel buffers
 must use the texture hook instead of the rectangle shortcut.
 
 Run `python3 scripts/test-rounded-window.py` against an effects build to check
 padded/unpadded clients, SHM and single-pixel subsurfaces, buffer transforms,
-fullscreen, resizing, overview, workspace snapshot crops, and tiled/scrolling windows.
+fullscreen, resizing, overview, workspace presentation clips, and tiled/scrolling windows.
 It covers output scales 1, 1.25, 1.5, and 2 plus rotated/reflected outputs.
 Use `--quick` for scale 1 only, `--compositor /path/to/aqueous` for an alternate
 build, or `--no-effects --quick` with the diagnostic build. The private headless
@@ -720,8 +733,8 @@ scripts/test-vulkan-effects.sh /tmp/aqueous-vulkan-effects
 
 Window rounding is configured with `[decoration] corner_radius = 15` in
 `wm.toml` (integer logical pixels, 0–128; zero disables compositor rounding).
-It reloads live for content, borders and blur. A radius change ends any current
-cosmetic window motion so frozen content and new borders cannot disagree.
+It reloads live for content, borders and blur, including during cosmetic window
+motion.
 Fullscreen and no-effects builds stay square; application-drawn transparent
 corners remain transparent.
 
@@ -779,7 +792,7 @@ Initialize that checkout's `dank-qml-common` submodule first. This uses temporar
 settings and clears inherited DMS connections.
 
 The regression covers unused effect objects, explicit empty/null requests,
-commit boundaries, destruction/recreation, and frozen animation ownership in
+commit boundaries, destruction/recreation, and live ownership changes during sliding in
 both cached and uncached rendering. When GTK4 development files are installed,
 it also compares an actual GTK window with native protocol discovery enabled
 and disabled. Creating an unused effect object must preserve compositor fallback

@@ -2,6 +2,7 @@
 // Real protocol commits and the production luminance helper, without a GPU.
 #define WLR_PRIVATE
 #include <assert.h>
+#include <wlr/backend/headless.h>
 #include <math.h>
 #include <poll.h>
 #include <stdio.h>
@@ -23,12 +24,12 @@ static struct wp_single_pixel_buffer_manager_v1 *pixels;
 static struct wlr_scene *scene;
 static struct wlr_scene_surface *live;
 static struct wl_listener new_surface;
-static unsigned preview_frames;
-static void preview_done(void *data, struct wl_callback *callback, uint32_t time) {
-	preview_frames++;
-	wl_callback_destroy(callback);
+static unsigned frames;
+static void frame_done(void *data, struct wl_callback *callback, uint32_t time) {
+    frames++;
+    wl_callback_destroy(callback);
 }
-static const struct wl_callback_listener preview_listener = {preview_done};
+static const struct wl_callback_listener frame_listener = {frame_done};
 
 static void new_surface_notify(struct wl_listener *listener, void *data) {
 	live = wlr_scene_surface_create(&scene->tree, data);
@@ -135,6 +136,22 @@ int main(void) {
 	assert(server);
 	scene = wlr_scene_create();
 	assert(scene);
+    struct wlr_backend *backend = wlr_headless_backend_create(wl_display_get_event_loop(server));
+    assert(backend);
+    struct wlr_output *left = wlr_headless_add_output(backend, 64, 64);
+    struct wlr_output *right = wlr_headless_add_output(backend, 64, 64);
+    assert(left && right && wlr_backend_start(backend));
+    struct wlr_output_state output_state;
+    wlr_output_state_init(&output_state);
+    wlr_output_state_set_enabled(&output_state, true);
+    assert(wlr_output_commit_state(left, &output_state));
+    assert(wlr_output_commit_state(right, &output_state));
+    wlr_output_state_finish(&output_state);
+    struct wlr_scene_output *a = wlr_scene_output_create(scene, left);
+    struct wlr_scene_output *b = wlr_scene_output_create(scene, right);
+    assert(a && b);
+    wlr_scene_output_set_position(b, 64, 0);
+
 	struct wlr_compositor *wc = wlr_compositor_create(server, 6, NULL);
 	assert(wc);
 	new_surface.notify = new_surface_notify;
@@ -167,6 +184,23 @@ int main(void) {
 	wl_surface_commit(surface);
 	sync_client();
 	assert(live && live->surface->current.width == 1);
+    struct wlr_scene_buffer *original = live->buffer;
+    assert(original->primary_output == a);
+    assert(wlr_scene_node_set_presentation(&original->node, 64, 0, NULL, true, NULL));
+    assert(original->primary_output == b);
+    struct wl_callback *frame = wl_surface_frame(surface);
+    wl_callback_add_listener(frame, &frame_listener, NULL);
+    wl_surface_commit(surface);
+    sync_client();
+    struct timespec now = {0};
+    wlr_scene_output_send_frame_done(a, &now);
+    sync_client();
+    assert(frames == 0);
+    wlr_scene_output_send_frame_done(b, &now);
+    wlr_scene_output_send_frame_done(b, &now);
+    sync_client();
+    assert(frames == 1);
+
 	assert(!wlr_scene_buffer_get_windows_scrgb(live->buffer));
 
 	bool scrgb_ready = false, linear_ready = false;
@@ -216,34 +250,8 @@ int main(void) {
 	assert(live->buffer->transfer_function == WLR_COLOR_TRANSFER_FUNCTION_GAMMA22);
 	assert(wlr_scene_buffer_get_windows_scrgb(snapshot));
 
-	// The live-preview bridge keeps snapshots input-inert and services only the
-	// visible pacing output. Normal and preview callback paths drain the same
-	// pending callback list, so a second send cannot deliver twice.
-	struct wlr_output pacing = {0}, mirror = {0};
-	struct wlr_scene_output preview_output = {.output = &pacing};
-	struct wlr_scene_frame_done_event event = {.output = &preview_output};
-	struct wlr_scene_buffer *preview = wlr_scene_buffer_create(&scene->tree, NULL);
-	assert(preview && wlr_scene_buffer_snapshot_surface(preview, live->surface, &pacing));
-	assert(wlr_scene_surface_try_from_buffer(preview) == NULL);
-	struct wl_callback *frame = wl_surface_frame(surface);
-	wl_callback_add_listener(frame, &preview_listener, NULL);
-	wl_surface_commit(surface);
-	sync_client();
-	pixman_region32_clear(&preview->node.visible);
-	wlr_scene_buffer_send_frame_done(preview, &event);
-	sync_client();
-	assert(preview_frames == 0);
-	pixman_region32_union_rect(&preview->node.visible, &preview->node.visible, 0, 0, 1, 1);
-	preview_output.output = &mirror;
-	wlr_scene_buffer_send_frame_done(preview, &event);
-	sync_client();
-	assert(preview_frames == 0);
-	preview_output.output = &pacing;
-	wlr_scene_buffer_send_frame_done(preview, &event);
-	wlr_scene_buffer_send_frame_done(preview, &event);
-	sync_client();
-	assert(preview_frames == 1);
-
+    // Metadata-only commits updated the original moving surface node.
+    assert(live->buffer == original && original->primary_output == b);
 	wp_color_management_surface_v1_destroy(color);
 	wp_image_description_v1_destroy(scrgb);
 	wp_image_description_v1_destroy(linear);
@@ -251,10 +259,6 @@ int main(void) {
 	wl_buffer_destroy(buffer);
 	sync_client();
 	assert(wlr_scene_buffer_get_windows_scrgb(snapshot));
-	// Destroying the source makes retained snapshot callbacks inert. Destruction
-	// of the clone must also detach its surface addon/listeners exactly once.
-	wlr_scene_buffer_send_frame_done(preview, &event);
-	wlr_scene_node_destroy(&preview->node);
 	wp_single_pixel_buffer_manager_v1_destroy(pixels);
 	wp_color_manager_v1_destroy(manager);
 	wl_compositor_destroy(compositor);
@@ -263,6 +267,7 @@ int main(void) {
 	wl_display_destroy_clients(server);
 	wl_list_remove(&new_surface.link);
 	wlr_scene_node_destroy(&scene->tree.node);
+	wlr_backend_destroy(backend);
 	wl_display_destroy(server);
-	puts("PASS: scRGB snapshots, committed color transitions, visible preview pacing and source/clone lifetimes");
+	puts("PASS: scRGB snapshots, committed color transitions, live presentation pacing, source/clone lifetimes");
 }

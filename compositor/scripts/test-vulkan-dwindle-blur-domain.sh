@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export AQUEOUS_DEBUG_WINDOW_STATE=1
+# Keep host configuration overrides out of the isolated test compositor.
+unset AQUEOUS_LAYOUT AQUEOUS_INPUT AQUEOUS_OUTPUTS AQUEOUS_RULES
 
 # Deterministic two-window oracle for blur-domain reflection, sibling isolation,
 # and partial cache updates. Run directly for one cache mode; the companion
@@ -167,6 +170,9 @@ env --default-signal=INT --default-signal=TERM -u LD_PRELOAD \
     "${BACKEND_ENV[@]}" \
     WLR_RENDERER=vulkan \
     AQUEOUS_CONFIG="$WM_CONFIG" \
+    AQUEOUS_LAYOUT="$TEST_ROOT/layout.toml" \
+    AQUEOUS_INPUT="$TEST_ROOT/input.toml" \
+    AQUEOUS_OUTPUTS="$TEST_ROOT/outputs.toml" \
     AQUEOUS_RULES="$RULES_CONFIG" \
     AQUEOUS_VULKAN_BLUR_UNCACHED="$UNCACHED_ORACLE" \
     XDG_RUNTIME_DIR="$RUNTIME_DIR" \
@@ -292,7 +298,7 @@ scene_text() {
 }
 
 wait_settled() {
-    local expected_focus=$1 json scene active_snapshots
+    local expected_focus=$1 json scene active_presentations
     # windows --json reports content bounds, inset by the two-pixel borders.
     for _ in $(seq 1 300); do
         json=$(windows_json 2>/dev/null || echo '[]')
@@ -310,11 +316,11 @@ wait_settled() {
             continue
         fi
         scene=$(scene_text 2>/dev/null || true)
-        active_snapshots=$(
-            grep -F 'window animation snapshot [tree]' <<<"$scene" |
+        active_presentations=$(
+            grep -F 'anim=true' <<<"$scene" |
                 grep -vc ' disabled' || true
         )
-        if [ "$active_snapshots" = 0 ]; then
+        if [ "$active_presentations" = 0 ]; then
             sleep 0.08
             return
         fi

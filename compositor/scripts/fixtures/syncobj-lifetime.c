@@ -38,13 +38,6 @@ static jmp_buf fatal_jump;
 static struct wlr_output sampled_output;
 static struct wlr_linux_drm_syncobj_surface_v1_state sampled_state;
 static struct wlr_scene_surface sampled_surface;
-static struct wlr_drm_syncobj_merger *sampled_snapshot;
-static bool surface_has_snapshot(struct wlr_surface *surface) {
-    return sampled_snapshot != NULL;
-}
-static struct wlr_drm_syncobj_merger *scene_snapshot_release(struct wlr_scene_buffer *buffer) {
-    return sampled_snapshot;
-}
 static bool enforce_submission_order, submission_called, detach_on_submit;
 static bool available_after_submit = true;
 static unsigned submission_mode; // 0 success, 1 rejected, 2 completed but publication failed
@@ -203,7 +196,6 @@ void wlr_drm_syncobj_timeline_waiter_finish(struct wlr_drm_syncobj_timeline_wait
 #undef poll
 
 static void reset_faults(void) {
-    sampled_snapshot = NULL;
     enforce_submission_order = submission_called = detach_on_submit = false;
     available_after_submit = true;
     submission_mode = submitted_dependency = 0;
@@ -415,15 +407,14 @@ int main(void) {
 
     // Run the production scene reservation/callback/submission boundary with
     // actual merger ownership and OS descriptors. GPU calls alone are mocked.
-    // Exercise the same submission guarantees for live surfaces and captured
-    // animation generations, including source teardown during submission.
-    for (unsigned variant = 0; variant < 6; variant++) {
+    // Exercise live buffer generations, including source teardown during
+    // submission. Sliding now uses this ordinary surface ownership path.
+    for (unsigned variant = 0; variant < 3; variant++) {
         unsigned mode = variant % 3;
         for (unsigned fault = 0; fault < 5; fault++) {
             reset_faults();
             m = wlr_drm_syncobj_merger_create(&dst, 1);
             sampled_state.release_merger = m;
-            if (variant >= 3) sampled_snapshot = m;
             // Preserve an earlier frame or a second output's in-flight fence.
             expected_dependencies = 1u << 2;
             assert(wlr_drm_syncobj_merger_add(m, &src[1], 1, loop));

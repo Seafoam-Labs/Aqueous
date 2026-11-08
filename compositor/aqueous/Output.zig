@@ -813,7 +813,7 @@ fn bufferEffectClip(output: *const Output, buffer: *wlr.SceneBuffer, clip: fx.Bu
 fn nodeEffectBox(node: *wlr.SceneNode, area: fx.BufferClip, state: *const State) ?wlr.Box {
     var x: f64 = 0;
     var y: f64 = 0;
-    if (!c.wlr_scene_node_coords_f64(@ptrCast(node), &x, &y)) return null;
+    if (!c.wlr_scene_node_presentation_coords(@ptrCast(node), &x, &y)) return null;
     x += area.x - @as(f64, @floatFromInt(state.x));
     y += area.y - @as(f64, @floatFromInt(state.y));
     const left: i32 = @intFromFloat(@round(x * state.scale));
@@ -1142,10 +1142,7 @@ fn blurOwnerHandle(owner: BlurOwner) ?EffectMetadata.WindowBlurHandle {
 fn blurOwnerTree(owner: BlurOwner) *wlr.SceneTree {
     return switch (owner) {
         .native => |attachment| attachment.tree.?,
-        .window => |window| if (window.anim_snapshot)
-            window.anim_tree
-        else
-            window.tree,
+        .window => |window| window.tree,
         .layer_surface => |surface| surface.scene_layer_surface.tree,
         .popup => |popup| popup.tree,
     };
@@ -1154,17 +1151,12 @@ fn blurOwnerTree(owner: BlurOwner) *wlr.SceneTree {
 fn blurOwnerMarker(owner: BlurOwner) *wlr.SceneRect {
     return switch (owner) {
         .native => |attachment| attachment.marker.?,
-        .window => |window| if (window.anim_snapshot)
-            window.anim_blur_marker
-        else
-            window.blur_marker,
+        .window => |window| window.blur_marker,
         .layer_surface => |surface| surface.blur_marker,
         .popup => |popup| popup.blur_marker,
     };
 }
 
-/// Animation snapshots are deliberately input-inert and therefore carry no
-/// SceneNodeData. Fall back to the window registry only for those snapshots.
 fn blurOwnerForNode(node: *wlr.SceneNode) ?BlurOwner {
     if (server.background_effect_manager.forNode(node)) |attachment| {
         const owner: BlurOwner = .{ .native = attachment };
@@ -1195,14 +1187,6 @@ fn blurOwnerForNode(node: *wlr.SceneNode) ?BlurOwner {
         popup_distance = distance;
     }
     if (popup_match) |owner| return owner;
-    var windows = server.wm.windows.iterator();
-    while (windows.next()) |window| {
-        if (windowBlurData(window) != null and
-            nodeInTree(node, windowBlurTree(window)))
-        {
-            return .{ .window = window };
-        }
-    }
     return null;
 }
 
@@ -1258,20 +1242,19 @@ fn blurOwnerEffect(
     blur: EffectMetadata.WindowBlurData,
     state: *const State,
 ) ?BlurPipeline.Effect {
-    var global_x: i32 = 0;
-    var global_y: i32 = 0;
-    if (!blurOwnerTree(owner).node.coords(&global_x, &global_y)) return null;
-
-    const logical_x = global_x + blur.box.x - state.x;
-    const logical_y = global_y + blur.box.y - state.y;
+    var visual_x: f64 = 0;
+    var visual_y: f64 = 0;
+    if (!c.wlr_scene_node_presentation_coords(@ptrCast(&blurOwnerTree(owner).node), &visual_x, &visual_y)) return null;
+    const logical_x = visual_x + @as(f64, @floatFromInt(blur.box.x - state.x));
+    const logical_y = visual_y + @as(f64, @floatFromInt(blur.box.y - state.y));
     const left = scaleBoundary(logical_x, state.scale);
     const top = scaleBoundary(logical_y, state.scale);
     const right = scaleBoundary(
-        logical_x + blur.box.width,
+        logical_x + @as(f64, @floatFromInt(blur.box.width)),
         state.scale,
     );
     const bottom = scaleBoundary(
-        logical_y + blur.box.height,
+        logical_y + @as(f64, @floatFromInt(blur.box.height)),
         state.scale,
     );
     var box: wlr.Box = .{
@@ -1524,27 +1507,27 @@ fn transformedInnerBox(
     area: wlr.Box,
     state: *const State,
 ) ?wlr.Box {
-    var global_x: i32 = 0;
-    var global_y: i32 = 0;
-    if (!rect.node.coords(&global_x, &global_y)) return null;
+    var global_x: f64 = 0;
+    var global_y: f64 = 0;
+    if (!c.wlr_scene_node_presentation_coords(@ptrCast(&rect.node), &global_x, &global_y)) return null;
 
-    const logical_x = global_x - state.x;
-    const logical_y = global_y - state.y;
+    const logical_x = global_x - @as(f64, @floatFromInt(state.x));
+    const logical_y = global_y - @as(f64, @floatFromInt(state.y));
     const outer_left = scaleBoundary(logical_x, state.scale);
     const outer_top = scaleBoundary(logical_y, state.scale);
-    const outer_right = scaleBoundary(logical_x + rect.width, state.scale);
-    const outer_bottom = scaleBoundary(logical_y + rect.height, state.scale);
+    const outer_right = scaleBoundary(logical_x + @as(f64, @floatFromInt(rect.width)), state.scale);
+    const outer_bottom = scaleBoundary(logical_y + @as(f64, @floatFromInt(rect.height)), state.scale);
     const outer_width = outer_right - outer_left;
     const outer_height = outer_bottom - outer_top;
     if (outer_width <= 0 or outer_height <= 0) return null;
 
     var inner: wlr.Box = .{
-        .x = scaleBoundary(logical_x + area.x, state.scale) - outer_left,
-        .y = scaleBoundary(logical_y + area.y, state.scale) - outer_top,
-        .width = scaleBoundary(logical_x + area.x + area.width, state.scale) -
-            scaleBoundary(logical_x + area.x, state.scale),
-        .height = scaleBoundary(logical_y + area.y + area.height, state.scale) -
-            scaleBoundary(logical_y + area.y, state.scale),
+        .x = scaleBoundary(logical_x + @as(f64, @floatFromInt(area.x)), state.scale) - outer_left,
+        .y = scaleBoundary(logical_y + @as(f64, @floatFromInt(area.y)), state.scale) - outer_top,
+        .width = scaleBoundary(logical_x + @as(f64, @floatFromInt(area.x + area.width)), state.scale) -
+            scaleBoundary(logical_x + @as(f64, @floatFromInt(area.x)), state.scale),
+        .height = scaleBoundary(logical_y + @as(f64, @floatFromInt(area.y + area.height)), state.scale) -
+            scaleBoundary(logical_y + @as(f64, @floatFromInt(area.y)), state.scale),
     };
     inner.transform(
         &inner,
@@ -1555,8 +1538,8 @@ fn transformedInnerBox(
     return inner;
 }
 
-fn scaleBoundary(value: i32, scale: f32) i32 {
-    return @intFromFloat(@round(@as(f32, @floatFromInt(value)) * scale));
+fn scaleBoundary(value: f64, scale: f32) i32 {
+    return @intFromFloat(@round(value * scale));
 }
 
 fn invertTransform(transform: wl.Output.Transform) wl.Output.Transform {
@@ -1629,7 +1612,7 @@ pub fn activateWorkspace(output: *Output, workspace: *Workspace) void {
                 output.prev_workspace = p;
                 output.transition_dir = output.slideDirection(p, workspace);
                 output.transition_armed = false;
-                // The incoming windows must seed their clones off-screen on the
+                // The incoming windows must seed their presentation off-screen on the
                 // first transition frame; clear any stale seed flags so they do.
                 var it = p.windows.iterator(.forward);
                 while (it.next()) |w| w.slide_seeded = false;
@@ -1669,15 +1652,13 @@ fn slideDirection(output: *Output, prev: *Workspace, next: *Workspace) i32 {
 fn hideInactiveWorkspaceWindows(workspace: *Workspace) void {
     var it = workspace.windows.iterator(.forward);
     while (it.next()) |window| {
-        window.cancelSlide();
         window.tree.node.setEnabled(false);
         window.popup_tree.node.setEnabled(false);
+        window.cancelSlide();
     }
 }
 
-/// Abort any in-flight workspace-swap slide, tearing down the participating
-/// windows' clones so they cannot outlive their workspace (e.g., when an output
-/// is disconnected, migrated, or cleared mid-transition).
+/// Abort workspace motion when an output is disconnected, migrated or cleared.
 pub fn cancelTransition(output: *Output) void {
     if (comptime !fx.anim_enabled) return;
     if (output.prev_workspace) |prev| hideInactiveWorkspaceWindows(prev);
@@ -1690,7 +1671,7 @@ pub fn cancelTransition(output: *Output) void {
     output.transition_armed = false;
 }
 
-/// Settle cosmetic window/workspace animation overlays before the overview
+/// Settle window/workspace presentation offsets before the overview
 /// clones live content. Authoritative geometry, layout, and focus are untouched.
 pub fn prepareOverview(output: *Output) void {
     output.cancelTransition();
@@ -1715,9 +1696,7 @@ fn finalizeTransition(output: *Output) void {
     // here would cancel the transition before it visibly begins.
     if (!output.transition_armed) return;
     if (output.hasActiveAnimations()) return;
-    // Hide the outgoing trees while `prev_workspace` still keeps them
-    // transparent. Clearing the field first restores their opacity before the
-    // next renderFinish disables them, flashing them on the neighbor.
+    // Hide outgoing trees before clearing their fixed output clip.
     hideInactiveWorkspaceWindows(prev);
     output.prev_workspace = null;
     output.transition_dir = 0;
@@ -1739,7 +1718,7 @@ pub fn reapEmpty(output: *Output) void {
     while (it.next()) |workspace| {
         if (workspace.pinned) continue;
         if (workspace == output.active_workspace) continue;
-        // Never reap a workspace that is still sliding out: its windows' clones
+        // Never reap a workspace that is still sliding out: its windows
         // are mid-transition and `Workspace.destroy` asserts the workspace is
         // inactive and empty. The finalize block clears `prev_workspace` and
         // calls `reapEmpty` again once the slide completes.
@@ -2417,7 +2396,6 @@ fn stepAnimations(output: *Output) bool {
     while (it.next()) |window| {
         const ws = window.workspace orelse continue;
         if (ws.output != output) continue;
-        if (window.refreshAnimationContent()) changed = true;
         if (dt_s > 0 and window.stepAnimation(dt_s)) changed = true;
     }
     if (dt_s > 0 and server.overview.step(output, dt_s)) changed = true;

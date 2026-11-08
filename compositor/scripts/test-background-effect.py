@@ -87,7 +87,7 @@ def run(fixture, uncached=False):
     env.update(XDG_RUNTIME_DIR=str(runtime), XDG_CONFIG_HOME=str(case / 'config'), HOME=str(case),
                XDG_STATE_HOME=str(case / 'state'), XDG_CACHE_HOME=str(case / 'cache'),
                WLR_BACKENDS='headless', WLR_HEADLESS_OUTPUTS='1', WLR_RENDERER='pixman' if os.environ.get('AQUEOUS_TEST_NO_EFFECTS') == '1' else 'vulkan',
-               AQUEOUS_CONFIG=str(config), AQUEOUS_RULES=str(rules))
+               AQUEOUS_CONFIG=str(config), AQUEOUS_RULES=str(rules), AQUEOUS_DEBUG_WINDOW_STATE='1')
     for key in ('WAYLAND_DISPLAY', 'DISPLAY', 'LD_PRELOAD', 'DBUS_SESSION_BUS_ADDRESS'):
         env.pop(key, None)
     if uncached:
@@ -218,7 +218,7 @@ def run(fixture, uncached=False):
             clients.append(role_client)
             def role_settled():
                 scene = subprocess.check_output([str(CTL), 'scene'], env=env, text=True)
-                return all(' disabled' in line for line in scene.splitlines() if 'window animation snapshot [tree]' in line)
+                return 'anim=true' not in scene
             wait_for(role_settled)
             dx = dy = 0
             if mode in ('toplevel', 'geometry', 'app-popup'):
@@ -277,8 +277,7 @@ def scene(env):
 
 
 def settled(env):
-    return all(' disabled' in line for line in scene(env).splitlines()
-               if 'window animation snapshot [tree]' in line)
+    return 'anim=true' not in scene(env)
 
 
 def wait_settled(env):
@@ -288,8 +287,7 @@ def wait_settled(env):
     def stable():
         nonlocal previous, since
         text = scene(env)
-        if text != previous or any('window animation snapshot [tree]' in line and ' disabled' not in line
-                                   for line in text.splitlines()):
+        if text != previous or 'anim=true' in text:
             previous, since = text, time.monotonic()
         return time.monotonic() - since > .15
 
@@ -389,7 +387,7 @@ def test_ownership(fixture, env, case, capture, difference, clients):
         client.send('commit')
         state('recreate-committed', True, False, fallback)
         if mode == 'toplevel':
-            test_snapshot_ownership(client, env, case, rules, window_rule, layer_rule)
+            test_sliding_ownership(client, env, case, rules, window_rule, layer_rule)
         client.close()
 
     early = Client(fixture, env, 'toplevel', 'early')
@@ -403,8 +401,8 @@ def test_ownership(fixture, env, case, capture, difference, clients):
     print('PASS blur ownership: unused objects, explicit regions, empty/null, destroy/recreate and first map', flush=True)
 
 
-def test_snapshot_ownership(client, env, case, rules, window_rule, layer_rule):
-    # Moving a floating window through a rule produces a frozen moving snapshot.
+def test_sliding_ownership(client, env, case, rules, window_rule, layer_rule):
+    # Original surfaces and blur ownership stay live throughout a rule-driven slide.
     # Repeat after explicit requests and committed destruction;
     # the latter leaves a live attachment allocated but no longer authoritative.
     for request in ('empty', 'hole', 'destroyed'):
@@ -417,8 +415,7 @@ def test_snapshot_ownership(client, env, case, rules, window_rule, layer_rule):
 
         def moving():
             text = scene(env)
-            active = any('window animation snapshot [tree]' in line and ' disabled' not in line
-                         for line in text.splitlines())
+            active = 'anim=true' in text
             if active:
                 observed.append(text)
             return active
@@ -426,10 +423,9 @@ def test_snapshot_ownership(client, env, case, rules, window_rule, layer_rule):
         wait_for(moving)
         text = observed[-1]
         (case / f'ownership-animation-{request}.txt').write_text(text)
-        assert marker_enabled(text, 'animation backdrop blur marker') == (not owned), text
+        assert marker_enabled(text, 'backdrop blur marker') == (not owned), text
         assert marker_enabled(text, 'native background blur marker') == (request == 'hole'), text
-        # Change live ownership while the old pixels are still moving. The
-        # snapshot keeps its captured policy until it hands back to live content.
+        # A commit updates ownership on the same moving tree immediately.
         if owned:
             client.send('destroy')
         else:
@@ -437,19 +433,20 @@ def test_snapshot_ownership(client, env, case, rules, window_rule, layer_rule):
         client.send('commit')
         text = scene(env)
         (case / f'ownership-animation-{request}-live-change.txt').write_text(text)
-        assert any('window animation snapshot [tree]' in line and ' disabled' not in line
-                   for line in text.splitlines()), 'live ownership change missed the animation'
-        assert marker_enabled(text, 'animation backdrop blur marker') == (not owned), text
-        assert marker_enabled(text, 'native background blur marker') == (request == 'hole'), text
+        assert 'anim=true' in text, 'live ownership change missed the animation'
+        assert marker_enabled(text, 'backdrop blur marker') == owned, text
+        assert not marker_enabled(text, 'native background blur marker'), text
         wait_settled(env)
         assert marker_enabled(scene(env), 'backdrop blur marker') == owned
         rules.write_text(window_rule + layer_rule)
-        time.sleep(.3)
+        # Wait for the reset transaction, not just a quiet interval before the
+        # file watcher has applied it; otherwise the next move can be a no-op.
+        wait_for(lambda: window_geometry(env, 'aqueous.blur.client')['x'] == 32)
         wait_settled(env)
         if not owned:
             client.send('destroy')
         client.send('create'); client.send('commit')
-    print('PASS frozen blur ownership: empty, nonempty, destruction and live changes during animation', flush=True)
+    print('PASS live sliding blur ownership: empty, nonempty, destruction and live changes during animation', flush=True)
 
 
 def test_gtk(fixture, env, case, capture, difference, clients):

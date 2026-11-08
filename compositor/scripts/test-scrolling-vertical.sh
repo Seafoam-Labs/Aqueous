@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export AQUEOUS_DEBUG_WINDOW_STATE=1
+# Keep host configuration overrides out of the isolated test compositor.
+unset AQUEOUS_LAYOUT AQUEOUS_INPUT AQUEOUS_OUTPUTS AQUEOUS_RULES
 
 # Render-level regression for automatic portrait placement of full-height
 # members inside one scrolling column used as a game-mode fallback. The manual
@@ -20,11 +23,11 @@ TEST_MOD=${AQUEOUS_TEST_MOD:-Super}
 die() { echo "FAIL: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-wait_for_animation_snapshots() {
+wait_for_presentations() {
     local scene active
     for _ in $(seq 1 40); do
         scene=$("$AQUEOUSCTL_BIN" scene 2>/dev/null || true)
-        active=$(grep -F 'window animation snapshot [tree]' <<<"$scene" |
+        active=$(grep -F 'anim=true' <<<"$scene" |
             grep -vc ' disabled' || true)
         # Both members must move as one continuous strip: the newly visible
         # member enters while the previously visible member leaves.
@@ -83,6 +86,9 @@ XDG_RUNTIME_DIR="$RUNTIME" \
 XDG_CONFIG_HOME="$RUNTIME/config" \
 HOME="$RUNTIME/home" \
 AQUEOUS_CONFIG="$WM_CONFIG" \
+AQUEOUS_LAYOUT="$TEST_ROOT/layout.toml" \
+AQUEOUS_INPUT="$TEST_ROOT/input.toml" \
+AQUEOUS_OUTPUTS="$TEST_ROOT/outputs.toml" \
 AQUEOUS_RULES="$RULES_CONFIG" \
 AQUEOUS_MOD="$TEST_MOD" \
     "$AQUEOUS_COMPOSITOR_BIN" -no-xwayland -policy internal -log-level info -c true \
@@ -172,7 +178,7 @@ awk '{ exit !($1 > 0.9 && $2 < 0.1) }' <<<"$top_pixel" || die "upper red member 
 # Pan to blue. Explicit keyboard viewport movement must transfer keyboard focus
 # to the member promoted into the primary viewport.
 wlrctl keyboard type v modifiers "$INPUT_MOD"
-wait_for_animation_snapshots
+wait_for_presentations
 for _ in $(seq 1 120); do
     windows_json=$("$AQUEOUSCTL_BIN" windows --json 2>/dev/null || echo '[]')
     red_y=$(jq -r '.[] | select(.app_id == "aq-scroll-red") | .geometry.y' <<<"$windows_json")

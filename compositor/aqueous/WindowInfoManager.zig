@@ -11,6 +11,7 @@ const build_options = @import("build_options");
 const wl = @import("wayland").server.wl;
 const aqueous = @import("wayland").server.aqueous;
 const wlr = @import("wlroots");
+const c = @import("c");
 
 const server = &@import("main.zig").server;
 const SceneNodeData = @import("SceneNodeData.zig");
@@ -335,14 +336,6 @@ fn sceneNodeLabel(node: *wlr.SceneNode, buffer: *[512]u8) [:0]const u8 {
         },
     };
 
-    // Animation snapshots deliberately have no SceneNodeData so they remain
-    // input-inert after being reparented into the normal window layer. Match
-    // their persistent compositor-owned nodes by identity for diagnostics.
-    var windows = server.wm.windows.iterator();
-    while (windows.next()) |window| {
-        if (animationNodeLabel(window, node)) |label| return label;
-    }
-
     var popups = server.layer_shell.popups.iterator();
     while (popups.next()) |popup| {
         if (popup.layer_owner == null or !popup.ownsNode(node)) continue;
@@ -362,35 +355,6 @@ fn sceneNodeLabel(node: *wlr.SceneNode, buffer: *[512]u8) [:0]const u8 {
     };
 }
 
-fn animationNodeLabel(
-    window: *Window,
-    node: *wlr.SceneNode,
-) ?[:0]const u8 {
-    if (node == &window.anim_tree.node) return "window animation snapshot";
-    if (node == &window.anim_fullscreen_background.node) return "animation fullscreen background";
-    if (node == &window.anim_blur_marker.node) {
-        return "animation backdrop blur marker";
-    }
-    if (node == &window.anim_surfaces_tree.node) return "animation surfaces";
-    if (node == &window.anim_border_tree.node) return "animation border";
-    if (node == &window.anim_border.rounded_outline.node) {
-        return "animation border: rounded outline";
-    }
-    if (node == &window.anim_border.left.node) {
-        return "animation border: left";
-    }
-    if (node == &window.anim_border.right.node) {
-        return "animation border: right";
-    }
-    if (node == &window.anim_border.top.node) {
-        return "animation border: top";
-    }
-    if (node == &window.anim_border.bottom.node) {
-        return "animation border: bottom";
-    }
-    return null;
-}
-
 fn windowNodeLabel(window: *Window, node: *wlr.SceneNode, buffer: *[512]u8) [:0]const u8 {
     if (node == &window.tree.node) {
         // Backend teardown may precede destruction of the scene node by a
@@ -399,13 +363,17 @@ fn windowNodeLabel(window: *Window, node: *wlr.SceneNode, buffer: *[512]u8) [:0]
         const title = if (window.getTitle()) |title| std.mem.span(title) else "untitled";
         if (windowStateDiagnostics()) {
             const requested = window.rendering_requested;
-            return std.mem.printSentinel(buffer, "window: {s} {{state={s} hidden={} overview={} anim={} snapshot={} pos={d:.1},{d:.1} target={d:.1},{d:.1} clip={d},{d},{d},{d} configure={s}}}", .{ title[0..@min(title.len, 80)], @tagName(window.state), requested.hidden, window.overview_hidden, window.anim_active, window.anim_snapshot, window.anim_x, window.anim_y, window.anim_target_x, window.anim_target_y, requested.clip.x, requested.clip.y, requested.clip.width, requested.clip.height, if (window.impl == .toplevel) @tagName(window.impl.toplevel.configure_state) else "x11" }, 0) catch "window diagnostics overflow";
+            var px: f64 = 0;
+            var py: f64 = 0;
+            var lx: f64 = 0;
+            var ly: f64 = 0;
+            _ = c.wlr_scene_node_presentation_coords(@ptrCast(node), &px, &py);
+            _ = c.wlr_scene_node_coords_f64(@ptrCast(node), &lx, &ly);
+            return std.mem.printSentinel(buffer, "window: {s} {{state={s} hidden={} overview={} anim={} presentation={d:.2},{d:.2} pos={d:.1},{d:.1} target={d:.1},{d:.1} clip={d},{d},{d},{d} configure={s}}}", .{ title[0..@min(title.len, 80)], @tagName(window.state), requested.hidden, window.overview_hidden, window.anim_active, px - lx, py - ly, window.anim_x, window.anim_y, window.anim_target_x, window.anim_target_y, requested.clip.x, requested.clip.y, requested.clip.width, requested.clip.height, if (window.impl == .toplevel) @tagName(window.impl.toplevel.configure_state) else "x11" }, 0) catch "window diagnostics overflow";
         }
         return std.mem.printSentinel(buffer, "window: {s}", .{title}, 0) catch "window";
     }
     if (node == &window.popup_tree.node) return "window popups";
-    if (node == &window.anim_tree.node) return "window animation snapshot";
-    if (node == &window.anim_blur_marker.node) return "animation backdrop blur marker";
     if (node == &window.fullscreen_background.node) return "fullscreen background";
     if (node == &window.blur_marker.node) return "backdrop blur marker";
     if (node == &window.decorations_below_tree.node) return "decorations below";

@@ -38,7 +38,6 @@ const HiddenWindow = struct {
     ref: Window.Ref,
     tree_enabled: bool,
     popup_enabled: bool,
-    animation_enabled: bool,
     overview_hidden: bool,
 };
 
@@ -400,13 +399,11 @@ fn hideOutputScene(overview: *Overview, output: *Output) !void {
                 .ref = window.ref,
                 .tree_enabled = window.tree.node.enabled,
                 .popup_enabled = window.popup_tree.node.enabled,
-                .animation_enabled = window.anim_tree.node.enabled,
                 .overview_hidden = window.overview_hidden,
             });
             window.overview_hidden = true;
             window.tree.node.setEnabled(false);
             window.popup_tree.node.setEnabled(false);
-            window.anim_tree.node.setEnabled(false);
         }
     }
 
@@ -437,7 +434,6 @@ fn restoreOutputScene(overview: *Overview) void {
         const workspace_active = if (window.workspace) |ws| ws.isActive() else false;
         window.tree.node.setEnabled(hidden.tree_enabled and workspace_active);
         window.popup_tree.node.setEnabled(hidden.popup_enabled and workspace_active);
-        window.anim_tree.node.setEnabled(hidden.animation_enabled and workspace_active);
     }
     overview.hidden_windows.clearRetainingCapacity();
 

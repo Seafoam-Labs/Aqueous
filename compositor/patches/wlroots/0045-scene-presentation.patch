@@ -1,0 +1,338 @@
+--- a/include/wlr/types/wlr_scene.h
++++ b/include/wlr/types/wlr_scene.h
+@@ -363,6 +363,18 @@
+  * implicitly disabled as well.
+  */
+ void wlr_scene_node_set_enabled(struct wlr_scene_node *node, bool enabled);
++/** Aqueous presentation translation and global clips. Logical node coordinates
++ * and picking remain unchanged. NULL clips are unbounded; empty clips hide.
++ * Input eligibility is independent of presentation, but disabled ancestors
++ * always suppress both. State is owned by the node and allocated only once.
++ * Returns false on allocation failure, leaving the node unchanged.
++ */
++bool wlr_scene_node_set_presentation(struct wlr_scene_node *node,
++	double dx, double dy, const struct wlr_box *clip,
++	bool input_enabled, const struct wlr_box *input_clip);
++bool wlr_scene_node_presentation_coords(struct wlr_scene_node *node,
++	double *x, double *y);
++
+ /**
+  * Set the position of the node relative to its parent.
+  */
+--- a/include/wlr/render/vulkan.h
++++ b/include/wlr/render/vulkan.h
+@@ -19,7 +19,7 @@
+ struct wlr_allocator *wlr_vk_copy_allocator_create(struct wlr_allocator *destination);
+ const struct wlr_drm_format_set *wlr_vk_renderer_get_copy_formats(struct wlr_renderer *renderer);
+ 
+-#define WLR_AQUEOUS_RENDER_HOOK_VERSION 11
++#define WLR_AQUEOUS_RENDER_HOOK_VERSION 12
+ 
+ #define WLR_AQUEOUS_VULKAN_SELECTION_VERSION 1
+ struct wlr_backend;
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -111,6 +111,69 @@
+ 	*y = position != NULL ? position->y : node->y;
+ }
+ 
++// Presentation belongs to the node, never to a duplicate surface generation.
++struct scene_node_presentation {
++	struct wlr_addon addon;
++	double dx, dy;
++	bool input_enabled, clipped, input_clipped;
++	struct wlr_box clip, input_clip;
++};
++
++static void presentation_destroy(struct wlr_addon *addon) {
++	struct scene_node_presentation *state = wl_container_of(addon, state, addon);
++	wlr_addon_finish(addon);
++	free(state);
++}
++
++static const struct wlr_addon_interface presentation_impl = {
++	.name = "aqueous-presentation", .destroy = presentation_destroy,
++};
++
++static struct scene_node_presentation *presentation(struct wlr_scene_node *node) {
++	struct wlr_addon *addon = wlr_addon_find(&node->addons, NULL, &presentation_impl);
++	return addon ? wl_container_of(addon, (struct scene_node_presentation *)NULL, addon) : NULL;
++}
++
++bool wlr_scene_node_presentation_coords(struct wlr_scene_node *node, double *x, double *y) {
++	*x = *y = 0;
++	bool enabled = true;
++	for (; node; node = node->parent ? &node->parent->node : NULL) {
++		double nx, ny;
++		scene_node_local_position(node, &nx, &ny);
++		struct scene_node_presentation *state = presentation(node);
++		*x += nx + (state ? state->dx : 0);
++		*y += ny + (state ? state->dy : 0);
++		enabled &= node->enabled;
++	}
++	return enabled;
++}
++
++static bool presentation_coords(struct wlr_scene_node *node, int *x, int *y) {
++	double px, py;
++	bool enabled = wlr_scene_node_presentation_coords(node, &px, &py);
++	*x = round(px); *y = round(py);
++	return enabled;
++}
++
++static void presentation_clip(struct wlr_scene_node *node, pixman_region32_t *region) {
++	for (; node; node = node->parent ? &node->parent->node : NULL) {
++		struct scene_node_presentation *state = presentation(node);
++		if (state && state->clipped) {
++			const struct wlr_box *clip = &state->clip;
++			pixman_region32_intersect_rect(region, region,
++				clip->x, clip->y, clip->width, clip->height);
++		}
++	}
++}
++
++static bool presentation_requires_composition(struct wlr_scene_node *node) {
++	for (; node; node = node->parent ? &node->parent->node : NULL) {
++		struct scene_node_presentation *state = presentation(node);
++		if (state && (state->dx != 0 || state->dy != 0 || state->clipped)) return true;
++	}
++	return false;
++}
++
+ static void scene_node_init(struct wlr_scene_node *node,
+ 		enum wlr_scene_node_type type, struct wlr_scene_tree *parent) {
+ 	*node = (struct wlr_scene_node){
+@@ -264,17 +327,26 @@
+ 	int sx, int sy, void *data);
+ 
+ static bool _scene_nodes_in_box(struct wlr_scene_node *node, struct wlr_box *box,
+-		scene_node_box_iterator_func_t iterator, void *user_data, int lx, int ly) {
++		scene_node_box_iterator_func_t iterator, void *user_data, int lx, int ly, bool visual) {
+ 	if (!node->enabled) {
+ 		return false;
+ 	}
+ 
++	struct scene_node_presentation *state = presentation(node);
++	if (!visual && state) {
++		if (!state->input_enabled) return false;
++		if (state->input_clipped) {
++			struct wlr_box intersection;
++			if (!wlr_box_intersection(&intersection, box, &state->input_clip)) return false;
++		}
++	}
++	if (visual) presentation_coords(node, &lx, &ly);
+ 	switch (node->type) {
+ 	case WLR_SCENE_NODE_TREE:;
+ 		struct wlr_scene_tree *scene_tree = wlr_scene_tree_from_node(node);
+ 		struct wlr_scene_node *child;
+ 		wl_list_for_each_reverse(child, &scene_tree->children, link) {
+-			if (_scene_nodes_in_box(child, box, iterator, user_data, lx + child->x, ly + child->y)) {
++			if (_scene_nodes_in_box(child, box, iterator, user_data, lx + child->x, ly + child->y, visual)) {
+ 				return true;
+ 			}
+ 		}
+@@ -297,9 +369,9 @@
+ static bool scene_nodes_in_box(struct wlr_scene_node *node, struct wlr_box *box,
+ 		scene_node_box_iterator_func_t iterator, void *user_data) {
+ 	int x, y;
+-	wlr_scene_node_coords(node, &x, &y);
+-
+-	return _scene_nodes_in_box(node, box, iterator, user_data, x, y);
++	presentation_coords(node, &x, &y);
++
++	return _scene_nodes_in_box(node, box, iterator, user_data, x, y, true);
+ }
+ 
+ static void scene_node_opaque_region(struct wlr_scene_node *node, int x, int y,
+@@ -661,11 +733,13 @@
+ 	pixman_region32_union(&node->visible, &node->visible, data->visible);
+ 	pixman_region32_intersect_rect(&node->visible, &node->visible,
+ 		lx, ly, box.width, box.height);
++	presentation_clip(node, &node->visible);
+ 
+ 	if (data->calculate_visibility) {
+ 		pixman_region32_t opaque;
+ 		pixman_region32_init(&opaque);
+ 		scene_node_opaque_region(node, lx, ly, &opaque);
++		presentation_clip(node, &opaque);
+ 		pixman_region32_subtract(data->visible, data->visible, &opaque);
+ 		pixman_region32_fini(&opaque);
+ 	}
+@@ -715,6 +789,9 @@
+ 
+ 	int width, height;
+ 	scene_node_get_size(node, &width, &height);
++	presentation_coords(node, &x, &y);
++	// Include unclipped new bounds: even a move entirely outside the aperture
++	// must visit this node to clear its previous visibility/output membership.
+ 	pixman_region32_union_rect(visible, visible, x, y, width, height);
+ }
+ 
+@@ -795,7 +872,7 @@
+ 	struct wlr_scene *scene = scene_node_get_root(node);
+ 
+ 	int x, y;
+-	if (!wlr_scene_node_coords(node, &x, &y)) {
++	if (!presentation_coords(node, &x, &y)) {
+ 		// We assume explicit damage on a disabled tree means the node was just
+ 		// disabled.
+ 		if (damage) {
+@@ -827,6 +904,34 @@
+ 	scene_node_visibility(node, damage);
+ 	scene_damage_outputs(scene, damage, node);
+ 	pixman_region32_fini(damage);
++}
++
++bool wlr_scene_node_set_presentation(struct wlr_scene_node *node,
++		double dx, double dy, const struct wlr_box *clip,
++		bool input_enabled, const struct wlr_box *input_clip) {
++	assert(isfinite(dx) && isfinite(dy));
++	assert(!clip || (clip->width >= 0 && clip->height >= 0));
++	assert(!input_clip || (input_clip->width >= 0 && input_clip->height >= 0));
++	struct scene_node_presentation *state = presentation(node);
++	if (!state) {
++		state = calloc(1, sizeof(*state));
++		if (!state) return false;
++		state->input_enabled = true;
++		wlr_addon_init(&state->addon, &node->addons, NULL, &presentation_impl);
++	}
++	bool visual_changed = state->dx != dx || state->dy != dy ||
++		state->clipped != (clip != NULL) || (clip && !wlr_box_equal(clip, &state->clip));
++	state->input_enabled = input_enabled;
++	state->input_clipped = input_clip != NULL;
++	if (input_clip) state->input_clip = *input_clip;
++	if (!visual_changed) return true;
++	// Existing visibility is in the OLD presentation space. Update computes
++	// the union with the new bounds, including newly exposed background.
++	state->dx = dx; state->dy = dy;
++	state->clipped = clip != NULL;
++	if (clip) state->clip = *clip;
++	scene_node_update(node, NULL);
++	return true;
+ }
+ 
+ struct wlr_scene_rect *wlr_scene_rect_create(struct wlr_scene_tree *parent,
+@@ -1051,7 +1156,7 @@
+ 	}
+ 
+ 	int lx, ly;
+-	if (!wlr_scene_node_coords(&scene_buffer->node, &lx, &ly)) {
++	if (!presentation_coords(&scene_buffer->node, &lx, &ly)) {
+ 		return;
+ 	}
+ 
+@@ -1163,7 +1268,7 @@
+ 	pixman_region32_copy(&scene_buffer->opaque_region, region);
+ 
+ 	int x, y;
+-	if (!wlr_scene_node_coords(&scene_buffer->node, &x, &y)) {
++	if (!presentation_coords(&scene_buffer->node, &x, &y)) {
+ 		return;
+ 	}
+ 
+@@ -1360,7 +1465,7 @@
+ 	int x, y;
+ 	pixman_region32_t visible;
+ 	pixman_region32_init(&visible);
+-	if (wlr_scene_node_coords(node, &x, &y)) {
++	if (presentation_coords(node, &x, &y)) {
+ 		scene_node_visibility(node, &visible);
+ 	}
+ 
+@@ -1478,7 +1583,7 @@
+ 	int x, y;
+ 	pixman_region32_t visible;
+ 	pixman_region32_init(&visible);
+-	if (wlr_scene_node_coords(node, &x, &y)) {
++	if (presentation_coords(node, &x, &y)) {
+ 		scene_node_visibility(node, &visible);
+ 	}
+ 
+@@ -1609,7 +1714,16 @@
+ 		.ly = ly
+ 	};
+ 
+-	if (scene_nodes_in_box(node, &box, scene_node_at_iterator, &data)) {
++	// Subtree picking must honor input gates on ancestors as well.
++	for (struct wlr_scene_node *ancestor = node; ancestor;
++			ancestor = ancestor->parent ? &ancestor->parent->node : NULL) {
++		struct scene_node_presentation *state = presentation(ancestor);
++		if (!ancestor->enabled || (state && (!state->input_enabled ||
++				(state->input_clipped && !wlr_box_contains_point(&state->input_clip, lx, ly))))) return NULL;
++	}
++	int x, y;
++	wlr_scene_node_coords(node, &x, &y);
++	if (_scene_nodes_in_box(node, &box, scene_node_at_iterator, &data, x, y, false)) {
+ 		if (nx) {
+ 			*nx = data.rx;
+ 		}
+@@ -1751,6 +1865,18 @@
+ 	pixman_region32_copy(&render_region, &node->visible);
+ 	pixman_region32_translate(&render_region, -data->logical.x, -data->logical.y);
+ 	logical_to_buffer_coords(&render_region, data, true);
++	// Damage expansion at fractional scale must not expand a fixed aperture.
++	for (struct wlr_scene_node *ancestor = node; ancestor;
++			ancestor = ancestor->parent ? &ancestor->parent->node : NULL) {
++		struct scene_node_presentation *state = presentation(ancestor);
++		if (!state || !state->clipped) continue;
++		struct wlr_box clip;
++		transform_output_fbox(&clip, state->clip.x - data->logical.x,
++			state->clip.y - data->logical.y, state->clip.width, state->clip.height, data);
++		pixman_region32_intersect_rect(&render_region, &render_region,
++			clip.x, clip.y, clip.width, clip.height);
++	}
++
+ 	pixman_region32_intersect(&render_region, &render_region, &data->damage);
+ 	if (pixman_region32_empty(&render_region)) {
+ 		pixman_region32_fini(&render_region);
+@@ -2438,7 +2564,7 @@
+ 		.node = node,
+ 		.highlight_transparent_region = data->highlight_transparent_region,
+ 	};
+-	wlr_scene_node_coords_f64(node, &entry->x, &entry->y);
++	wlr_scene_node_presentation_coords(node, &entry->x, &entry->y);
+ 
+ 	return false;
+ }
+@@ -2607,6 +2733,7 @@
+ 	struct wlr_scene_output *scene_output = data->output;
+ 	struct wlr_scene_node *node = entry->node;
+ 
++	if (presentation_requires_composition(entry->node)) return SCANOUT_INELIGIBLE;
+ 	if (!scene_output->scene->direct_scanout) {
+ 		return SCANOUT_INELIGIBLE;
+ 	}
+@@ -2753,6 +2880,8 @@
+ 		struct render_list_entry *list_data, int list_len,
+ 		struct wlr_scene_output_layer_candidate *candidate,
+ 		struct wlr_output_state *state, const struct render_data *data) {
++	if (presentation_requires_composition(candidate_entry->node)) return false;
++
+ 	struct wlr_scene_output *scene_output = data->output;
+ 	struct wlr_scene_node *node = candidate_entry->node;
+ 
+@@ -3688,15 +3817,20 @@
+ 		return;
+ 	}
+ 
+-	lx += node->x;
+-	ly += node->y;
++	presentation_coords(node, &lx, &ly);
+ 
+ 	if (node->type == WLR_SCENE_NODE_BUFFER) {
+ 		struct wlr_box node_box = { .x = lx, .y = ly };
+ 		scene_node_get_size(node, &node_box.width, &node_box.height);
+ 
+-		struct wlr_box intersection;
+-		if (wlr_box_intersection(&intersection, output_box, &node_box)) {
++		pixman_region32_t visible;
++		pixman_region32_init_rect(&visible, node_box.x, node_box.y, node_box.width, node_box.height);
++		presentation_clip(node, &visible);
++		pixman_region32_intersect_rect(&visible, &visible,
++			output_box->x, output_box->y, output_box->width, output_box->height);
++		bool intersects = !pixman_region32_empty(&visible);
++		pixman_region32_fini(&visible);
++		if (intersects) {
+ 			struct wlr_scene_buffer *scene_buffer =
+ 				wlr_scene_buffer_from_node(node);
+ 			user_iterator(scene_buffer, lx, ly, user_data);
