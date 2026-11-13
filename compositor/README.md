@@ -254,6 +254,11 @@ After building with
 [FIFO implementation and validation record](../docs/fifo-v1-implementation-plan.md)
 for queue semantics, syncobj remap tests, and remaining hardware qualification.
 
+The [`keep_render` window rule](../docs/rules.md) keeps a hidden window's frame
+callbacks alive at ~60 Hz from a global compositor timer. Hidden FIFO clients
+remain capped at 40 Hz by this pacing, so their effective rate is
+min(callback rate, FIFO rate).
+
 xdg-toplevel-drag-v1 is available in both builds under integrated policy,
 including for security-context clients. Movable windows follow pointer or touch
 DnD while underlying windows remain eligible drop targets. Tiled/fixed/fullscreen

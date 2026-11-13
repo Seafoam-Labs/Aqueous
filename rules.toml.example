@@ -64,8 +64,8 @@ gaps_inner = 8             # integer >= 0
 #   app_id, class, title
 #   content_type    none | photo | video | game; matches the wp_content_type_v1
 #                   state committed by the client. Rules with this matcher only
-#                   apply blur, opacity, hdr_expand, buffer_scale_policy, and
-#                   overlay_plane -
+#                   apply blur, opacity, hdr_expand, buffer_scale_policy,
+#                   overlay_plane, and keep_render -
 #                   layout and placement edits are ignored because the content
 #                   type commonly arrives long after map and must never move an
 #                   arranged window.
@@ -129,6 +129,14 @@ gaps_inner = 8             # integer >= 0
 #   overlay_plane   off | prefer; request zero-copy DRM overlay promotion when
 #                   [render].overlay_planes is enabled. Aqueous tests one
 #                   deterministic candidate per output and composes on rejection.
+#   keep_render     true/false; keep frame callbacks flowing while the window
+#                   is hidden (~60 Hz global timer) and never send the
+#                   suspended state. Managed scope only; rejected in
+#                   override_redirect rules. Callbacks only - the window stays
+#                   invisible. Kept clients render continuously, including
+#                   while locked or outputs are off, which costs GPU/battery;
+#                   scope the matcher narrowly. Hidden FIFO clients remain
+#                   capped at 40 Hz.
 #
 # Stateful rule properties have lifecycle ownership. A manual workspace/output
 # move, fullscreen toggle, or floating toggle overrides that property until a
@@ -200,6 +208,20 @@ gaps_inner = 8             # integer >= 0
 # opacity = 1.0
 # hdr_expand = true
 # overlay_plane = "prefer"
+
+# -----------------------------------------------------------------------------
+# Keep a game rendering while hidden
+# -----------------------------------------------------------------------------
+# keep_render keeps frame callbacks flowing at ~60 Hz while the window is
+# hidden and never sends the suspended state. The window stays invisible;
+# only the root surface receives callbacks. Hidden FIFO clients remain capped
+# at 40 Hz. WARNING: kept clients render continuously by design, including
+# while locked or with all outputs off - this costs GPU power and battery.
+# Scope the matcher narrowly (e.g. one specific Steam app id).
+#
+# [[window]]
+# app_id = "steam_app_*" # or class = "..." for Xwayland
+# keep_render = true
 
 # -----------------------------------------------------------------------------
 # Layer-shell blur examples

@@ -20,7 +20,7 @@ pub const rule_keys: []const []const u8 = &.{
     "floating",             "fullscreen",      "ignore_struts", "width",        "height",         "x",             "y",
     "placement_policy",     "anchor",          "size",          "scale",        "blur",           "opacity",       "buffer_scale_policy",
     "hdr_expand",           "overlay_plane",   "stack_layer",   "focus",        "fixed_position", "skip_switcher", "skip_taskbar",
-    "scrolling_full_width", "scrolling_width", "tag",           "scope",        "window_type",    "matching",
+    "scrolling_full_width", "scrolling_width", "tag",           "scope",        "window_type",    "matching",      "keep_render",
 };
 
 pub fn parseSnapTablePath(name: []const u8) ?SnapTablePath {
@@ -67,7 +67,7 @@ pub fn ruleKnown(key: []const u8) bool {
 }
 
 pub fn ruleBoolean(key: []const u8) bool {
-    inline for (.{ "floating", "fullscreen", "scrolling_full_width", "ignore_struts", "blur", "hdr_expand", "focus", "fixed_position", "skip_switcher", "skip_taskbar" }) |known| if (std.mem.eql(u8, key, known)) return true;
+    inline for (.{ "floating", "fullscreen", "scrolling_full_width", "ignore_struts", "blur", "hdr_expand", "focus", "fixed_position", "skip_switcher", "skip_taskbar", "keep_render" }) |known| if (std.mem.eql(u8, key, known)) return true;
     return false;
 }
 

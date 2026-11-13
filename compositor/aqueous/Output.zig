@@ -2351,7 +2351,9 @@ fn handleFrame(listener: *wl.Listener(*wlr.Output), wlr_output: *wlr.Output) voi
     if (server.overview.deck and server.overview.activeOn(output.policyId())) {
         for (server.overview.entries.items) |entry| {
             const ref: Window.Ref = @bitCast(entry.handle);
-            if (ref.get()) |window| if (window.state == .mapped) window.sendFrameDone();
+            // keep_render windows are paced by the global keep-render timer.
+            // Sending here too would drive them at refresh rate plus 60 Hz.
+            if (ref.get()) |window| if (window.state == .mapped and !window.keep_render) window.sendFrameDone();
         }
     }
 

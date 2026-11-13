@@ -105,10 +105,10 @@ pub const Rule = struct {
     tag: ?[]const u8 = null,
     /// Matches the wp_content_type_v1 state committed by the client. Rules
     /// with this matcher only apply visual/client-buffer effects (blur,
-    /// opacity, buffer_scale_policy, and hdr_expand); layout and placement
-    /// edits are deliberately dropped at resolve time because the content type
-    /// commonly arrives long after map and must never move an already-arranged
-    /// window.
+    /// opacity, buffer_scale_policy, hdr_expand, and keep_render); layout and
+    /// placement edits are deliberately dropped at resolve time because the
+    /// content type commonly arrives long after map and must never move an
+    /// already-arranged window.
     content_type: ?wp.ContentTypeV1.Type = null,
     /// Null preserves the workspace layout; game mode must be explicit.
     layout: ?Layout = null,
@@ -138,6 +138,11 @@ pub const Rule = struct {
     fixed_position: bool = false,
     skip_switcher: bool = false,
     skip_taskbar: bool = false,
+    /// Keep delivering frame callbacks while the window is hidden so
+    /// callback-driven clients (games) keep rendering in the background. This
+    /// is a client-buffer effect, not a visibility change: the scene nodes stay
+    /// disabled and the window is never composited.
+    keep_render: bool = false,
     /// When this rule is eligible to match. See `Matching`.
     matching: Matching = .always,
 
@@ -194,6 +199,7 @@ pub const Rule = struct {
         hash.update(std.mem.asBytes(&rule.fixed_position));
         hash.update(std.mem.asBytes(&rule.skip_switcher));
         hash.update(std.mem.asBytes(&rule.skip_taskbar));
+        hash.update(std.mem.asBytes(&rule.keep_render));
         hash.update(std.mem.asBytes(&rule.matching));
         const value = hash.final();
         return if (value == 0) 1 else value;
@@ -237,6 +243,7 @@ pub const Rule = struct {
         placement_only.fixed_position = false;
         placement_only.skip_switcher = false;
         placement_only.skip_taskbar = false;
+        placement_only.keep_render = false;
         placement_only.matching = .always;
         return placement_only.fingerprint();
     }
@@ -562,7 +569,7 @@ test "content type rules match committed state and keep only visual effects" {
     var engine = Engine.init(std.testing.allocator);
     defer engine.deinit();
     var source = [_]Rule{
-        .{ .content_type = .game, .layout = .game_mode, .placement = .{ .output = "DP-2", .workspace = 4 }, .fullscreen = true, .blur = false, .buffer_scale_policy = .integer_ceil, .hdr_expand = true, .overlay_plane = .prefer },
+        .{ .content_type = .game, .layout = .game_mode, .placement = .{ .output = "DP-2", .workspace = 4 }, .fullscreen = true, .blur = false, .buffer_scale_policy = .integer_ceil, .hdr_expand = true, .overlay_plane = .prefer, .keep_render = true },
         .{ .app_id = "player*", .placement = .{ .workspace = 2 } },
     };
     try engine.reload(&source);
@@ -581,6 +588,7 @@ test "content type rules match committed state and keep only visual effects" {
     try std.testing.expectEqual(scaling.BufferScalePolicy.integer_ceil, game.buffer_scale_policy.?);
     try std.testing.expectEqual(@as(?bool, true), game.hdr_expand);
     try std.testing.expectEqual(OverlayPreference.prefer, game.overlay_plane);
+    try std.testing.expect(game.keep_render);
 
     // A different committed type does not match.
     try std.testing.expectEqual(@as(u32, 2), engine.resolve(.{ .app_id = "player-one", .content_type = .video }).?.placement.workspace);
@@ -765,6 +773,17 @@ test "floating fingerprints ignore visual edits but detect geometry edits" {
     const geometry_edit: Rule = .{ .placement = .{ .floating = true, .width = 700 }, .opacity = 0.5 };
     try std.testing.expectEqual(first.floatingFingerprint(), visual_edit.floatingFingerprint());
     try std.testing.expect(first.floatingFingerprint() != geometry_edit.floatingFingerprint());
+}
+
+test "keep_render is a semantic effect outside matcher and placement identity" {
+    const plain: Rule = .{ .app_id = "steam_app_*", .placement = .{ .output = "DP-1", .workspace = 2 } };
+    var kept = plain;
+    kept.keep_render = true;
+    try std.testing.expect(!plain.keep_render);
+    try std.testing.expect(plain.fingerprint() != kept.fingerprint());
+    try std.testing.expectEqual(plain.matcherFingerprint(), kept.matcherFingerprint());
+    try std.testing.expectEqual(plain.placementFingerprint(), kept.placementFingerprint());
+    try std.testing.expectEqual(plain.floatingFingerprint(), kept.floatingFingerprint());
 }
 
 test "tag identity composes matchers, owns strings and preserves visual-only policy" {

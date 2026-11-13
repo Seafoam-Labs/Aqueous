@@ -246,6 +246,9 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "fixed_position")) rule.fixed_position = parseBool(value) orelse rule.fixed_position;
     if (std.mem.eql(u8, key, "skip_switcher")) rule.skip_switcher = parseBool(value) orelse rule.skip_switcher;
     if (std.mem.eql(u8, key, "skip_taskbar")) rule.skip_taskbar = parseBool(value) orelse rule.skip_taskbar;
+    // Deliberately absent from overrideRedirectKey(): appendValid() rejects the
+    // whole reload for an override-redirect rule carrying this key.
+    if (std.mem.eql(u8, key, "keep_render")) rule.keep_render = parseBool(value) orelse rule.keep_render;
     if (std.mem.eql(u8, key, "matching")) rule.matching = Engine.Matching.parse(value) orelse rule.matching;
 }
 
@@ -650,12 +653,60 @@ test "popup rules validate atomically and preserve explicit zero placement" {
     try parseAndReload(std.testing.allocator, &engine, "[[window]]\nscope = \"override_redirect\"\nwindow_type = \"notification\"\nx = 0\nopacity = 0.8\nfocus = false\n");
     try std.testing.expectEqual(@as(?i32, 0), engine.rules[0].position_x);
     try std.testing.expectEqual(@as(?i32, null), engine.rules[0].position_y);
-    inline for (.{ "floating = false", "focus = true", "workspace = 2", "blur = false", "typo = 1", "opacity = nan", "focus = typo", "x = 100001", "matching = \"once\"" }) |property| {
+    inline for (.{ "floating = false", "focus = true", "workspace = 2", "blur = false", "typo = 1", "opacity = nan", "focus = typo", "x = 100001", "matching = \"once\"", "keep_render = true" }) |property| {
         try std.testing.expectError(error.UnsupportedOverrideRedirectRule, parseAndReload(std.testing.allocator, &engine, "[[window]]\nscope = \"override_redirect\"\nclass = \"*\"\n" ++ property));
         try std.testing.expectEqual(@as(?f64, 0.8), engine.rules[0].opacity);
     }
     try std.testing.expectError(error.InvalidRuleScope, parseAndReload(std.testing.allocator, &engine, "[[window]]\nclass = \"*\"\nscope = \"typo\""));
     try std.testing.expectError(error.WindowTypeRequiresOverrideRedirectScope, parseAndReload(std.testing.allocator, &engine, "[[window]]\nwindow_type = \"notification\""));
+}
+
+test "keep_render parses as a managed boolean effect and toggles on reload" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    const kept =
+        \\[[window]]
+        \\app_id = "steam_app_*"
+        \\keep_render = true
+        \\[[window]]
+        \\app_id = "opted-out"
+        \\keep_render = false
+        \\[[window]]
+        \\app_id = "invalid"
+        \\keep_render = "yes"
+        \\[[window]]
+        \\content_type = "game"
+        \\keep_render = true
+        \\workspace = 5
+    ;
+    try parseAndReload(std.testing.allocator, &engine, kept);
+    try std.testing.expect(engine.resolve(.{ .app_id = "steam_app_1234" }).?.keep_render);
+    try std.testing.expect(!engine.resolve(.{ .app_id = "opted-out" }).?.keep_render);
+    // An invalid boolean keeps the default without rejecting the reload.
+    try std.testing.expect(!engine.resolve(.{ .app_id = "invalid" }).?.keep_render);
+    try std.testing.expect(engine.resolve(.{ .app_id = "unmatched" }) == null);
+    // Content-type rules keep the effect and still drop placement.
+    const game = engine.resolve(.{ .content_type = .game }).?;
+    try std.testing.expect(game.keep_render);
+    try std.testing.expectEqual(@as(u32, 0), game.placement.workspace);
+
+    // First match wins: an earlier rule without the key leaves it false.
+    try parseAndReload(std.testing.allocator, &engine,
+        \\[[window]]
+        \\app_id = "steam_app_*"
+        \\blur = false
+        \\[[window]]
+        \\app_id = "steam_app_*"
+        \\keep_render = true
+    );
+    try std.testing.expect(!engine.resolve(.{ .app_id = "steam_app_1234" }).?.keep_render);
+
+    // Removing the key on reload clears the resolved value.
+    try parseAndReload(std.testing.allocator, &engine,
+        \\[[window]]
+        \\app_id = "steam_app_*"
+    );
+    try std.testing.expect(!engine.resolve(.{ .app_id = "steam_app_1234" }).?.keep_render);
 }
 
 test "matching rules parse canonical spellings and aliases and tolerate invalid values" {

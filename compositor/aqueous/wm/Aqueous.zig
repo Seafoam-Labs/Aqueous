@@ -65,6 +65,10 @@ snap_layout_overrides: std.AutoHashMapUnmanaged(u64, layout_config.SnapId) = .em
 previous_workspaces: std.AutoHashMapUnmanaged(u64, u32) = .empty,
 fired_exec: std.AutoHashMapUnmanaged(u64, void) = .empty,
 reload_timer: ?*wl.EventSource = null,
+/// Pacing source for `keep_render` windows. Armed only while a kept mapped
+/// window exists; independent of output state so hidden clients keep rendering
+/// with every output idle, powered off or locked.
+keep_render_timer: ?*wl.EventSource = null,
 hover_focus_timer: ?*wl.EventSource = null,
 raise_focus_timer: ?*wl.EventSource = null,
 hover_focus: HoverDelay.State = .{},
@@ -181,6 +185,10 @@ pub fn init(aqueous: *Aqueous, mode: Mode, startup_config: config_loader.Snapsho
         log.warn("unable to start window rule startup timer: {}", .{err});
         break :blk null;
     };
+    aqueous.keep_render_timer = event_loop.addTimer(*Aqueous, handleKeepRenderTimer, aqueous) catch |err| blk: {
+        log.warn("unable to start keep-render timer: {}", .{err});
+        break :blk null;
+    };
     log.info("policy mode={s} layout={s}", .{ @tagName(mode), @tagName(aqueous.config.layout.default) });
 }
 
@@ -193,6 +201,7 @@ pub fn deinit(aqueous: *Aqueous) void {
     if (aqueous.hover_focus_timer) |timer| timer.remove();
     if (aqueous.raise_focus_timer) |timer| timer.remove();
     if (aqueous.rule_startup_timer) |timer| timer.remove();
+    if (aqueous.keep_render_timer) |timer| timer.remove();
     var states = aqueous.layout_states.valueIterator();
     while (states.next()) |state| state.deinit(util.gpa);
     aqueous.layout_states.deinit(util.gpa);
@@ -802,6 +811,8 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             stack.deinit(util.gpa);
         }
     }
+
+    aqueous.syncKeepRenderTimer();
 }
 
 /// Apply client-originated fullscreen transitions before layout reconciliation
@@ -3510,6 +3521,11 @@ fn reconcileRulePlacements(aqueous: *Aqueous, snapshot: *const CompositorApi.Pol
             .current_match = state.rule_match,
             .startup_phase = aqueous.rule_startup_phase,
         });
+        // This pre-pass is the only rule pass which sees inactive-workspace,
+        // minimized and soft-disabled-output windows, which is exactly the
+        // population keep_render targets. Apply it before the placement
+        // fingerprint short-circuit so an unchanged target still refreshes it.
+        aqueous.api.applyKeepRender(window.handle, if (rule) |matched| matched.keep_render else false);
         if (aqueous.prepareWindowRuleMatch(window, output.id, rule)) refresh = true;
 
         const requested = if (rule) |matched| matched.placementFingerprint() else 0;
@@ -3882,6 +3898,45 @@ fn handleRuleStartupTimer(aqueous: *Aqueous) c_int {
     if (!aqueous.rule_startup_phase) return 0;
     aqueous.rule_startup_phase = false;
     log.debug("window rule startup phase ended", .{});
+    return 0;
+}
+
+/// Hidden-frame pacing interval for `keep_render` windows. Deliberately not the
+/// output refresh rate: a kept client renders continuously, so 144-240 Hz would
+/// be unbounded client FPS and battery cost.
+const keep_render_interval_ms: i32 = 16;
+
+/// Arm the keep-render timer while any kept mapped window exists. Windows are
+/// evaluated every manage cycle, so this also disarms after the last kept
+/// window closes or stops matching.
+fn syncKeepRenderTimer(aqueous: *Aqueous) void {
+    const timer = aqueous.keep_render_timer orelse return;
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        if (!window.keep_render or window.state != .mapped) continue;
+        timer.timerUpdate(keep_render_interval_ms) catch log.warn("unable to arm keep-render timer", .{});
+        return;
+    }
+    timer.timerUpdate(0) catch log.warn("unable to disarm keep-render timer", .{});
+}
+
+fn handleKeepRenderTimer(aqueous: *Aqueous) c_int {
+    var kept: usize = 0;
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        if (!window.keep_render or window.state != .mapped) continue;
+        kept += 1;
+        // The scene paces visible windows itself; only fill the hidden gap.
+        if (window.keepRenderNeedsFrameDone()) window.sendFrameDone();
+    }
+    const timer = aqueous.keep_render_timer orelse return 0;
+    // Self-heal if the last kept window went away without a manage cycle.
+    if (kept == 0) {
+        timer.timerUpdate(0) catch log.warn("unable to disarm keep-render timer", .{});
+        return 0;
+    }
+    // Wayland timers are one-shot.
+    timer.timerUpdate(keep_render_interval_ms) catch log.warn("unable to re-arm keep-render timer", .{});
     return 0;
 }
 

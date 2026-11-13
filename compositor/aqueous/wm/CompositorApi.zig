@@ -1206,6 +1206,14 @@ pub fn applyRuleVisual(
     );
 }
 
+/// Keep-render changes frame-callback delivery, not scene state. It is applied
+/// from the rule placement pre-pass so inactive-workspace, minimized and
+/// soft-disabled-output windows are covered as well.
+pub fn applyKeepRender(_: CompositorApi, handle: layout.Handle, keep_render: bool) void {
+    const ref: Window.Ref = @bitCast(handle);
+    if (ref.get()) |window| window.keep_render = keep_render;
+}
+
 pub fn setFullscreen(_: CompositorApi, handle: layout.Handle, output_id: u64) bool {
     const ref: Window.Ref = @bitCast(handle);
     const window = ref.get() orelse return false;

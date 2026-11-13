@@ -323,6 +323,13 @@ backdrop_blur: ?fx.WindowBlur,
 /// manage cycle. Null follows the output default (fullscreen windows expand).
 hdr_expand_rule: ?bool = null,
 
+/// Keep delivering frame callbacks while this window is hidden, so
+/// callback-driven clients (games) keep rendering in the background. Set from
+/// the matched window rule and recomputed every manage cycle. This changes
+/// callback delivery only: the scene nodes stay disabled, so the window is
+/// never composited or exposed to capture, mirrors or overlay planes.
+keep_render: bool = false,
+
 /// Opaque black rectangle used as the background while this window is rendered fullscreen.
 /// TODO consider using one of these per output rather than one per window to save memory
 /// if the complexity tradeoff is worth it.
@@ -1435,6 +1442,10 @@ fn handleRequest(
 /// Conservative repaint demand, including prospective visibility on resume.
 pub fn shouldSuspend(window: *Window, prospective: bool) bool {
     if (window.impl != .toplevel or window.state != .mapped) return false;
+    // A kept window is paced by the keep-render timer instead of the scene.
+    // Announcing `suspended` would stop a cooperative client from rendering
+    // regardless of the callbacks it receives.
+    if (window.keep_render) return false;
     const toplevel = &window.impl.toplevel;
     switch (toplevel.configure_state) {
         .idle, .committed => {},
@@ -2537,6 +2548,26 @@ pub fn sendFrameDone(window: Window) void {
 
     var now = util.timestamp();
     window.rootSurface().?.sendFrameDone(&now);
+}
+
+/// True when the keep-render timer must pace this window because the scene is
+/// not delivering frame callbacks to it. `tree.node.enabled` is the settled
+/// presenting flag, so windows still sliding out with a workspace stay
+/// scene-paced and are never driven at both rates.
+pub fn keepRenderNeedsFrameDone(window: Window) bool {
+    if (!window.keep_render or window.state != .mapped or window.impl == .destroying) return false;
+    if (window.rootSurface() == null) return false;
+    // Hidden: inactive workspace, minimized, overview-hidden or shell `.hide`.
+    if (!window.tree.node.enabled) return true;
+    // normal_tree is disabled while locked, so the scene delivers nothing.
+    if (server.lock_manager.state != .unlocked) return true;
+    if (server.session) |session| if (!session.active) return true;
+    const workspace = window.workspace orelse return true;
+    const output = workspace.output;
+    const wlr_output = output.wlr_output orelse return true;
+    if (!wlr_output.enabled or output.current.state != .enabled) return true;
+    // Visible on a live output: the scene already paces it.
+    return false;
 }
 
 pub fn close(window: Window) void {

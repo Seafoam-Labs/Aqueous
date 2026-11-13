@@ -46,6 +46,9 @@ def parse_args():
     parser.add_argument('--attach', action='store_true', help='use the live WAYLAND_DISPLAY')
     parser.add_argument('--size', default='640x480', help='window size, e.g. 1280x720')
     parser.add_argument('--pool', type=int, default=3, help='pool arm buffer count')
+    parser.add_argument('--rules', type=Path,
+                        help='rules.toml for the isolated session, e.g. a keep_render rule '
+                             '(ignored with --attach, which uses the live session rules)')
     parser.add_argument('--growth-kb-s', type=float, default=1024.0,
                         help='live_kb slope floor to flag client-side growth')
     return parser.parse_args()
@@ -74,12 +77,12 @@ def wait_for(check, timeout=15):
 class Session:
     """Isolated headless compositor hosting the arms."""
 
-    def __init__(self, base):
+    def __init__(self, base, rules=None):
         runtime = base / 'runtime'
         runtime.mkdir(mode=0o700, parents=True)
         config = base / 'config'
         config.mkdir(exist_ok=True)
-        (config / 'rules.toml').write_text('')
+        (config / 'rules.toml').write_text(rules.read_text() if rules else '')
         env = {k: v for k, v in os.environ.items() if not k.startswith('AQUEOUS_')}
         env.update(XDG_STATE_HOME=str(base / 'state'), XDG_CACHE_HOME=str(base / 'cache'),
                    XDG_RUNTIME_DIR=str(runtime), XDG_CONFIG_HOME=str(config), HOME=str(base),
@@ -200,7 +203,7 @@ def main():
                     str(FIXTURE), str(base / 'xdg-shell-protocol.c'),
                     '-o', str(binary), *flags], check=True)
 
-    session = AttachSession() if args.attach else Session(base / 'session')
+    session = AttachSession() if args.attach else Session(base / 'session', args.rules)
     watcher = AqueousRss()
     watcher.start()
     findings, results = [], []

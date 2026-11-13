@@ -62,7 +62,7 @@ matters.
 | `class` | string (glob) | " | Match X11 `WM_CLASS` through Aqueous's native XWayland integration. |
 | `title` | string (glob) | " | Match `xdg_toplevel.title`. |
 | `tag` | string (glob) | " | Match the untranslated purpose supplied through `xdg-toplevel-tag-v1`. Native Wayland windows only; combine with `app_id` to scope a rule to one application. |
-| `content_type` | string | " | Match the `wp_content_type_v1` state committed by the client: `none`, `photo`, `video`, or `game`. Rules with this matcher apply only visual/client-buffer settings (`blur`, `opacity`, `hdr_expand`, `buffer_scale_policy`, and `overlay_plane`); every layout and placement edit is ignored because the content type commonly arrives long after map and must never move an already-arranged window. |
+| `content_type` | string | " | Match the `wp_content_type_v1` state committed by the client: `none`, `photo`, `video`, or `game`. Rules with this matcher apply only visual/client-buffer settings (`blur`, `opacity`, `hdr_expand`, `buffer_scale_policy`, `overlay_plane`, and `keep_render`); every layout and placement edit is ignored because the content type commonly arrives long after map and must never move an already-arranged window. |
 | `layout` | string | no | Select a built-in layout, including `composable`; `"float"` also marks the window floating. Omitted leaves the workspace layout unchanged. Game mode requires explicit `"game-mode"` (or `"game_mode"`). |
 | `floating` | bool | no | Force floating placement. |
 | `scrolling_full_width` | bool | no | Set the initial scrolling column preset, equivalent to `Super+Shift+Z` when true. False starts with the preset disabled; unset leaves it alone. A rule using this field preserves the current layout when `layout` is omitted. |
@@ -84,6 +84,7 @@ matters.
 | `fullscreen` | bool | no (default `false`) | Start the window fullscreen. Client fullscreen requests and manual toggles can override this property independently of output/workspace placement. |
 | `buffer_scale_policy` | string | no | Override the global client-buffer policy with `"native"` or `"integer-ceil"`. Integer-ceil advertises the next integer scale before initial root/popup configures while retaining fractional logical geometry; it may improve toolkit text rasterization at the cost of larger buffers and more GPU/memory bandwidth. |
 | `hdr_expand` | bool | no | Expand this window's SDR highlights toward the HDR peak when its output has `auto_hdr` enabled. When unset, fullscreen windows and windows that committed `content_type = "game"` are expanded. |
+| `keep_render` | bool | no (default `false`) | Keep delivering Wayland frame callbacks while the window is hidden (approximately 60 Hz from a global timer) and never send the xdg-toplevel `suspended` state. Callback delivery only - the window stays uncomposited and invisible. Managed scope only; see the section below for pacing, limitations, and the GPU/battery cost. |
 | `overlay_plane` | string | no (default `"off"`) | `"prefer"` requests promotion of this window's root buffer to the output's single DRM overlay layer. `[render].overlay_planes = true` must be enabled before startup. Promotion falls back to normal composition when TEST_ONLY rejects the complete state, when content overlaps the window, during capture/software-cursor forcing, or when scaling, transforms, effects, opacity, clipping, or buffer format constraints require composition. |
 
 Once a `once` or `startup` rule is claimed, that window keeps the rule even
@@ -207,6 +208,70 @@ is never a matcher. Metadata resets when a toplevel unmaps. Tags alone do not
 save window geometry across application restarts, and untagged applications
 continue to use the existing identity/title matchers.
 
+### Keeping windows rendering while hidden
+
+Games and other callback-driven clients normally stop rendering when their
+window is hidden, because frame callbacks stop arriving. The `keep_render`
+rule opts a matched window out of that throttling:
+
+```toml
+[[window]]
+app_id = "steam_app_*"      # or class = "..." for Xwayland
+keep_render = true
+```
+
+A kept window keeps receiving Wayland frame callbacks while it is hidden - on
+an inactive workspace, minimized, hidden by the overview, on an output that is
+powered off, soft-disabled, or unplugged, or while the session is locked or
+inactive - so it keeps rendering in the background instead of throttling to
+zero.
+
+Pacing comes from a single global compositor timer at approximately 60 Hz
+(16 ms), independent of the output refresh rate and of whether any output is
+rendering; it is not paced at the panel refresh rate. While the window is
+actually visible on a live output, the normal scene render loop paces it at
+the output rate and the timer stays out of the way, so there is no double
+pacing.
+
+The xdg-toplevel `suspended` configure state is never sent to a kept window.
+Removing the rule (or the window ceasing to match) restores normal suspension
+on the next manage cycle. Xwayland windows have no suspended state and are
+unaffected by that part.
+
+Scene nodes stay disabled: the window is not composited, not shown, and does
+not become eligible for screencopy, mirrors, the overview deck, or DRM overlay
+planes. This is callback delivery only, not visibility. Only the root surface
+receives the extra callbacks in this version; popups and subsurfaces of a kept
+window do not (the same limitation as the existing overview frame-callback
+path).
+
+Hidden FIFO surfaces are still throttled to 40 Hz by the patched wlroots
+hidden-FIFO pacing
+(`compositor/patches/wlroots/0040-hidden-fifo-pacing.patch`), independently of
+frame callbacks. A hidden FIFO client using `keep_render` is therefore
+effectively capped at about 40 fps: the effective rate is min(callback rate,
+FIFO rate).
+
+`keep_render` is managed scope only. Adding it to a rule with
+`scope = "override_redirect"` rejects the whole rules.toml reload atomically
+(`UnsupportedOverrideRedirectRule`) and keeps the previous rule list, the same
+as other unsupported popup keys. It is allowed on `content_type = "game"`
+rules: it is treated as a rendering/client-buffer effect like `blur`,
+`hdr_expand`, `opacity`, `buffer_scale_policy`, and `overlay_plane`, so it
+survives the content-type visual-only resolve path (layout and placement edits
+on those rules are still dropped). Like all rules, it applies under integrated
+policy only; rules do not run at all in external-WM mode.
+
+Hot reload works like other rule effects: editing, adding, or removing
+`keep_render` in rules.toml takes effect on the next manage cycle without
+restarting the compositor. `reload_rules`, `Super+R`, and the file watcher all
+work.
+
+**GPU and battery warning:** kept clients render continuously by design,
+including while the session is locked or all outputs are off. This costs GPU
+power and battery. `keep_render` is opt-in per window rule - scope the matcher
+narrowly (for example a specific Steam app id) rather than globally.
+
 ### `[[layer]]`
 
 An array-of-tables for layer-shell surfaces. First match wins and declaration
@@ -307,3 +372,7 @@ Two-release deprecation window - after which the warning becomes an error.
 - **Game mode disappears when I close the game.** Expected - with no
   matching window on the output, `game-mode` falls through to
   `fallback_layout`.
+- **Game with `keep_render` still caps at ~40 fps while hidden.** Expected
+  for FIFO clients - the patched wlroots hidden-FIFO pacing throttles hidden
+  FIFO surfaces to 40 Hz independently of frame callbacks, so the effective
+  rate is min(callback rate, FIFO rate).
