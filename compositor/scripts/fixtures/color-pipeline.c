@@ -280,31 +280,61 @@ int main(void) {
 	assert(buffer && source.n_locks == 1 && wlr_buffer_has_color_pipeline(buffer));
 	wlr_buffer_drop(&source);
 	assert(!destroyed_sources);
+	// An unchanged recipe must keep one DATA blob ID across speculative and
+	// real commits. A new ID per commit is a KMS color update on every flip.
+	unsigned created_before = created_blobs;
+	uint64_t matrix_blob = 0;
 	for (unsigned i = 0; i < 512; i++) {
 		assert(drm_color_pipeline_add(&state, NULL, &plane, buffer));
-		assert(live_blobs == 1);
+		assert(live_blobs == 1 && created_blobs == created_before + 1);
+		if (!i) matrix_blob = written[11][4];
+		assert(matrix_blob && written[11][4] == matrix_blob);
 		assert(written[plane.id][1] == 10);
 		assert(written[10][5] == 70 && written[12][5] == 71);
 		assert(last_matrix.matrix[1] == UINT64_C(1) << 30);
-		drm_color_pipeline_state_finish(&state, false); // TEST_ONLY
-		assert(!live_blobs && !state.color_pipeline_state.size);
+		drm_color_pipeline_state_finish(&state, i & 1); // alternate TEST_ONLY/real
+		assert(live_blobs == 1 && !state.color_pipeline_state.size);
 	}
+	// Changed contents replace the cached blob; KMS keeps any committed copy.
+	struct color_pipeline_recipe changed = {0};
+	const float other_matrix[9] = {1, 0.5, 0, 0, 1, 0, 0, 0, 1};
+	assert(color_pipeline_add_decode(&changed, WLR_COLOR_TRANSFER_FUNCTION_SRGB));
+	assert(color_pipeline_add_matrix(&changed, other_matrix));
+	struct wlr_color_transform *other_encode =
+		wlr_color_transform_init_linear_to_inverse_eotf(WLR_COLOR_TRANSFER_FUNCTION_GAMMA22);
+	assert(other_encode && color_pipeline_add_transform(&changed, other_encode));
+	wlr_color_transform_unref(other_encode);
+	struct wlr_buffer changed_source;
+	wlr_buffer_init(&changed_source, &source_impl, 64, 64);
+	struct wlr_buffer *changed_buffer = color_pipeline_wrap(&changed_source, &changed);
+	assert(changed_buffer);
+	wlr_buffer_drop(&changed_source);
+	// Creation failure keeps the previous cached blob and fails the plane.
 	fail_blob_after = 0;
-	assert(!drm_color_pipeline_add(&state, NULL, &plane, buffer));
+	assert(!drm_color_pipeline_add(&state, NULL, &plane, changed_buffer));
 	drm_color_pipeline_state_finish(&state, false);
-	assert(!live_blobs);
+	assert(live_blobs == 1 && created_blobs == created_before + 1);
 	fail_blob_after = -1;
-	fail_property_after = 3; // fail encode after matrix blob creation
+	assert(drm_color_pipeline_add(&state, NULL, &plane, changed_buffer));
+	assert(live_blobs == 1 && created_blobs == created_before + 2);
+	assert(written[11][4] != matrix_blob && last_matrix.matrix[1] == UINT64_C(1) << 31);
+	drm_color_pipeline_state_finish(&state, false);
+	assert(drm_color_pipeline_add(&state, NULL, &plane, buffer));
+	assert(live_blobs == 1 && created_blobs == created_before + 3);
+	drm_color_pipeline_state_finish(&state, false);
+	wlr_buffer_drop(changed_buffer);
+	assert(destroyed_sources == 1);
+	fail_property_after = 3; // fail encode after the cached matrix blob
 	assert(!drm_color_pipeline_add(&state, NULL, &plane, buffer));
 	drm_color_pipeline_state_finish(&state, false);
-	assert(!live_blobs);
+	assert(live_blobs == 1);
 	fail_property_after = -1;
 	cursor_visible = true;
 	assert(!drm_color_pipeline_add(&state, NULL, &plane, buffer));
 	cursor_visible = false;
 	assert(drm_color_pipeline_add(&state, NULL, &plane, buffer));
 	drm_color_pipeline_state_finish(&state, true);
-	assert(!live_blobs && plane.color_pipeline->committed_root == 10);
+	assert(live_blobs == 1 && plane.color_pipeline->committed_root == 10);
 	assert(drm_color_pipeline_reset(&state, NULL));
 	assert(written[plane.id][1] == 0);
 	assert(drm_color_pipeline_add(&state, NULL, &plane, NULL));
@@ -340,7 +370,7 @@ int main(void) {
 	drm_color_pipeline_state_finish(&connectors[0], true);
 	drm_color_pipeline_state_finish(&connectors[1], true);
 	assert(plane.color_pipeline->committed_crtc == crtc.id);
-	assert(plane.color_pipeline->committed_root == 10 && !live_blobs);
+	assert(plane.color_pipeline->committed_root == 10 && live_blobs == 1);
 	physical.id = 101; // unmapped hardware must not inherit the nominal recipe
 	assert(!add_color_pipelines(&state, NULL));
 	drm_color_pipeline_state_finish(&state, false);
@@ -356,7 +386,7 @@ int main(void) {
 	assert(live_blobs == 1);
 	drm_color_pipeline_state_finish(&state, false);
 	wl_list_remove(&layer.link);
-	assert(!live_blobs);
+	assert(live_blobs == 1);
 
 	// Unknown nodes may be bypassed, but cannot substitute for an operation.
 	struct color_pipeline pipeline = { .len = 2, .nodes = {
@@ -373,13 +403,14 @@ int main(void) {
 	assert(!match(&pipeline, &one_matrix, 0, 0, assignment, &budget));
 
 	drm_color_pipeline_finish(&plane);
+	assert(!live_blobs); // plane teardown releases cached DATA blobs
 	unknown_mandatory = true;
 	drm_color_pipeline_discover(&drm, &plane);
 	assert(!drm_color_pipeline_add(&state, NULL, &plane, buffer));
 	assert(!live_blobs);
 	drm_color_pipeline_finish(&plane);
 	wlr_buffer_drop(buffer);
-	assert(destroyed_sources == 1);
+	assert(destroyed_sources == 2);
 	scene_resources();
 	puts("PASS: 512 speculative commits, failure cleanup, plane assignment, retained overlays, bypass, LUT resampling, PQ normalization");
 }
