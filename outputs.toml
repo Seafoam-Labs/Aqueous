@@ -25,6 +25,7 @@
 # scale = 1.0
 # transform = "normal"
 # position = [0, 0]
+# Adaptive sync is off by default; set true to enable VRR on this output.
 # adaptive_sync = true
 # Restrict enabled adaptive sync to a visible fullscreen app on this monitor's
 # active workspace. Default false; requires adaptive_sync = true. Focus on a

@@ -3,7 +3,9 @@
 This directory contains the Zig implementation of Aqueous: a wlroots-based
 Wayland compositor with integrated window-management, input, and output policy.
 
-To enable VRR only for fullscreen applications, configure a monitor in
+Adaptive sync is off by default; unconfigured outputs do not inherit the
+hardware VRR state. Enable it per output with `adaptive_sync = true`. To
+enable VRR only for fullscreen applications, configure a monitor in
 `~/.config/aqueous/outputs.toml`:
 
 ```toml

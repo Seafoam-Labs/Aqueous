@@ -594,7 +594,9 @@ pub fn create(wlr_output: *wlr.Output) !void {
         .mode = .none,
         .scale = 1,
         .transform = .normal,
-        .adaptive_sync = wlr_output.adaptive_sync_status == .enabled,
+        // Adaptive sync is opt-in per output; do not inherit VRR left enabled
+        // by firmware or a previous compositor.
+        .adaptive_sync = false,
         .hdr_enabled = false,
         .hdr_level = .l1000,
         .sdr_white_level = hdr.default_sdr_white_level,
