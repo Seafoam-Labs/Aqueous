@@ -56,7 +56,7 @@ xkb_options = ""        # e.g. "caps:escape,grp:alt_shift_toggle"
 repeat_rate = 40
 repeat_delay = 400
 
-# Initial Num Lock state for physical keyboards (default: false). An explicit
+# Initial Num Lock state for physical keyboards (default: true). An explicit
 # true or false overrides wm.toml. Changes also apply to connected keyboards
 # on reload; leaving the configured value unchanged preserves manual toggles.
 # num_lock_state = true

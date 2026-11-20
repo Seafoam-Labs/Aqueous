@@ -22,7 +22,8 @@ test "keyboard policy: Num Lock reload preserves modifiers and manual toggles" {
     // state. No running compositor or physical input device is required.
     var group: KeyboardGroup = undefined;
     group.virtual = false;
-    group.config = .{ .keymap = keymap };
+    // Pin the initial policy so the test does not depend on the default Num Lock state.
+    group.config = .{ .keymap = keymap, .num_lock_state = false };
     group.state.init(&.{ .name = "num-lock-test", .led_update = ledUpdate }, "num-lock-test");
     defer group.state.finish();
     var last_leds: u32 = 0;

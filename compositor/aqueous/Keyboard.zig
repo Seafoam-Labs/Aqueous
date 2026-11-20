@@ -25,7 +25,7 @@ pub const Config = struct {
     /// Repeat delay in milliseconds
     repeat_delay: u31 = 400,
 
-    num_lock_state: bool = false,
+    num_lock_state: bool = true,
 };
 
 device: InputDevice,

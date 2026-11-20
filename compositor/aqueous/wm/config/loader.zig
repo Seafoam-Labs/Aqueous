@@ -677,9 +677,10 @@ test "input sidecar Num Lock overrides inherited values in both directions" {
 
 test "input sidecar Num Lock defaults presence and malformed values" {
     var snapshot: Snapshot = .{};
-    try std.testing.expect(!snapshot.wm.input.num_lock_state);
+    try std.testing.expect(snapshot.wm.input.num_lock_state);
     try std.testing.expect(!snapshot.wm.input.num_lock_state_set);
     applyInputSource(&snapshot, "[input]\nnum_lock_state = invalid");
+    try std.testing.expect(snapshot.wm.input.num_lock_state);
     try std.testing.expect(!snapshot.wm.input.num_lock_state_set);
     applyInputSource(&snapshot, "[input]\nnum_lock_state = true");
     try std.testing.expect(snapshot.wm.input.num_lock_state);

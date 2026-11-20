@@ -88,7 +88,7 @@ pub const Input = struct {
     xkb_layout: Text = .{},
     xkb_variant: Text = .{},
     xkb_options: Text = .{},
-    num_lock_state: bool = false,
+    num_lock_state: bool = true,
     num_lock_state_set: bool = false,
 };
 
@@ -534,7 +534,7 @@ test "Num Lock parsing records only valid explicit values" {
     var snapshot: Snapshot = .{};
     var layout_snapshot: layout.Snapshot = .{};
     apply(&snapshot, &layout_snapshot, "[input]\nnum_lock_state = invalid");
-    try std.testing.expect(!snapshot.input.num_lock_state);
+    try std.testing.expect(snapshot.input.num_lock_state);
     try std.testing.expect(!snapshot.input.num_lock_state_set);
     apply(&snapshot, &layout_snapshot, "[input]\nnum_lock_state = true");
     try std.testing.expect(snapshot.input.num_lock_state);
