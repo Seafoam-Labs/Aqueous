@@ -117,6 +117,8 @@ pub fn build(b: *Build) !void {
     options.addOption([]const u8, "version", full_version);
     const input_activity_testing = b.option(bool, "input-activity-testing", "Compile isolated input activity fixture support (never ship)") orelse false;
     options.addOption(bool, "input_activity_testing", input_activity_testing);
+    const teardown_stall_testing = b.option(bool, "teardown-stall-testing", "Enable private teardown stall injection (tests only)") orelse false;
+    options.addOption(bool, "teardown_stall_testing", teardown_stall_testing);
     // Generated from the actual build options, never supplied by a packaging caller.
     const policy = b.addWriteFiles().add("build-policy.json", b.fmt(
         "{{\"schema\":1,\"output_retry_testing\":{},\"display_preview_acceptance\":{},\"input_activity_testing\":{}}}\n",

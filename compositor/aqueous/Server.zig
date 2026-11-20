@@ -22,6 +22,7 @@ extern fn wlr_ext_foreign_toplevel_image_capture_source_manager_v1_request_accep
 ) bool;
 
 const util = @import("util.zig");
+const process = @import("process.zig");
 const output_retry = @import("output_retry.zig");
 const RendererSelection = @import("render/RendererSelection.zig");
 const color_management = @import("color_management.zig");
@@ -213,14 +214,14 @@ pub fn init(
     // default fatal disposition and bypass orderly compositor/Vulkan teardown.
     const sigint_source = try loop.addSignal(
         *wl.Server,
-        @intFromEnum(posix.SIG.INT),
+        @backingInt(posix.SIG.INT),
         terminate,
         wl_server,
     );
     errdefer sigint_source.remove();
     const sigterm_source = try loop.addSignal(
         *wl.Server,
-        @intFromEnum(posix.SIG.TERM),
+        @backingInt(posix.SIG.TERM),
         terminate,
         wl_server,
     );
@@ -332,7 +333,7 @@ pub fn init(
     try server.child_processes.init(util.gpa, wl_server);
     errdefer server.child_processes.deinit();
 
-    if (renderer.getDrmFd() >= 0 and renderer.getTextureFormats(@intFromEnum(wlr.BufferCap.dmabuf)) != null) {
+    if (renderer.getDrmFd() >= 0 and renderer.getTextureFormats(@backingInt(wlr.BufferCap.dmabuf)) != null) {
         server.linux_dmabuf = try wlr.LinuxDmabufV1.createWithRenderer(wl_server, 6, renderer);
     }
     if (renderer.features.timeline and backend.features.timeline) {
@@ -469,10 +470,20 @@ pub fn startBackend(server: *Server) !void {
 
 /// Free allocated memory and clean up. Note: order is important here
 pub fn deinit(server: *Server) void {
+    process.armTeardownGuard();
+    // Test-only stall injection: exercises the guard's bounded exit and signal
+    // response without needing a real driver or renderer hang.
+    if (comptime build_options.teardown_stall_testing) {
+        if (std.c.getenv("AQUEOUS_TEST_TEARDOWN_STALL_MS")) |raw| {
+            const ms = std.fmt.parseInt(u64, std.mem.span(raw), 10) catch 0;
+            if (ms > 0) process.stall(ms);
+        }
+    }
     server.child_processes.deinit();
     if (comptime build_options.input_activity_testing) @import("InputActivityTest.zig").finish();
     server.input_activity.stop();
     server.drm_lease.stop();
+    process.noteStage("ipc");
     server.ipc_server.deinit();
     server.sigint_source.remove();
     server.sigterm_source.remove();
@@ -500,21 +511,24 @@ pub fn deinit(server: *Server) void {
         wlr_output_set_client_projection_handler(null, null);
         if (server.xwayland) |xwayland| {
             server.new_xsurface.link.remove();
+            process.noteStage("xwayland");
             xwayland.destroy();
         }
     }
-
+    process.noteStage("clients");
     server.wl_server.destroyClients();
     server.window_switcher.deinit();
     server.aqueous.deinit();
     server.overview.deinit();
 
+    process.noteStage("backend");
     server.backend.destroy();
     server.drm_lease.deinit();
 
     // The scene graph needs to be destroyed after the backend but before the renderer
     // Output destruction requires the scene graph to still be around while the scene
     // graph may require the renderer to still be around to destroy textures it seems.
+    process.noteStage("scene");
     server.scene.wlr_scene.tree.node.destroy();
     server.background_effect_manager.deinit();
 
@@ -528,7 +542,11 @@ pub fn deinit(server: *Server) void {
         }
         server.effect_metadata.deinit();
     }
-    if (comptime build_options.vulkan_effects) server.vulkan_context.deinit();
+    if (comptime build_options.vulkan_effects) {
+        process.noteStage("vulkan-context");
+        server.vulkan_context.deinit();
+    }
+    process.noteStage("renderer");
     server.renderer.destroy();
     server.allocator.destroy();
 
@@ -538,9 +556,11 @@ pub fn deinit(server: *Server) void {
     server.lock_manager.deinit();
     server.layer_shell.deinit();
 
+    process.noteStage("display");
     server.wl_server.destroy();
     server.gpu_pin.deinit(util.gpa);
     _ = server.fd_reserve.release();
+    process.noteStage("done");
 }
 
 const WlrOutputClientProjection = extern struct {
@@ -875,7 +895,7 @@ fn gpuResetRecover(server: *Server) !void {
     server.fd_reserve.fill();
 
     if (server.linux_dmabuf) |old_dmabuf| {
-        if (new_renderer.getDrmFd() >= 0 and new_renderer.getTextureFormats(@intFromEnum(wlr.BufferCap.dmabuf)) != null) {
+        if (new_renderer.getDrmFd() >= 0 and new_renderer.getTextureFormats(@backingInt(wlr.BufferCap.dmabuf)) != null) {
             const new_dmabuf_result = blk: {
                 server.creating_linux_dmabuf_global = true;
                 defer server.creating_linux_dmabuf_global = false;
