@@ -143,6 +143,21 @@ EOF
         # Suppress a separately enabled Git shell unit in this managed session.
         printf '[Service]\nExecCondition=%s/session-runtime.sh external-condition\n' "$private" | write "$units/pearl-git.service.d/60-$instance-selection.conf"
     fi
+    if [[ $shell == pearl ]]; then
+        # Pearl owns XDG autostart here; the generator's app units must skip
+        # themselves for every Pearl desktop identity (matches portal_identity
+        # across channels). Condition the app-unit templates, not the target
+        # (a failed target condition still starts its Wants= units).
+        # Instance-named so it never collides with the stable drop-ins.
+        for tpl in 'app-@autostart.service' 'xdg-desktop-autostart@.service'; do
+            write "$units/$tpl.d/60-$instance-pearl.conf" <<'EOF'
+[Unit]
+ConditionEnvironment=!XDG_CURRENT_DESKTOP=Pearl:Aqueous
+ConditionEnvironment=!XDG_CURRENT_DESKTOP=Pearl-Git:Aqueous-Git
+ConditionEnvironment=!XDG_CURRENT_DESKTOP=Pearl-Git:Aqueous-Intel-Git
+EOF
+        done
+    fi
     if [[ $shell == noctalia ]]; then transform < "$root/packaging/noctalia/config.toml" | write "$prefix/share/$instance/noctalia/config.toml"; fi
     ;;
 *) aq_die "Unknown Git desktop component: $component";;

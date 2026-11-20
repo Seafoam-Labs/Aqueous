@@ -8,7 +8,9 @@ contract=$here/components.json
 scratch=$(mktemp -d)
 trap 'rm -rf -- "$scratch"' EXIT
 jq -e '.schema == 1 and (.components | type == "object")' "$contract" >/dev/null
-safe_name() { [[ $1 =~ ^[a-zA-Z0-9_./+-]+$ && $1 != /* && /$1/ != */../* ]]; }
+# systemd template unit names (app-@autostart.service) contain '@'; it carries
+# no traversal risk, so allow it alongside the other payload path characters.
+safe_name() { [[ $1 =~ ^[a-zA-Z0-9_./@+-]+$ && $1 != /* && /$1/ != */../* ]]; }
 entries() {
     local root=$1 entry name mode target
     [[ -d $root && ! -L $root ]] || aq_die "Invalid payload root: $root"

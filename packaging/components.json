@@ -132,12 +132,16 @@
       "owns": [
         "usr/lib/systemd/user/aqueous-pearl.service",
         "usr/lib/systemd/user/graphical-session.target.wants/aqueous-pearl.service",
-        "usr/lib/systemd/user/pearl.service.d/50-aqueous-selection.conf"
+        "usr/lib/systemd/user/pearl.service.d/50-aqueous-selection.conf",
+        "usr/lib/systemd/user/app-@autostart.service.d/50-pearl-autostart.conf",
+        "usr/lib/systemd/user/xdg-desktop-autostart@.service.d/50-pearl-autostart.conf"
       ],
       "required": [
         "usr/lib/systemd/user/aqueous-pearl.service",
         "usr/lib/systemd/user/graphical-session.target.wants/aqueous-pearl.service",
-        "usr/lib/systemd/user/pearl.service.d/50-aqueous-selection.conf"
+        "usr/lib/systemd/user/pearl.service.d/50-aqueous-selection.conf",
+        "usr/lib/systemd/user/app-@autostart.service.d/50-pearl-autostart.conf",
+        "usr/lib/systemd/user/xdg-desktop-autostart@.service.d/50-pearl-autostart.conf"
       ],
       "depends": [
         "session"

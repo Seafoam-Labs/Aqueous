@@ -136,6 +136,26 @@ StartLimitIntervalSec=60
 StartLimitBurst=5
 EOF
     fi
+    if [[ $shell == pearl ]]; then
+        # Pearl launches XDG autostart itself once the session is unlocked, so
+        # the systemd generator's app units must skip themselves for the Pearl
+        # desktop identity or every entry starts twice. The condition belongs
+        # on the app units (template drop-ins the generated instances inherit),
+        # NOT on xdg-desktop-autostart.target: a failed target condition still
+        # lets its Wants= units start (verified). Identities must match
+        # session-runtime.sh portal_identity; negating every channel keeps this
+        # correct when the Git recipes reuse the stable stager. Both generator
+        # namings are covered (uwsm app-@autostart and xdg-desktop-autostart@).
+        # Other desktops keep autostart.
+        for tpl in 'app-@autostart.service' 'xdg-desktop-autostart@.service'; do
+            write "$units/$tpl.d/50-pearl-autostart.conf" <<'EOF'
+[Unit]
+ConditionEnvironment=!XDG_CURRENT_DESKTOP=Pearl:Aqueous
+ConditionEnvironment=!XDG_CURRENT_DESKTOP=Pearl-Git:Aqueous-Git
+ConditionEnvironment=!XDG_CURRENT_DESKTOP=Pearl-Git:Aqueous-Intel-Git
+EOF
+        done
+    fi
     printf '\n[Install]\nWantedBy=graphical-session.target\n' >> "$destination$units/$unit"
     link "$units/graphical-session.target.wants/$unit" "../$unit"
     printf '[Service]\nExecCondition=%s/lib/aqueous/session-runtime.sh external-condition\n' "$prefix" | write "$units/$shell.service.d/50-aqueous-selection.conf"

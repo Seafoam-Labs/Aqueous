@@ -110,6 +110,10 @@ with tempfile.TemporaryDirectory(prefix="aqueous-arch-pearl-") as temporary:
     assert "ExecStart=/usr/bin/aqueous-activity-launch /usr/bin/pearl\n" in (units / "aqueous-pearl.service").read_text()
     assert (units / "graphical-session.target.wants/aqueous-pearl.service").readlink() == Path("../aqueous-pearl.service")
     assert (units / "pearl.service.d/50-aqueous-selection.conf").is_file()
+    for tpl in ("app-@autostart.service", "xdg-desktop-autostart@.service"):
+        autostart_dropin = units / f"{tpl}.d/50-pearl-autostart.conf"
+        assert autostart_dropin.is_file()
+        assert "ConditionEnvironment=!XDG_CURRENT_DESKTOP=Pearl:Aqueous\n" in autostart_dropin.read_text()
     selection = work / "aqueous-desktop/etc/xdg/aqueous/session.toml"
     assert tomllib.loads(selection.read_text()) == {"version": 1, "shell": "pearl"}
     runtime = work / "aqueous-session/usr/lib/aqueous/session-runtime.sh"

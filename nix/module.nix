@@ -80,6 +80,16 @@ in {
     } // lib.optionalAttrs (selected == "dms") {
       "xdg/quickshell/dms-plugins/aqueousPortal".source = "${components.integrations.dms}/share/aqueous/dms-plugins/aqueousPortal";
       "xdg/quickshell/dms-plugins/aqueousSettingsAppearance".source = "${components.integrations.dms}/share/aqueous/dms-plugins/aqueousSettingsAppearance";
+    } // lib.optionalAttrs (selected == "pearl") (let
+      # Pearl launches XDG autostart itself once the session is unlocked. The
+      # generator's app units must skip themselves for every Pearl desktop
+      # identity (matches session-runtime.sh portal_identity); conditioning the
+      # target alone would not stop its Wants= units. Cover both generator
+      # namings.
+      condition = "[Unit]\nConditionEnvironment=!XDG_CURRENT_DESKTOP=Pearl:Aqueous\nConditionEnvironment=!XDG_CURRENT_DESKTOP=Pearl-Git:Aqueous-Git\nConditionEnvironment=!XDG_CURRENT_DESKTOP=Pearl-Git:Aqueous-Intel-Git\n";
+    in {
+      "systemd/user/app-@autostart.service.d/50-pearl-autostart.conf".text = condition;
+      "systemd/user/xdg-desktop-autostart@.service.d/50-pearl-autostart.conf".text = condition;
     });
     xdg.portal = {
       enable = true;

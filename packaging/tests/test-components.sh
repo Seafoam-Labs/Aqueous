@@ -117,6 +117,14 @@ printf 'Monitor: fixture\n' | XDG_CONFIG_HOME="$base/picker-config" XDG_RUNTIME_
 grep -qx 'Monitor: fixture' "$base/picker-selected"
 assert_no "$base/portal/usr/bin/aqueous-welcome"
 [[ -x $base/portal/usr/bin/aqueous-portal-picker ]]
+# Pearl is the sole XDG autostart launcher: the generator's app units skip
+# themselves for the Pearl desktop identity (matches portal_identity). The
+# condition lives on the app-unit templates, not the target.
+pearl_units=$base/integration-pearl/usr/lib/systemd/user
+for tpl in 'app-@autostart.service' 'xdg-desktop-autostart@.service'; do
+    [[ -f $pearl_units/$tpl.d/50-pearl-autostart.conf ]]
+    grep -qx 'ConditionEnvironment=!XDG_CURRENT_DESKTOP=Pearl:Aqueous' "$pearl_units/$tpl.d/50-pearl-autostart.conf"
+done
 
 # Safe archive extraction cannot write through an archive-owned symlink.
 mkdir "$base/archive" "$base/archive-escape"

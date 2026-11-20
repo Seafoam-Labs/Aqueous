@@ -71,6 +71,10 @@ for channel in git; do
     grep -qx 'StartLimitBurst=5' "$pearl_units/$instance-pearl.service"
     [[ -L $pearl_units/graphical-session.target.wants/$instance-pearl.service ]]
     [[ -f $pearl_units/pearl-git.service.d/60-$instance-selection.conf ]]
+    for tpl in 'app-@autostart.service' 'xdg-desktop-autostart@.service'; do
+        [[ -f $pearl_units/$tpl.d/60-$instance-pearl.conf ]]
+        grep -qx "ConditionEnvironment=!XDG_CURRENT_DESKTOP=Pearl-Git:$desktop" "$pearl_units/$tpl.d/60-$instance-pearl.conf"
+    done
     grep -qx 'pearl_binary=pearl-git' "$runtime"
     grep -qx 'pearl_control=pearlctl-git' "$runtime"
     recipe=$root/packaging/arch/aqueous-$channel/PKGBUILD
