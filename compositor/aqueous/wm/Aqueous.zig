@@ -42,6 +42,7 @@ const overview_model = @import("overview/model.zig");
 const rules_config = @import("rules/config.zig");
 const Rules = @import("rules/engine.zig");
 const util = @import("../util.zig");
+const fx = @import("../fx.zig");
 const process = @import("../process.zig");
 const posix = std.posix;
 
@@ -71,8 +72,12 @@ reload_timer: ?*wl.EventSource = null,
 keep_render_timer: ?*wl.EventSource = null,
 hover_focus_timer: ?*wl.EventSource = null,
 raise_focus_timer: ?*wl.EventSource = null,
+peek_timer: ?*wl.EventSource = null,
 hover_focus: HoverDelay.State = .{},
 pending_raise: ?layout_types.Handle = null,
+/// Layout state whose scrolling viewport currently carries a move-peek
+/// offset; cleared by peek_timer once the dwell expires.
+peek_key: ?LayoutStateKey = null,
 globals_applied: bool = false,
 focus_history: FocusHistory,
 pending_focus: PendingFocus,
@@ -181,6 +186,10 @@ pub fn init(aqueous: *Aqueous, mode: Mode, startup_config: config_loader.Snapsho
         log.warn("unable to start delayed focus-raise timer: {}", .{err});
         break :blk null;
     };
+    aqueous.peek_timer = event_loop.addTimer(*Aqueous, handlePeekTimer, aqueous) catch |err| blk: {
+        log.warn("unable to start scrolling move-peek timer: {}", .{err});
+        break :blk null;
+    };
     aqueous.rule_startup_timer = event_loop.addTimer(*Aqueous, handleRuleStartupTimer, aqueous) catch |err| blk: {
         log.warn("unable to start window rule startup timer: {}", .{err});
         break :blk null;
@@ -200,6 +209,7 @@ pub fn deinit(aqueous: *Aqueous) void {
     if (aqueous.reload_timer) |timer| timer.remove();
     if (aqueous.hover_focus_timer) |timer| timer.remove();
     if (aqueous.raise_focus_timer) |timer| timer.remove();
+    if (aqueous.peek_timer) |timer| timer.remove();
     if (aqueous.rule_startup_timer) |timer| timer.remove();
     if (aqueous.keep_render_timer) |timer| timer.remove();
     var states = aqueous.layout_states.valueIterator();
@@ -2576,6 +2586,7 @@ fn moveFocused(aqueous: *Aqueous, dx: i32, dy: i32) void {
             return;
         }
         log.debug("window moved layout={s} handle={} dx={} dy={}", .{ @tagName(state.active_layout), handle, dx, dy });
+        if (dx != 0) aqueous.armScrollingPeek(key, state, handle, dx);
         aqueous.api.requestManageCycle();
         return;
     }
@@ -2595,7 +2606,46 @@ fn moveFocusedColumn(aqueous: *Aqueous, delta: i32) void {
         log.err("out of memory moving scrolling column", .{});
         return;
     })) return;
+    aqueous.armScrollingPeek(key, state, handle, delta);
     aqueous.api.requestManageCycle();
+}
+
+/// Acknowledge a horizontal scrolling move that would otherwise be invisible
+/// because the focused column fills the viewport: nudge the window briefly in
+/// the move direction, exposing the column it passed at the trailing edge,
+/// then settle back once the peek dwell expires.
+fn armScrollingPeek(aqueous: *Aqueous, key: LayoutStateKey, state: *layout_engine.State, handle: layout_types.Handle, delta: i32) void {
+    if (comptime !fx.anim_enabled) return;
+    if (delta == 0) return;
+    if (layout_engine.scrollingExpandedOwner(state, handle) == null) return;
+    const timer = aqueous.peek_timer orelse return;
+    if (aqueous.peek_key) |previous| {
+        if (previous.output != key.output or previous.workspace != key.workspace) {
+            if (aqueous.layout_states.getPtr(previous)) |previous_state| {
+                layout_engine.clearScrollingPeek(previous_state);
+            }
+        }
+    }
+    layout_engine.clearScrollingPeek(state);
+    // Negate so the window nudges toward the move direction: a rightward move
+    // shifts the viewport left, revealing the passed column at the left edge.
+    layout_engine.setScrollingPeek(state, handle, -delta * fx.scrolling_peek_pixels);
+    aqueous.peek_key = key;
+    timer.timerUpdate(fx.scrolling_peek_dwell_ms) catch {
+        log.warn("unable to arm scrolling move peek; settling immediately", .{});
+        layout_engine.clearScrollingPeek(state);
+        aqueous.peek_key = null;
+    };
+}
+
+fn handlePeekTimer(aqueous: *Aqueous) c_int {
+    const key = aqueous.peek_key orelse return 0;
+    aqueous.peek_key = null;
+    if (aqueous.layout_states.getPtr(key)) |state| {
+        layout_engine.clearScrollingPeek(state);
+        aqueous.api.requestManageCycle();
+    }
+    return 0;
 }
 
 fn scrollViewport(aqueous: *Aqueous, dx: i32, dy: i32) bool {

@@ -208,6 +208,20 @@ pub fn scrollingExpandedOwner(state: *const State, handle: types.Handle) ?types.
         leaf.scrollingExpandedOwner(&state.standalone, handle);
 }
 
+pub fn setScrollingPeek(state: *State, focused: types.Handle, offset: i32) void {
+    if (state.active_layout == .composable)
+        composable.setScrollingPeek(&state.composite, focused, offset)
+    else
+        leaf.setScrollingPeek(&state.standalone, focused, offset);
+}
+
+pub fn clearScrollingPeek(state: *State) void {
+    if (state.active_layout == .composable)
+        composable.clearScrollingPeek(&state.composite)
+    else
+        leaf.clearScrollingPeek(&state.standalone);
+}
+
 pub fn scrollingColumnMembers(state: *const State, handle: types.Handle) ?[]const types.Handle {
     return if (state.active_layout == .composable)
         composable.scrollingColumnMembers(&state.composite, handle)
@@ -317,8 +331,8 @@ test "dispatcher selects the configured engine" {
     defer state.deinit(std.testing.allocator);
     var snapshot: config.Snapshot = .{};
     snapshot.default = .rows;
-    snapshot.options[@intFromEnum(config.LayoutId.rows)].gaps_outer = 0;
-    snapshot.options[@intFromEnum(config.LayoutId.rows)].gaps_inner = 0;
+    snapshot.options[@backingInt(config.LayoutId.rows)].gaps_outer = 0;
+    snapshot.options[@backingInt(config.LayoutId.rows)].gaps_inner = 0;
     const placements = try arrange(std.testing.allocator, &state, &snapshot, .{ .x = 0, .y = 0, .width = 100, .height = 80 }, &.{
         .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 },
     }, null, .{});
@@ -344,8 +358,8 @@ test "switching away from scrolling returns unclipped placements" {
     defer state.deinit(std.testing.allocator);
     var snapshot: config.Snapshot = .{};
     snapshot.default = .scrolling;
-    snapshot.options[@intFromEnum(config.LayoutId.scrolling)].gaps_outer = 0;
-    snapshot.options[@intFromEnum(config.LayoutId.scrolling)].gaps_inner = 0;
+    snapshot.options[@backingInt(config.LayoutId.scrolling)].gaps_outer = 0;
+    snapshot.options[@backingInt(config.LayoutId.scrolling)].gaps_inner = 0;
     const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 } };
     const scrolling_placements = try arrange(std.testing.allocator, &state, &snapshot, .{ .x = 0, .y = 0, .width = 100, .height = 80 }, &windows, 1, .{});
     defer std.testing.allocator.free(scrolling_placements);
@@ -459,14 +473,54 @@ test "viewport scroll support follows the active standalone layout" {
     try std.testing.expect(!supportsViewportScroll(&state, 1));
 }
 
+test "scrolling peek routes through the engine and clears dormant orders" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    var snapshot: config.Snapshot = .{};
+    snapshot.options[@backingInt(config.LayoutId.scrolling)] = .{
+        .gaps_outer = 0,
+        .gaps_inner = 0,
+        .border = types.Border.none,
+    };
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2, .scrolling_full_width = true }, .{ .handle = 3 } };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+
+    snapshot.default = .scrolling;
+    var placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 2, .{});
+    std.testing.allocator.free(placements);
+    try std.testing.expect(scrollingExpandedOwner(&state, 2) != null);
+
+    setScrollingPeek(&state, 2, -32);
+    try std.testing.expectEqual(@as(i32, -32), state.standalone.scrolling.peek_offset);
+    placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 2, .{});
+    try std.testing.expectEqual(@as(types.Handle, 2), placements[1].handle);
+    try std.testing.expectEqual(@as(i32, 32), placements[1].geometry.x);
+    try std.testing.expect(placements[0].visible);
+    std.testing.allocator.free(placements);
+
+    clearScrollingPeek(&state);
+    placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 2, .{});
+    try std.testing.expectEqual(@as(i32, 0), placements[1].geometry.x);
+    try std.testing.expect(!placements[0].visible);
+    std.testing.allocator.free(placements);
+
+    // Other layouts ignore the peek, and clearing reaches dormant orders.
+    setScrollingPeek(&state, 2, -32);
+    snapshot.default = .tile;
+    placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 2, .{});
+    std.testing.allocator.free(placements);
+    clearScrollingPeek(&state);
+    try std.testing.expectEqual(@as(i32, 0), state.standalone.scrolling.peek_offset);
+}
+
 test "tile members resize through the engine like scrolling members" {
     var state: State = .{};
     defer state.deinit(std.testing.allocator);
     var snapshot: config.Snapshot = .{};
     snapshot.default = .tile;
-    snapshot.options[@intFromEnum(config.LayoutId.tile)].gaps_outer = 0;
-    snapshot.options[@intFromEnum(config.LayoutId.tile)].gaps_inner = 4;
-    snapshot.options[@intFromEnum(config.LayoutId.tile)].master_ratio = 0.5;
+    snapshot.options[@backingInt(config.LayoutId.tile)].gaps_outer = 0;
+    snapshot.options[@backingInt(config.LayoutId.tile)].gaps_inner = 4;
+    snapshot.options[@backingInt(config.LayoutId.tile)].master_ratio = 0.5;
     const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2 }, .{ .handle = 3 } };
     const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
 
@@ -684,9 +738,9 @@ test "tile admission preserves natural size for a later floating layout" {
     defer state.deinit(std.testing.allocator);
     var snapshot: config.Snapshot = .{};
     snapshot.default = .tile;
-    snapshot.options[@intFromEnum(config.LayoutId.tile)].gaps_outer = 0;
-    snapshot.options[@intFromEnum(config.LayoutId.tile)].gaps_inner = 0;
-    snapshot.options[@intFromEnum(config.LayoutId.floating)].gaps_outer = 0;
+    snapshot.options[@backingInt(config.LayoutId.tile)].gaps_outer = 0;
+    snapshot.options[@backingInt(config.LayoutId.tile)].gaps_inner = 0;
+    snapshot.options[@backingInt(config.LayoutId.floating)].gaps_outer = 0;
     const area: types.Rect = .{ .x = 0, .y = 0, .width = 1280, .height = 720 };
 
     var placements = try arrange(
@@ -927,7 +981,7 @@ test "single tile centering follows zero one two one transitions in every suppor
     for ([_]config.LayoutId{ .tile, .grid, .rows, .dwindle, .reverse_dwindle }) |id| {
         var snapshot: config.Snapshot = .{};
         snapshot.default = id;
-        const options = &snapshot.options[@intFromEnum(id)];
+        const options = &snapshot.options[@backingInt(id)];
         options.gaps_outer = 8;
         options.center_single_window = true;
         options.single_window_aspect_ratio = 1.5;
@@ -950,7 +1004,7 @@ test "single tile centering follows zero one two one transitions in every suppor
                 var baseline_state: State = .{};
                 defer baseline_state.deinit(allocator);
                 var baseline_snapshot = snapshot;
-                baseline_snapshot.options[@intFromEnum(id)].center_single_window = false;
+                baseline_snapshot.options[@backingInt(id)].center_single_window = false;
                 const baseline = try arrange(allocator, &baseline_state, &baseline_snapshot, area, &windows, 1, .{});
                 defer allocator.free(baseline);
                 try std.testing.expectEqualDeep(baseline, result);

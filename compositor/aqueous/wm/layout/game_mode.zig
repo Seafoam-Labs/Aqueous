@@ -295,6 +295,21 @@ pub fn scrollingExpandedOwner(state: *const State, handle: types.Handle) ?types.
     return null;
 }
 
+pub fn setScrollingPeek(state: *State, handle: types.Handle, offset: i32) void {
+    for ([_]*RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
+        if (scrolling.containsHandle(&side.scrolling, handle)) {
+            side.scrolling.peek_offset = offset;
+            return;
+        }
+    }
+}
+
+pub fn clearScrollingPeek(state: *State) void {
+    for ([_]*RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
+        side.scrolling.peek_offset = 0;
+    }
+}
+
 pub fn scrollingColumnMembers(state: *const State, handle: types.Handle) ?[]const types.Handle {
     if (!canResizeScrolling(state, handle)) return null;
     for ([_]*const RemainderState{ &state.fallback, &state.left, &state.right }) |side| {
@@ -425,6 +440,33 @@ test "game mode joins windows across columns in a scrolling fallback" {
     try std.testing.expectEqual(@as(usize, 2), state.fallback.scrolling.columns.items.len);
     try std.testing.expectEqualSlices(types.Handle, &.{ 1, 2 }, state.fallback.scrolling.columns.items[0].windows.items);
     try std.testing.expectEqualSlices(types.Handle, &.{3}, state.fallback.scrolling.columns.items[1].windows.items);
+}
+
+test "game mode peek routes to the owning scrolling fallback and clears" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{ .{ .handle = 1 }, .{ .handle = 2, .scrolling_full_width = true }, .{ .handle = 3 } };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+    const options: types.Options = .{ .gaps_outer = 0, .gaps_inner = 0 };
+    const initial = try arrange(std.testing.allocator, &state, area, &windows, 2, options, .{ .fallback = .scrolling });
+    std.testing.allocator.free(initial);
+    try std.testing.expect(scrollingExpandedOwner(&state, 2) != null);
+
+    setScrollingPeek(&state, 2, -32);
+    try std.testing.expectEqual(@as(i32, -32), state.fallback.scrolling.peek_offset);
+    const peeked = try arrange(std.testing.allocator, &state, area, &windows, 2, options, .{ .fallback = .scrolling });
+    defer std.testing.allocator.free(peeked);
+    var nudged: ?types.Rect = null;
+    for (peeked) |p| if (p.handle == 2) {
+        nudged = p.geometry;
+    };
+    try std.testing.expectEqual(@as(i32, 32), nudged.?.x);
+
+    // Unknown handles leave the armed peek untouched; clearing resets it.
+    setScrollingPeek(&state, 99, 16);
+    try std.testing.expectEqual(@as(i32, -32), state.fallback.scrolling.peek_offset);
+    clearScrollingPeek(&state);
+    try std.testing.expectEqual(@as(i32, 0), state.fallback.scrolling.peek_offset);
 }
 
 test "game mode joins windows within an anchored scrolling remainder" {

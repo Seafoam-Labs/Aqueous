@@ -252,6 +252,15 @@ pub fn scrollingExpandedOwner(state: *const State, handle: types.Handle) ?types.
     return leaf.scrollingExpandedOwner(child, handle);
 }
 
+pub fn setScrollingPeek(state: *State, focused: types.Handle, offset: i32) void {
+    const child = childForHandle(state, focused) orelse return;
+    leaf.setScrollingPeek(child, focused, offset);
+}
+
+pub fn clearScrollingPeek(state: *State) void {
+    for (&state.children) |*child| leaf.clearScrollingPeek(child);
+}
+
 pub fn scrollingColumnMembers(state: *const State, handle: types.Handle) ?[]const types.Handle {
     const child = constChildForHandle(state, handle) orelse return null;
     return leaf.scrollingColumnMembers(child, handle);

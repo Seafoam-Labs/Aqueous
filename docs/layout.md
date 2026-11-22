@@ -338,7 +338,11 @@ The default column-management bindings are:
   reorders it within a stack.
 - The same window-movement semantics apply when `game-mode` uses a scrolling
   remainder or scrolling fallback; the game anchor itself remains immovable.
-- `Super+Shift+H/L` moves the whole focused column without merging it.
+- `Super+Shift+H/L` moves the whole focused column without merging it. While
+  the focused column fills the viewport, any successful horizontal move
+  (column or window) briefly nudges the window in the move direction, revealing
+  a sliver of the neighbouring column at the trailing edge, then settles back
+  so the reorder stays visible at full width.
 - `Super+Up/Down` scrolls the focused column by one member without changing
   keyboard focus.
 

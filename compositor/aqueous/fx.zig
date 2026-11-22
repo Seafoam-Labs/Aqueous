@@ -49,6 +49,14 @@ pub const workspace_slide_rate: f64 = 7.0;
 /// and snapped to its target.
 pub const anim_epsilon: f64 = 0.5;
 
+/// Edge-peek acknowledgment for scrolling moves that would otherwise be
+/// invisible because the focused column fills the viewport. The focused window
+/// briefly nudges in the move direction, revealing a sliver of the column it
+/// passed at the trailing edge, then settles back once the dwell expires.
+/// Compiled out together with position animations.
+pub const scrolling_peek_pixels: i32 = 32;
+pub const scrolling_peek_dwell_ms: c_int = 200;
+
 /// Apply a window mask expressed relative to this buffer's destination origin.
 pub fn setBufferClip(buffer: *wlr.SceneBuffer, clip: ?BufferClip) void {
     if (comptime build_options.vulkan_effects) {
