@@ -109,11 +109,24 @@
  	if (drag->focus == surface) {
  		return;
  	}
-@@ -176,7 +182,12 @@
+@@ -168,7 +174,11 @@
+ 	assert(wl_list_empty(&drag->events.drop.listener_list));
+ 	assert(wl_list_empty(&drag->events.destroy.listener_list));
+ 
+-	if (drag->source) {
++	// The source destroy listener detaches itself before calling drag_destroy,
++	// but the source stays alive until its destroy signal finishes emitting.
++	bool source_destroying = drag->source != NULL &&
++		wl_list_empty(&drag->source_destroy.link);
++	if (drag->source && !source_destroying) {
+ 		wl_list_remove(&drag->source_destroy.link);
+ 	}
+ 	wl_list_remove(&drag->focus_destroy.link);
+@@ -176,7 +186,12 @@
  	if (drag->icon != NULL) {
  		drag_icon_destroy(drag->icon);
  	}
-+	struct wlr_data_source *cancel_source = !drag->dropped &&
++	struct wlr_data_source *cancel_source = !drag->dropped && !source_destroying &&
 +		wlr_xdg_toplevel_drag_v1_try_from_data_source(drag->source) ? drag->source : NULL;
  	free(drag);
 +	// Grab cancellation must end the source operation as well. Its drag
@@ -122,7 +135,7 @@
  }
  
  static void drag_handle_pointer_enter(struct wlr_seat_pointer_grab *grab,
-@@ -193,6 +204,9 @@
+@@ -193,6 +208,9 @@
  static void drag_handle_pointer_motion(struct wlr_seat_pointer_grab *grab,
  		uint32_t time, double sx, double sy) {
  	struct wlr_drag *drag = grab->data;
@@ -132,7 +145,7 @@
  	if (drag->focus != NULL && drag->focus_client != NULL) {
  		struct wl_resource *resource;
  		wl_resource_for_each(resource, &drag->focus_client->data_devices) {
-@@ -290,10 +304,10 @@
+@@ -290,10 +308,10 @@
  		return 0;
  	}
  
@@ -145,7 +158,7 @@
  		// This will end the grab and free `drag`
  		wlr_data_source_destroy(drag->source);
  		return 0;
-@@ -306,6 +320,9 @@
+@@ -306,6 +324,9 @@
  static void drag_handle_touch_motion(struct wlr_seat_touch_grab *grab,
  		uint32_t time, struct wlr_touch_point *point) {
  	struct wlr_drag *drag = grab->data;
@@ -155,7 +168,7 @@
  	if (drag->focus && drag->focus_client) {
  		struct wl_resource *resource;
  		wl_resource_for_each(resource, &drag->focus_client->data_devices) {
-@@ -341,6 +358,19 @@
+@@ -341,6 +362,19 @@
  	drag_set_focus(drag, NULL, 0, 0);
  }
  
@@ -175,7 +188,7 @@
  static const struct wlr_touch_grab_interface
  		data_device_touch_drag_interface = {
  	.down = drag_handle_touch_down,
-@@ -349,6 +379,7 @@
+@@ -349,6 +383,7 @@
  	.enter = drag_handle_touch_enter,
  	.cancel = drag_handle_touch_cancel,
  	.clear_focus = drag_handle_clear_focus,
@@ -183,16 +196,18 @@
  };
  
  static void drag_handle_keyboard_enter(struct wlr_seat_keyboard_grab *grab,
-@@ -396,6 +427,8 @@
+@@ -396,6 +431,10 @@
  static void drag_handle_drag_source_destroy(struct wl_listener *listener,
  		void *data) {
  	struct wlr_drag *drag = wl_container_of(listener, drag, source_destroy);
 +	wl_list_remove(&drag->source_destroy.link);
-+	drag->source = NULL;
++	wl_list_init(&drag->source_destroy.link);
++	// Keep drag->source valid through teardown: focus listeners (e.g. XWM
++	// drag focus) still read it while the destroy signal is being emitted.
  	drag_destroy(drag);
  }
  
-@@ -496,6 +529,9 @@
+@@ -496,6 +535,9 @@
  	if (seat->drag != NULL) {
  		wlr_log(WLR_DEBUG, "Rejecting start_drag request, "
  			"another drag-and-drop operation is already in progress");
@@ -202,7 +217,7 @@
  		return;
  	}
  
-@@ -535,6 +571,7 @@
+@@ -535,6 +577,7 @@
  		wl_signal_add(&drag->source->events.destroy, &seat->drag_source_destroy);
  	}
  
@@ -210,7 +225,7 @@
  	wl_signal_emit_mutable(&seat->events.start_drag, drag);
  }
  
-@@ -555,7 +592,11 @@
+@@ -555,7 +598,11 @@
  	drag->touch_id = point->touch_id;
  
  	wlr_seat_touch_start_grab(seat, &drag->touch_grab);

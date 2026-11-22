@@ -297,6 +297,7 @@ LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     "$scene_damage_probe" || die "scene empty-damage state updates failed"
 
 python3 "$here/scripts/test-pointer-enter.py" "$source_dir" "$prefix"
+python3 "$here/scripts/test-dnd-xwayland-cancel.py" "$source_dir" "$prefix"
 python3 "$here/scripts/test-protocol-version-handlers.py" "$source_dir" "$prefix"
 
 python3 "$here/scripts/test-overlay-backend.py" "$source_dir" "$prefix"
