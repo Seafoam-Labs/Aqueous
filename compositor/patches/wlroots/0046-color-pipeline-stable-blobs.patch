@@ -1,0 +1,274 @@
+drm, scene: keep color-pipeline KMS state stable between frames
+
+With the final color conversion offloaded to a KMS color pipeline, every
+commit created new DATA property blobs for the matrix and LUT colorops
+and destroyed them afterwards. KMS compares blob IDs, so each flip
+programmed a "new" color pipeline even when its contents were
+unchanged. amdgpu treats that as a color-management update and performs
+full display-core validation in atomic check for every flip, and for
+every TEST_ONLY probe before it.
+
+The scene also re-tested the offload on every frame once it had been
+accepted, because a successful test reset the retry counter to zero. That
+TEST_ONLY commit runs inside wlr_scene_output_build_state(), i.e. in the
+frame path. On a 4K 160 Hz HDR output it took 7.8 ms median (12.8 ms p95)
+against a 6.25 ms refresh interval, so frames missed vblank and a 90 fps
+game was displayed at roughly 45 or 22 fps. With the offload disabled the
+same build took 0.012 ms.
+
+Keep one DATA blob per colorop together with a copy of its contents, and
+reuse the blob ID while the contents are byte-identical. The colorop owns
+the blob: replacement or plane teardown destroys our handle, and KMS keeps
+its own reference while the blob is committed. Unchanged recipes are now
+unchanged KMS state.
+
+In the scene, remember the recipe/buffer key accepted by the last
+successful test and skip further TEST_ONLY commits for frames that change
+only buffer contents, damage, timelines, scale, transform or subpixel.
+Any other committed state, a recipe, format, modifier or size change, an
+image description or mode change, or disallowed direct scanout (render
+locks or a software cursor) clears the cache and tests again.
+
+--- a/backend/drm/color_pipeline.c
++++ b/backend/drm/color_pipeline.c
+@@ -20,6 +20,13 @@ struct colorop {
+ 	uint64_t size;
+ 	bool interpolation_supported;
+ 	drmModePropertyRes *curves;
++	/* Last DATA blob programmed on this colorop and its exact contents.
++	 * Reusing the blob ID keeps an unchanged recipe an unchanged KMS state;
++	 * a fresh ID per commit makes drivers treat every flip as a color
++	 * update (amdgpu then performs full DC validation for each flip). */
++	uint32_t data_blob;
++	void *data_contents;
++	size_t data_size;
+ };
+ struct color_pipeline {
+ 	uint32_t root;
+@@ -27,6 +34,7 @@ struct color_pipeline {
+ 	struct colorop nodes[MAX_NODES];
+ };
+ struct color_plane {
++	int fd;
+ 	uint32_t id;
+ 	uint32_t property;
+ 	size_t len;
+@@ -37,8 +45,6 @@ struct color_plane {
+ struct color_state {
+ 	struct color_plane *plane;
+ 	uint32_t root;
+-	uint32_t blobs[MAX_NODES];
+-	size_t blobs_len;
+ };
+ 
+ static bool add(drmModeAtomicReq *req, uint32_t id, uint32_t prop, uint64_t value) {
+@@ -129,9 +135,14 @@ static bool read_node(int fd, uint32_t id, struct colorop *op, uint32_t *next) {
+ 	return valid && type_found && next_found;
+ }
+ 
+-static void finish_pipeline(struct color_pipeline *p) {
++static void finish_pipeline(int fd, struct color_pipeline *p) {
+ 	for (size_t i = 0; i < p->len; i++) {
+ 		drmModeFreeProperty(p->nodes[i].curves);
++		/* KMS keeps its own reference to a blob that is still committed. */
++		if (p->nodes[i].data_blob) {
++			drmModeDestroyPropertyBlob(fd, p->nodes[i].data_blob);
++		}
++		free(p->nodes[i].data_contents);
+ 	}
+ 	*p = (struct color_pipeline){0};
+ }
+@@ -170,6 +181,7 @@ bool drm_color_pipeline_discover(struct wlr_drm_backend *drm, struct wlr_drm_pla
+ 	}
+ 	/* Keep the reset property even if discovery/allocation fails. */
+ 	plane->color_pipeline = cp;
++	cp->fd = drm->fd;
+ 	cp->id = plane->id;
+ 	cp->property = roots->prop_id;
+ 	if (roots->count_enums <= 0 || roots->count_enums > MAX_PIPELINES) {
+@@ -203,7 +215,7 @@ bool drm_color_pipeline_discover(struct wlr_drm_backend *drm, struct wlr_drm_pla
+ 		if (valid && p->len) {
+ 			cp->len++;
+ 		} else {
+-			finish_pipeline(p);
++			finish_pipeline(drm->fd, p);
+ 		}
+ 	}
+ out:
+@@ -228,7 +240,7 @@ void drm_color_pipeline_finish(struct wlr_drm_plane *plane) {
+ 		return;
+ 	}
+ 	for (size_t i = 0; i < cp->len; i++) {
+-		finish_pipeline(&cp->pipelines[i]);
++		finish_pipeline(cp->fd, &cp->pipelines[i]);
+ 	}
+ 	free(cp->pipelines);
+ 	free(cp);
+@@ -330,8 +342,35 @@ static bool match(const struct color_pipeline *p, const struct color_pipeline_re
+ 	return p->nodes[ni].bypass && match(p, r, ni + 1, oi, assignment, budget);
+ }
+ 
+-static bool emit(int fd, drmModeAtomicReq *req, const struct colorop *node,
+-	const struct color_pipeline_op *op, struct color_state *pending) {
++/* Takes ownership of contents. Returns the colorop's DATA blob for these exact
++ * contents, creating it only when they differ from the last programmed data. */
++static bool node_data_blob(int fd, struct colorop *node, void *contents, size_t size,
++	uint32_t *blob) {
++	if (node->data_blob && node->data_size == size &&
++		memcmp(node->data_contents, contents, size) == 0) {
++		free(contents);
++		*blob = node->data_blob;
++		return true;
++	}
++	uint32_t created = 0;
++	if (drmModeCreatePropertyBlob(fd, contents, size, &created) != 0) {
++		free(contents);
++		return false;
++	}
++	/* The previous blob may still be committed; KMS holds its own reference. */
++	if (node->data_blob) {
++		drmModeDestroyPropertyBlob(fd, node->data_blob);
++	}
++	free(node->data_contents);
++	node->data_blob = created;
++	node->data_contents = contents;
++	node->data_size = size;
++	*blob = created;
++	return true;
++}
++
++static bool emit(int fd, drmModeAtomicReq *req, struct colorop *node,
++	const struct color_pipeline_op *op) {
+ 	if (node->bypass && !add(req, node->id, node->bypass, op == NULL)) {
+ 		return false;
+ 	}
+@@ -348,15 +387,19 @@ static bool emit(int fd, drmModeAtomicReq *req, const struct colorop *node,
+ 	}
+ 	uint32_t blob = 0;
+ 	if (op->type == CP_MATRIX) {
+-		struct drm_color_ctm_3x4 matrix = {0};
++		struct drm_color_ctm_3x4 *matrix = calloc(1, sizeof(*matrix));
++		if (!matrix) {
++			return false;
++		}
+ 		for (size_t i = 0; i < 12; i++) {
+ 			uint64_t entry;
+ 			if (!color_pipeline_fixed(op->matrix[i], &entry)) {
++				free(matrix);
+ 				return false;
+ 			}
+-			matrix.matrix[i] = entry;
++			matrix->matrix[i] = entry;
+ 		}
+-		if (drmModeCreatePropertyBlob(fd, &matrix, sizeof(matrix), &blob) != 0) {
++		if (!node_data_blob(fd, node, matrix, sizeof(*matrix), &blob)) {
+ 			return false;
+ 		}
+ 	} else if (op->type == CP_LUT) {
+@@ -370,15 +413,12 @@ static bool emit(int fd, drmModeAtomicReq *req, const struct colorop *node,
+ 			lut[i].green = lut_resample(tr->lut_3x1d + tr->dim, tr->dim, node->size, i);
+ 			lut[i].blue = lut_resample(tr->lut_3x1d + 2 * tr->dim, tr->dim, node->size, i);
+ 		}
+-		int ret = drmModeCreatePropertyBlob(fd, lut, node->size * sizeof(*lut), &blob);
+-		free(lut);
+-		if (ret != 0) {
++		if (!node_data_blob(fd, node, lut, node->size * sizeof(*lut), &blob)) {
+ 			return false;
+ 		}
+ 	} else {
+ 		return false;
+ 	}
+-	pending->blobs[pending->blobs_len++] = blob;
+ 	return add(req, node->id, node->data, blob);
+ }
+ 
+@@ -425,7 +465,7 @@ bool drm_color_pipeline_add(struct wlr_drm_connector_state *s, drmModeAtomicReq
+ 		for (size_t j = 0; j < p->len; j++) {
+ 			const struct color_pipeline_op *op =
+ 				assignment[j] < 0 ? NULL : &recipe->ops[assignment[j]];
+-			if (!emit(drm->fd, req, &p->nodes[j], op, pending)) {
++			if (!emit(drm->fd, req, &p->nodes[j], op)) {
+ 				return false;
+ 			}
+ 		}
+@@ -460,10 +500,6 @@ void drm_color_pipeline_state_finish(struct wlr_drm_connector_state *s, bool com
+ 			p->plane->committed_crtc = crtc;
+ 			p->plane->committed_root = p->root;
+ 		}
+-		/* KMS retains its own reference after a successful atomic commit. */
+-		for (size_t i = 0; i < p->blobs_len; i++) {
+-			drmModeDestroyPropertyBlob(drm->fd, p->blobs[i]);
+-		}
+ 	}
+ 	wl_array_release(&s->color_pipeline_state);
+ 	wl_array_init(&s->color_pipeline_state);
+--- a/include/wlr/types/wlr_scene.h
++++ b/include/wlr/types/wlr_scene.h
+@@ -333,6 +333,9 @@ struct wlr_scene_output {
+ 		unsigned color_pipeline_scanout_retry_frames;
+ 		wlr_scene_node_needs_backdrop_func_t node_needs_backdrop;
+ 		bool previous_sampleable_backdrop;
++		/* Final-conversion offload accepted by a test for this key. */
++		uint64_t color_pipeline_verified_key;
++		bool color_pipeline_verified;
+ 	} WLR_PRIVATE;
+ };
+ 
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -2157,6 +2157,7 @@ static void scene_output_handle_commit(struct wl_listener *listener, void *data)
+ 		scene_output->color_pipeline_composed = false;
+ 		scene_output->color_pipeline_retry_frames = 0;
+ 		scene_output->color_pipeline_scanout_retry_frames = 0;
++		scene_output->color_pipeline_verified = false;
+ 	}
+ 
+ 	// if the output has been committed with a certain damage, we know that region
+@@ -3236,13 +3237,35 @@ static struct wlr_buffer *scene_output_try_color_pipeline(
+ 		return NULL;
+ 	}
+ 	struct wlr_buffer *wrapped = color_pipeline_wrap(buffer, &recipe);
++	uint64_t key = color_pipeline_fingerprint(&recipe);
++	key ^= (uint64_t)swapchain->format.format << 32;
++	struct wlr_dmabuf_attributes attrs;
++	if (wlr_buffer_get_dmabuf(buffer, &attrs)) {
++		key ^= ((uint64_t)attrs.format << 32) ^ attrs.modifier;
++	}
++	key ^= ((uint64_t)width << 32) ^ (uint32_t)height;
++	/* Once a recipe has passed, frames that change only buffer contents need
++	 * no further TEST_ONLY commit. Per-frame tests run the driver's full
++	 * atomic check in the frame path, which on amdgpu can exceed the refresh
++	 * interval. Any KMS-visible state change retests; the cache is cleared on
++	 * output disable and when direct scanout is disallowed (locks, cursor). */
++	const uint32_t frame_only = WLR_OUTPUT_STATE_BUFFER | WLR_OUTPUT_STATE_DAMAGE |
++		WLR_OUTPUT_STATE_SCALE | WLR_OUTPUT_STATE_TRANSFORM | WLR_OUTPUT_STATE_SUBPIXEL |
++		WLR_OUTPUT_STATE_WAIT_TIMELINE | WLR_OUTPUT_STATE_SIGNAL_TIMELINE;
++	bool verified = so->color_pipeline_verified && so->color_pipeline_verified_key == key &&
++		!(state->committed & ~frame_only);
+ 	struct wlr_output_state pending;
+ 	wlr_output_state_init(&pending);
+-	bool ok = wrapped && wlr_output_state_copy(&pending, state);
+-	if (ok) {
+-		wlr_output_state_set_buffer(&pending, wrapped);
+-		ok = wlr_output_test_state(output, &pending);
++	bool ok = wrapped != NULL;
++	if (ok && !verified) {
++		ok = wlr_output_state_copy(&pending, state);
++		if (ok) {
++			wlr_output_state_set_buffer(&pending, wrapped);
++			ok = wlr_output_test_state(output, &pending);
++		}
+ 	}
++	so->color_pipeline_verified = ok;
++	so->color_pipeline_verified_key = key;
+ 	if (ok) {
+ 		wlr_output_state_set_buffer(state, wrapped);
+ 		so->color_pipeline_retry_frames = 0;
+@@ -3286,6 +3305,7 @@ bool wlr_scene_output_build_state(struct wlr_scene_output *scene_output,
+ 		!wlr_output_is_direct_scanout_allowed(scene_output->output)) {
+ 		scene_output->color_pipeline_scanout_retry_frames = 0;
+ 		scene_output->color_pipeline_retry_frames = 0;
++		scene_output->color_pipeline_verified = false;
+ 	}
+ 	struct wlr_scene_timer *timer = options->timer;
+ 	struct timespec start_time;

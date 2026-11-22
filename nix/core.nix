@@ -155,6 +155,7 @@ let
       "${src}/compositor/patches/wlroots/0043-scene-buffer-windows-scrgb.patch"
       "${src}/compositor/patches/wlroots/0044-color-management-extended-target-volume.patch"
       "${src}/compositor/patches/wlroots/0045-scene-presentation.patch"
+      "${src}/compositor/patches/wlroots/0046-color-pipeline-stable-blobs.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending
