@@ -393,9 +393,11 @@ cycle moves and fullscreenes the window. If the user then moves it to workspace
 6, subsequent cycles leave it on 6. If its identity later changes so another
 rule matches, the new match gets a fresh ownership lifecycle.
 
-Only one fullscreen owner is retained per output. Requesting fullscreen clears
-the other fullscreen window and marks that other window's rule property as
-overridden where necessary.
+Only one fullscreen owner is retained per workspace. Requesting fullscreen
+clears the other fullscreen window on the same workspace and marks that other
+window's rule property as overridden where necessary. Fullscreen windows on
+other workspaces of the same output keep their state, so each workspace can
+hold its own fullscreen window.
 
 ## Layout and placement flow
 

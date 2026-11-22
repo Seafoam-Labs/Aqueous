@@ -478,10 +478,29 @@ build. `--renderer pixman` runs against a diagnostic build with
 `-Danimations=false`. Use `--compositor /path/to/aqueous` and optionally `--ctl`
 to select isolated builds or the original failing build. Logs, screenshots,
 and `results.json` remain in the printed `/tmp/aqueous-fullscreen-transition-*`
-directory. Current policy permits one fullscreen window per output, so the
-test preserves that constraint rather than creating two fullscreen workspaces
-on the same output. See the
+directory. Current policy permits one fullscreen window per workspace, so
+fullscreen windows on different workspaces of the same output keep their state
+independently. See the
 [implementation and validation notes](../docs/fullscreen-workspace-transition-plan.md).
+
+## Fullscreen workspace isolation regression
+
+`scripts/test-fullscreen-workspace-isolation.py` guards workspace-local
+fullscreen ownership: entering fullscreen on one workspace must not demote a
+fullscreen window on another workspace of the same output. It covers the IPC
+state command, the `toggle_fullscreen` keybinding, and client-originated
+xdg-shell requests, and checks that same-workspace exclusivity and
+cross-output independence are preserved, with pixel verification. Run it
+serially with the other graphical cases:
+
+```sh
+python3 scripts/test-fullscreen-workspace-isolation.py --renderer pixman
+```
+
+It needs Pillow, grim, wlrctl, a C compiler, and Wayland development tools, and
+runs against a `-Dvulkan-effects=false` diagnostic build (or a production build
+with `--renderer vulkan` and GPU access). Artifacts remain in the printed
+`/tmp/aqueous-fullscreen-isolation-*` directory.
 
 ## Headless window remapping regression
 
