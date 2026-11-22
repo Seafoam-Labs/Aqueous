@@ -42,6 +42,12 @@ pub const State = struct {
     /// Keep a local insertion fallback when focus leaves this instance.
     last_local_focus: ?types.Handle = null,
     viewport_dirty: bool = false,
+    /// Transient viewport offset in layout pixels applied on top of the
+    /// settled viewport without accumulating into viewport_x. Positive values
+    /// shift the viewport right, exposing the right edge. The window manager
+    /// arms it to acknowledge a move that is invisible while the focused
+    /// column fills the viewport, and clears it after a short dwell.
+    peek_offset: i32 = 0,
     /// Effective vertical preference from the most recent arrange: the
     /// configured portrait option applied while this instance's usable
     /// rectangle was taller than it was wide.
@@ -99,6 +105,7 @@ pub fn arrange(
         state.last_focused = null;
         state.last_local_focus = null;
         state.viewport_dirty = false;
+        state.peek_offset = 0;
         return result;
     }
 
@@ -189,6 +196,10 @@ pub fn arrange(
     if (!scrolling_options.allow_overscroll) {
         state.viewport_x = std.math.clamp(state.viewport_x, 0, @max(0, total_width - area.width));
     }
+    // The peek shifts placements and their visibility for this arrangement
+    // only, leaving the settled viewport untouched so clearing it settles the
+    // strip back to exactly the pre-peek geometry.
+    const view_x = state.viewport_x + state.peek_offset;
 
     var write: usize = 0;
     for (state.columns.items, widths, offsets, 0..) |*column, width, offset, column_index| {
@@ -229,7 +240,7 @@ pub fn arrange(
         column.reveal_focused = false;
         if (column.viewport_max_y == 0) column.viewport_y = 0;
 
-        const x = area.x + border_width + offset - state.viewport_x;
+        const x = area.x + border_width + offset - view_x;
         for (column.windows.items, rows) |handle, row| {
             const geometry: types.Rect = .{
                 .x = x,
@@ -1311,6 +1322,50 @@ test "a full-width owner expands only its column and remains scrollable" {
     const scrolled = try arrange(std.testing.allocator, &state, area, &windows, 2, options, .{});
     defer std.testing.allocator.free(scrolled);
     try std.testing.expectEqual(@as(i32, 25), scrolled[2].geometry.x);
+}
+
+test "peek offset exposes the trailing neighbour without persisting the viewport" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    const windows = [_]types.Window{
+        .{ .handle = 1 },
+        .{ .handle = 2, .scrolling_full_width = true },
+        .{ .handle = 3 },
+    };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+    const options: types.Options = .{ .gaps_outer = 0, .gaps_inner = 0 };
+    const initial = try arrange(std.testing.allocator, &state, area, &windows, 2, options, .{});
+    defer std.testing.allocator.free(initial);
+    try std.testing.expectEqual(@as(i32, 50), state.viewport_x);
+    try std.testing.expect(!findPlacement(initial, 1).visible);
+    try std.testing.expect(!findPlacement(initial, 3).visible);
+
+    // A rightward move nudges the window right (negative offset), exposing
+    // the column it passed at the left edge.
+    state.peek_offset = -32;
+    const right = try arrange(std.testing.allocator, &state, area, &windows, 2, options, .{});
+    defer std.testing.allocator.free(right);
+    try std.testing.expectEqual(@as(i32, 50), state.viewport_x);
+    try std.testing.expectEqual(@as(i32, 32), findPlacement(right, 2).geometry.x);
+    try std.testing.expect(findPlacement(right, 1).visible);
+    try std.testing.expectEqual(@as(i32, -18), findPlacement(right, 1).geometry.x);
+    try std.testing.expect(!findPlacement(right, 3).visible);
+
+    // A leftward move mirrors it at the right edge.
+    state.peek_offset = 32;
+    const left = try arrange(std.testing.allocator, &state, area, &windows, 2, options, .{});
+    defer std.testing.allocator.free(left);
+    try std.testing.expectEqual(@as(i32, -32), findPlacement(left, 2).geometry.x);
+    try std.testing.expect(findPlacement(left, 3).visible);
+    try std.testing.expectEqual(@as(i32, 68), findPlacement(left, 3).geometry.x);
+    try std.testing.expect(!findPlacement(left, 1).visible);
+
+    state.peek_offset = 0;
+    const settled = try arrange(std.testing.allocator, &state, area, &windows, 2, options, .{});
+    defer std.testing.allocator.free(settled);
+    try std.testing.expectEqual(findPlacement(initial, 2).geometry, findPlacement(settled, 2).geometry);
+    try std.testing.expect(!findPlacement(settled, 1).visible);
+    try std.testing.expect(!findPlacement(settled, 3).visible);
 }
 
 test "focus change recentres the containing column" {

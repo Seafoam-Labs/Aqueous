@@ -237,6 +237,19 @@ pub fn scrollingExpandedOwner(state: *const State, handle: types.Handle) ?types.
     };
 }
 
+pub fn setScrollingPeek(state: *State, focused: types.Handle, offset: i32) void {
+    switch (state.active_layout) {
+        .scrolling => state.scrolling.peek_offset = offset,
+        .game_mode => game_mode.setScrollingPeek(&state.game_mode, focused, offset),
+        else => {},
+    }
+}
+
+pub fn clearScrollingPeek(state: *State) void {
+    state.scrolling.peek_offset = 0;
+    game_mode.clearScrollingPeek(&state.game_mode);
+}
+
 pub fn scrollingColumnMembers(state: *const State, handle: types.Handle) ?[]const types.Handle {
     return switch (state.active_layout) {
         .scrolling => scrolling.columnMembers(&state.scrolling, handle),
