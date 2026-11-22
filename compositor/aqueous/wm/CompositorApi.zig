@@ -1227,11 +1227,22 @@ pub fn clearFullscreen(_: CompositorApi, handle: layout.Handle) void {
     if (ref.get()) |window| window.policyClearFullscreen();
 }
 
+/// Fullscreen ownership is workspace-local: demote only the other fullscreen
+/// window sharing the requester's workspace. Fullscreen windows parked on
+/// other workspaces of the same output keep their state. An unassigned
+/// requester is admitted to the output's active workspace, so that workspace
+/// is its scope.
 pub fn clearOtherFullscreen(_: CompositorApi, output_id: u64, except: layout.Handle) void {
+    const ref: Window.Ref = @bitCast(except);
+    const requester = ref.get() orelse return;
+    const scope = requester.workspace orelse blk: {
+        const output = outputById(output_id) orelse return;
+        break :blk output.active_workspace orelse return;
+    };
     var windows = server.wm.windows.iterator();
     while (windows.next()) |window| {
-        const state = window.policySnapshot();
-        if (state.handle == except or !state.fullscreen or state.output_id != output_id) continue;
+        if (window == requester or window.wm_requested.fullscreen == null) continue;
+        if (window.workspace != scope) continue;
         window.policy_state.overrideFullscreen();
         window.policyClearFullscreen();
     }

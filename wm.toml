@@ -420,8 +420,9 @@ rotate_output_clockwise  = "Super+Ctrl+R"       # rotate the output beneath the 
 # --- Window state ops (Phase B1e) ---
 # Fullscreen / Maximize / Floating / Minimize. Each toggle remembers the prior
 # state so a second press round-trips. Only ONE
-# fullscreen window per output is allowed (toggling another auto-restores
-# the prior). Minimized windows are excluded from layout + focus cycle.
+# fullscreen window per workspace is allowed (toggling another on the same
+# workspace auto-restores the prior; other workspaces keep their own).
+# Minimized windows are excluded from layout + focus cycle.
 toggle_fullscreen     = "Super+Shift+F"        # default
 toggle_maximize       = "Super+Shift+M"        # default
 toggle_floating       = "Super+Shift+Space"    # default
