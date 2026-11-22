@@ -17,6 +17,16 @@
  void data_source_notify_finish(struct wlr_data_source *source);
  
  struct wlr_seat_client *seat_client_from_data_device_resource(
+--- a/include/wlr/types/wlr_data_device.h
++++ b/include/wlr/types/wlr_data_device.h
+@@ -121,6 +121,7 @@
+ 	struct wlr_data_source *source; // can be NULL
+ 
+ 	bool started, dropped, cancelling;
++	bool source_destroying; // source destroy signal is being emitted
+ 	int32_t grab_touch_id, touch_id; // if WLR_DRAG_GRAB_TOUCH
+ 
+ 	struct {
 --- a/include/wlr/types/wlr_xdg_toplevel_drag_v1.h
 +++ b/include/wlr/types/wlr_xdg_toplevel_drag_v1.h
 @@ -0,0 +1,32 @@
@@ -109,11 +119,20 @@
  	if (drag->focus == surface) {
  		return;
  	}
+@@ -168,7 +174,7 @@
+ 	assert(wl_list_empty(&drag->events.drop.listener_list));
+ 	assert(wl_list_empty(&drag->events.destroy.listener_list));
+ 
+-	if (drag->source) {
++	if (drag->source && !drag->source_destroying) {
+ 		wl_list_remove(&drag->source_destroy.link);
+ 	}
+ 	wl_list_remove(&drag->focus_destroy.link);
 @@ -176,7 +182,12 @@
  	if (drag->icon != NULL) {
  		drag_icon_destroy(drag->icon);
  	}
-+	struct wlr_data_source *cancel_source = !drag->dropped &&
++	struct wlr_data_source *cancel_source = !drag->dropped && !drag->source_destroying &&
 +		wlr_xdg_toplevel_drag_v1_try_from_data_source(drag->source) ? drag->source : NULL;
  	free(drag);
 +	// Grab cancellation must end the source operation as well. Its drag
@@ -183,16 +202,20 @@
  };
  
  static void drag_handle_keyboard_enter(struct wlr_seat_keyboard_grab *grab,
-@@ -396,6 +427,8 @@
+@@ -396,6 +427,12 @@
  static void drag_handle_drag_source_destroy(struct wl_listener *listener,
  		void *data) {
  	struct wlr_drag *drag = wl_container_of(listener, drag, source_destroy);
 +	wl_list_remove(&drag->source_destroy.link);
-+	drag->source = NULL;
++	wl_list_init(&drag->source_destroy.link);
++	// Keep drag->source valid while the drag is torn down: focus/destroy
++	// listeners (e.g. the Xwayland DND bridge) still dereference it. The
++	// source memory stays alive until its destroy signal finishes emitting.
++	drag->source_destroying = true;
  	drag_destroy(drag);
  }
  
-@@ -496,6 +529,9 @@
+@@ -496,6 +533,9 @@
  	if (seat->drag != NULL) {
  		wlr_log(WLR_DEBUG, "Rejecting start_drag request, "
  			"another drag-and-drop operation is already in progress");
@@ -202,7 +225,7 @@
  		return;
  	}
  
-@@ -535,6 +571,7 @@
+@@ -535,6 +575,7 @@
  		wl_signal_add(&drag->source->events.destroy, &seat->drag_source_destroy);
  	}
  
@@ -210,7 +233,7 @@
  	wl_signal_emit_mutable(&seat->events.start_drag, drag);
  }
  
-@@ -555,7 +592,11 @@
+@@ -555,7 +596,11 @@
  	drag->touch_id = point->touch_id;
  
  	wlr_seat_touch_start_grab(seat, &drag->touch_grab);
