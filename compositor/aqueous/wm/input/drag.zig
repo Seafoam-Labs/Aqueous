@@ -84,6 +84,20 @@ pub fn edgesForAxis(edges: ResizeEdges, axis: ResizeAxis) ResizeEdges {
     return selected;
 }
 
+/// Press-time edge policy for modifier drags. Floating resizes hit-test the
+/// on-screen rect so the corner opposing the pointer stays anchored, even
+/// when the drag started from restored snap geometry elsewhere. Scrolling
+/// resizes keep the bottom-right default and latch an axis on first motion;
+/// an empty edge set would turn every motion into a no-op. Move and swap
+/// actions do not move edges.
+pub fn edgesForAction(drag_action: Action, rect: types.Rect, x: f64, y: f64) ResizeEdges {
+    return switch (drag_action) {
+        .resize_floating => edgesForPointer(rect, x, y),
+        .resize_scrolling => .{ .bottom = true, .right = true },
+        .move_floating, .swap_tiled => .{},
+    };
+}
+
 pub fn stayedClick(pointer_x: f64, pointer_y: f64, last_x: f64, last_y: f64) bool {
     return @abs(last_x - pointer_x) <= click_motion_tolerance and
         @abs(last_y - pointer_y) <= click_motion_tolerance;
@@ -251,6 +265,37 @@ test "pointer quadrants select the opposing resize anchor" {
     try std.testing.expectEqual(
         ResizeEdges{ .bottom = true, .right = true },
         edgesForPointer(degenerate, 50, 50),
+    );
+}
+
+test "modifier drag edges follow the action policy" {
+    const rect: types.Rect = .{ .x = 100, .y = 50, .width = 300, .height = 200 };
+    try std.testing.expectEqual(
+        ResizeEdges{ .top = true, .left = true },
+        edgesForAction(.resize_floating, rect, 120, 60),
+    );
+    try std.testing.expectEqual(
+        ResizeEdges{ .bottom = true, .right = true },
+        edgesForAction(.resize_scrolling, rect, 120, 60),
+    );
+    try std.testing.expectEqual(ResizeEdges{}, edgesForAction(.move_floating, rect, 120, 60));
+    try std.testing.expectEqual(ResizeEdges{}, edgesForAction(.swap_tiled, rect, 120, 60));
+}
+
+test "scrolling drag edges resize on both latched axes" {
+    const start: types.Rect = .{ .x = 100, .y = 50, .width = 300, .height = 200 };
+    const edges = edgesForAction(.resize_scrolling, start, 150, 100);
+    try std.testing.expectEqual(
+        types.Rect{ .x = 100, .y = 50, .width = 340, .height = 200 },
+        resize(start, 40, 9, edgesForAxis(edges, .horizontal)),
+    );
+    try std.testing.expectEqual(
+        types.Rect{ .x = 100, .y = 50, .width = 300, .height = 230 },
+        resize(start, 9, 30, edgesForAxis(edges, .vertical)),
+    );
+    try std.testing.expectEqual(
+        types.Rect{ .x = 100, .y = 50, .width = 260, .height = 200 },
+        resize(start, -40, 0, edgesForAxis(edges, .horizontal)),
     );
 }
 
