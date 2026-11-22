@@ -9,6 +9,7 @@ const wlr = @import("wlroots");
 const EffectMetadata = @import("render/EffectMetadata.zig");
 const render_metrics = @import("render_metrics.zig");
 const scene_opacity = @import("scene_opacity.zig");
+const scaling = @import("scaling");
 
 /// Default corner radius (in layout pixels) for window content and borders.
 /// Integrated policy supplies the configured radius on each placement.
@@ -80,6 +81,52 @@ pub fn setBufferClip(buffer: *wlr.SceneBuffer, clip: ?BufferClip) void {
 pub fn bufferClip(buffer: *wlr.SceneBuffer) ?BufferClip {
     if (comptime !build_options.vulkan_effects) return null;
     return if (metadata().bufferData(buffer)) |data| data.clip else null;
+}
+
+/// Store the resampling filter policy on a single scene buffer. The render hook
+/// resolves `auto`/`high_quality` against the live draw geometry; `bilinear` and
+/// `nearest` are additionally applied to wlroots' own filter mode by the caller.
+pub fn setBufferScaleFilter(buffer: *wlr.SceneBuffer, filter: scaling.ScaleFilter) void {
+    if (comptime build_options.vulkan_effects) {
+        const changed = metadata().setBufferScaleFilter(buffer, filter) catch {
+            std.log.err("could not store scene-buffer scale filter: out of memory", .{});
+            return;
+        };
+        if (!changed) return;
+        var outputs = @import("main.zig").server.om.outputs.iterator(.forward);
+        while (outputs.next()) |output| output.damageBufferEffects(buffer);
+    }
+}
+
+pub fn bufferScaleFilter(buffer: *wlr.SceneBuffer) scaling.ScaleFilter {
+    if (comptime !build_options.vulkan_effects) return .auto;
+    return metadata().bufferScaleFilter(buffer);
+}
+
+/// Apply one window's resampling filter policy to every surface in its tree,
+/// including offset subsurfaces, mirroring `setTreeClip`.
+pub fn setTreeScaleFilter(tree: *wlr.SceneTree, filter: scaling.ScaleFilter) void {
+    if (comptime !build_options.vulkan_effects) return;
+    setNodeScaleFilter(&tree.node, filter);
+}
+
+fn setNodeScaleFilter(node: *wlr.SceneNode, filter: scaling.ScaleFilter) void {
+    switch (node.type) {
+        .tree => {
+            const tree = wlr.SceneTree.fromNode(node);
+            var it = tree.children.iterator(.forward);
+            while (it.next()) |child| setNodeScaleFilter(child, filter);
+        },
+        .buffer => {
+            const buffer = wlr.SceneBuffer.fromNode(node);
+            setBufferScaleFilter(buffer, filter);
+            // Forced bilinear/nearest render through wlroots' stock path. The
+            // area downscale (auto/high_quality on a minified buffer) is
+            // intercepted by the Vulkan hook, so leave the stock mode bilinear.
+            buffer.setFilterMode(if (filter == .nearest) .nearest else .bilinear);
+        },
+        .rect => {},
+    }
 }
 
 /// Set the corner radius of a single scene rect node.

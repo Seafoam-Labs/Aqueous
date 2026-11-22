@@ -31,6 +31,60 @@ pub const BufferScalePolicy = enum {
     }
 };
 
+/// Resampling filter for a surface whose buffer scale does not match the
+/// output scale. `auto` (the default) selects the high-quality area downscale
+/// only when the buffer is actually minified; matched 1:1 surfaces keep the
+/// cheap bilinear path. `bilinear`/`nearest` force the stock wlroots filters.
+/// `high_quality` is an explicit opt-in to the area downscale whenever the
+/// surface is minified, identical to `auto` but independent of future default
+/// changes.
+pub const ScaleFilter = enum {
+    auto,
+    bilinear,
+    nearest,
+    high_quality,
+
+    pub fn parse(value: []const u8) ?ScaleFilter {
+        if (std.mem.eql(u8, value, "auto")) return .auto;
+        if (std.mem.eql(u8, value, "bilinear") or std.mem.eql(u8, value, "linear")) return .bilinear;
+        if (std.mem.eql(u8, value, "nearest")) return .nearest;
+        if (std.mem.eql(u8, value, "high-quality") or
+            std.mem.eql(u8, value, "high_quality")) return .high_quality;
+        return null;
+    }
+};
+
+/// The filter actually used for one draw once the resampling ratio is known.
+pub const ResolvedFilter = enum { bilinear, nearest, area };
+
+/// Ratio of physical destination pixels to source buffer pixels. Values below
+/// 1 mean the buffer is minified (the blurry-text case from fractional scaling
+/// with integer-buffer clients); values above 1 mean magnification. The smaller
+/// axis governs so anisotropic scaling still triggers the downscale filter.
+/// Zero-sized inputs yield 1 (no resampling decision).
+pub fn downscaleRatio(src_w: f64, src_h: f64, dst_w: f64, dst_h: f64) f64 {
+    if (src_w <= 0 or src_h <= 0 or dst_w <= 0 or dst_h <= 0) return 1;
+    return @min(dst_w / src_w, dst_h / src_h);
+}
+
+/// Tolerance around 1:1 within which resampling is treated as identity. Slightly
+/// looser than f64 epsilon because destination sizes are rounded to whole
+/// physical pixels, so a nominally matched surface can differ by a fraction of
+/// a percent without any visible resampling.
+pub const ratio_epsilon: f64 = 0.001;
+
+/// Resolve the configured filter for a draw at the given resampling ratio.
+/// The area downscale only benefits minification; magnification keeps bilinear
+/// because a box filter cannot add detail beyond the source.
+pub fn resolveFilter(filter: ScaleFilter, ratio: f64) ResolvedFilter {
+    const minified = ratio < 1.0 - ratio_epsilon;
+    return switch (filter) {
+        .nearest => .nearest,
+        .bilinear => .bilinear,
+        .auto, .high_quality => if (minified) .area else .bilinear,
+    };
+}
+
 pub fn clampScale(requested: f32) f32 {
     return std.math.clamp(requested, min_scale, max_scale);
 }
@@ -155,4 +209,47 @@ test "physical grid is local to the owning output origin" {
     const snapped = grid.snapFromOrigin(1922, origin);
     try std.testing.expectApproxEqAbs(@as(f64, 1921.8), snapped, 0.000_001);
     try std.testing.expectEqual(@as(i32, 1), grid.boundary(snapped - origin));
+}
+
+test "scale filter parses aliases and rejects unknown values" {
+    try std.testing.expectEqual(ScaleFilter.auto, ScaleFilter.parse("auto").?);
+    try std.testing.expectEqual(ScaleFilter.bilinear, ScaleFilter.parse("bilinear").?);
+    try std.testing.expectEqual(ScaleFilter.bilinear, ScaleFilter.parse("linear").?);
+    try std.testing.expectEqual(ScaleFilter.nearest, ScaleFilter.parse("nearest").?);
+    try std.testing.expectEqual(ScaleFilter.high_quality, ScaleFilter.parse("high-quality").?);
+    try std.testing.expectEqual(ScaleFilter.high_quality, ScaleFilter.parse("high_quality").?);
+    try std.testing.expect(ScaleFilter.parse("lanczos") == null);
+}
+
+test "downscale ratio classifies fractional-scaling buffer mismatches" {
+    // GTK3 / integer-ceil client: 2x buffer on a 1.25 output -> 0.625.
+    try std.testing.expectApproxEqAbs(@as(f64, 0.625), downscaleRatio(2000, 1000, 1250, 625), 1e-9);
+    // 1.5 output -> 0.75; 1.75 output -> 0.875.
+    try std.testing.expectApproxEqAbs(@as(f64, 0.75), downscaleRatio(2000, 1000, 1500, 750), 1e-9);
+    try std.testing.expectApproxEqAbs(@as(f64, 0.875), downscaleRatio(2000, 1000, 1750, 875), 1e-9);
+    // Fractional-capable client renders 1:1.
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), downscaleRatio(1250, 625, 1250, 625), 1e-9);
+    // Scale-ignoring client upscaled.
+    try std.testing.expectApproxEqAbs(@as(f64, 1.25), downscaleRatio(1000, 500, 1250, 625), 1e-9);
+    // The smaller axis governs anisotropic scaling.
+    try std.testing.expectApproxEqAbs(@as(f64, 0.5), downscaleRatio(1000, 1000, 800, 500), 1e-9);
+    // Degenerate sizes are treated as identity.
+    try std.testing.expectEqual(@as(f64, 1), downscaleRatio(0, 100, 100, 100));
+}
+
+test "resolve filter applies area downscale only to minified auto surfaces" {
+    // Auto: area when minified, bilinear when matched or magnified.
+    try std.testing.expectEqual(ResolvedFilter.area, resolveFilter(.auto, 0.625));
+    try std.testing.expectEqual(ResolvedFilter.area, resolveFilter(.auto, 0.875));
+    try std.testing.expectEqual(ResolvedFilter.bilinear, resolveFilter(.auto, 1.0));
+    try std.testing.expectEqual(ResolvedFilter.bilinear, resolveFilter(.auto, 1.25));
+    // Within epsilon of 1:1 stays bilinear.
+    try std.testing.expectEqual(ResolvedFilter.bilinear, resolveFilter(.auto, 1.0 - ratio_epsilon / 2));
+    // Explicit high_quality behaves like auto for the ratio decision.
+    try std.testing.expectEqual(ResolvedFilter.area, resolveFilter(.high_quality, 0.625));
+    try std.testing.expectEqual(ResolvedFilter.bilinear, resolveFilter(.high_quality, 1.0));
+    // Forced filters ignore the ratio.
+    try std.testing.expectEqual(ResolvedFilter.nearest, resolveFilter(.nearest, 0.625));
+    try std.testing.expectEqual(ResolvedFilter.nearest, resolveFilter(.nearest, 1.0));
+    try std.testing.expectEqual(ResolvedFilter.bilinear, resolveFilter(.bilinear, 0.625));
 }

@@ -156,6 +156,7 @@ pub const Snapshot = struct {
     opacity_focused: f64 = 1,
     opacity_unfocused: f64 = 0.9,
     buffer_scale_policy: scaling.BufferScalePolicy = .native,
+    scale_filter: scaling.ScaleFilter = .auto,
     workspace_transition_enabled: bool = true,
     workspace_transition_rate: f64 = 0,
     /// Startup-only DRM overlay-plane optimization. Selecting wlroots'
@@ -258,8 +259,12 @@ pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []c
                 if (std.mem.eql(u8, key, "vibrancy_darkness")) snapshot.blur_vibrancy_darkness = parseUnit(value) orelse snapshot.blur_vibrancy_darkness;
             },
             .opacity => applyOpacity(snapshot, key, value),
-            .scaling => if (std.mem.eql(u8, key, "buffer_policy")) {
-                snapshot.buffer_scale_policy = scaling.BufferScalePolicy.parse(value) orelse snapshot.buffer_scale_policy;
+            .scaling => {
+                if (std.mem.eql(u8, key, "buffer_policy")) {
+                    snapshot.buffer_scale_policy = scaling.BufferScalePolicy.parse(value) orelse snapshot.buffer_scale_policy;
+                } else if (std.mem.eql(u8, key, "scale_filter")) {
+                    snapshot.scale_filter = scaling.ScaleFilter.parse(value) orelse snapshot.scale_filter;
+                }
             },
             .workspace_transition => {
                 if (std.mem.eql(u8, key, "enabled")) snapshot.workspace_transition_enabled = parseBool(value) orelse snapshot.workspace_transition_enabled;
@@ -622,6 +627,31 @@ test "scaling buffer policy is opt-in and rejects unknown values" {
         \\buffer_policy = "unsupported"
     );
     try std.testing.expectEqual(scaling.BufferScalePolicy.integer_ceil, wm_snapshot.buffer_scale_policy);
+}
+
+test "scaling scale filter defaults to auto and parses aliases" {
+    var wm_snapshot: Snapshot = .{};
+    var layout_snapshot: layout.Snapshot = .{};
+    try std.testing.expectEqual(scaling.ScaleFilter.auto, wm_snapshot.scale_filter);
+
+    apply(&wm_snapshot, &layout_snapshot,
+        \\[scaling]
+        \\scale_filter = "high-quality"
+    );
+    try std.testing.expectEqual(scaling.ScaleFilter.high_quality, wm_snapshot.scale_filter);
+
+    apply(&wm_snapshot, &layout_snapshot,
+        \\[scaling]
+        \\scale_filter = "nearest"
+    );
+    try std.testing.expectEqual(scaling.ScaleFilter.nearest, wm_snapshot.scale_filter);
+
+    // Unknown values leave the previous setting untouched.
+    apply(&wm_snapshot, &layout_snapshot,
+        \\[scaling]
+        \\scale_filter = "lanczos"
+    );
+    try std.testing.expectEqual(scaling.ScaleFilter.nearest, wm_snapshot.scale_filter);
 }
 
 test "blur appearance validates ranges and preserves neutral defaults" {

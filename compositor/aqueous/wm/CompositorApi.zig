@@ -1192,6 +1192,7 @@ pub fn applyRuleVisual(
     opacity: ?f64,
     hdr_expand: ?bool,
     buffer_scale_policy: scaling.BufferScalePolicy,
+    scale_filter: scaling.ScaleFilter,
     overlay_plane: @import("rules/engine.zig").OverlayPreference,
     force_ssd: bool,
 ) void {
@@ -1201,6 +1202,7 @@ pub fn applyRuleVisual(
         opacity,
         hdr_expand,
         buffer_scale_policy,
+        scale_filter,
         overlay_plane,
         force_ssd,
     );

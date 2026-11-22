@@ -76,25 +76,67 @@ float rounded_box_distance(vec2 position, vec2 size, vec4 radii) {
         radius;
 }
 
-void main() {
-    vec4 sampled = textureLod(source_texture, uv, 0.0);
-    float source_alpha = sampled.a;
-    vec3 rgb = source_alpha == 0.0
-        ? vec3(0.0)
-        : sampled.rgb / source_alpha;
-
+vec3 transfer_to_linear(vec3 rgb) {
     if (TEXTURE_TRANSFORM != TEXTURE_TRANSFORM_IDENTITY) {
         rgb = max(rgb, vec3(0.0));
     }
     if (TEXTURE_TRANSFORM == TEXTURE_TRANSFORM_SRGB) {
-        rgb = srgb_color_to_linear(rgb);
+        return srgb_color_to_linear(rgb);
     } else if (TEXTURE_TRANSFORM == TEXTURE_TRANSFORM_ST2084_PQ) {
-        rgb = pq_color_to_linear(rgb);
+        return pq_color_to_linear(rgb);
     } else if (TEXTURE_TRANSFORM == TEXTURE_TRANSFORM_GAMMA22) {
-        rgb = pow(rgb, vec3(2.2));
+        return pow(rgb, vec3(2.2));
     } else if (TEXTURE_TRANSFORM == TEXTURE_TRANSFORM_BT1886) {
-        rgb = bt1886_color_to_linear(rgb);
+        return bt1886_color_to_linear(rgb);
     }
+    return rgb;
+}
+
+// One source tap un-premultiplied and converted to linear light, then
+// re-premultiplied. Averaging these in the area path filters in linear light
+// (the same reason Mutter samples YUV in premultiplied-electrical space), so
+// downscaled text and edges do not pick up gamma-space halos.
+vec4 fetch_linear_premult(vec2 coord) {
+    vec4 sampled = textureLod(source_texture, coord, 0.0);
+    float a = sampled.a;
+    vec3 rgb = a == 0.0 ? vec3(0.0) : sampled.rgb / a;
+    rgb = transfer_to_linear(rgb);
+    return vec4(rgb * a, a);
+}
+
+void main() {
+    // color_rows[3].z carries the area-downscale flag (see RoundedPipeline).
+    // When set, integrate a box of source texels covering this output pixel's
+    // footprint instead of a single bilinear tap. This is the high-quality
+    // resampling path for mismatched-scale surfaces (e.g. an integer-buffer
+    // GTK3 client on a fractional output); the footprint is derived from the
+    // per-pixel UV derivative and the source texture size, so no extra push
+    // constants are needed. Tap counts are capped to bound fragment cost.
+    vec4 linear_sample;
+    if (push_data.color_rows[3].z > 0.5) {
+        vec2 tex_size = vec2(textureSize(source_texture, 0));
+        vec2 footprint = fwidth(uv) * tex_size;
+        vec2 center = uv * tex_size;
+        int nx = int(clamp(ceil(footprint.x), 1.0, 4.0));
+        int ny = int(clamp(ceil(footprint.y), 1.0, 4.0));
+        vec4 acc = vec4(0.0);
+        for (int j = 0; j < ny; j++) {
+            for (int i = 0; i < nx; i++) {
+                vec2 t = (vec2(float(i) + 0.5, float(j) + 0.5) /
+                    vec2(float(nx), float(ny))) - 0.5;
+                vec2 coord = (center + t * footprint) / tex_size;
+                acc += fetch_linear_premult(coord);
+            }
+        }
+        linear_sample = acc / float(nx * ny);
+    } else {
+        linear_sample = fetch_linear_premult(uv);
+    }
+
+    float source_alpha = linear_sample.a;
+    vec3 rgb = source_alpha == 0.0
+        ? vec3(0.0)
+        : linear_sample.rgb / source_alpha;
 
     rgb *= push_data.luminance_multiplier;
     rgb = vec3(
@@ -105,8 +147,8 @@ void main() {
 
     // Auto HDR expansion: lift SDR highlights toward the configured HDR
     // peak. The luminance multiplier above already places SDR diffuse white
-    // (patched wlroots sdr_white_level), so the curve is expressed relative
-    // to it: identity at and below the knee, rising gain near white, and a
+    // (patched wlroots sdr_white_level), so the curve is expressed relative to
+    // it: identity at and below the knee, rising gain near white, and a
     // hard clamp at the peak so content never exceeds the advertised level.
     // Mirrors aqueous/auto_hdr.zig.
     if (push_data.itm_peak > 0.0) {

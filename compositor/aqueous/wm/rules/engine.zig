@@ -105,10 +105,10 @@ pub const Rule = struct {
     tag: ?[]const u8 = null,
     /// Matches the wp_content_type_v1 state committed by the client. Rules
     /// with this matcher only apply visual/client-buffer effects (blur,
-    /// opacity, buffer_scale_policy, hdr_expand, and keep_render); layout and
-    /// placement edits are deliberately dropped at resolve time because the
-    /// content type commonly arrives long after map and must never move an
-    /// already-arranged window.
+    /// opacity, buffer_scale_policy, scale_filter, hdr_expand, and keep_render);
+    /// layout and placement edits are deliberately dropped at resolve time
+    /// because the content type commonly arrives long after map and must never
+    /// move an already-arranged window.
     content_type: ?wp.ContentTypeV1.Type = null,
     /// Null preserves the workspace layout; game mode must be explicit.
     layout: ?Layout = null,
@@ -126,6 +126,8 @@ pub const Rule = struct {
     opacity: ?f64 = null,
     /// Override the global client-buffer scaling strategy for this window.
     buffer_scale_policy: ?scaling.BufferScalePolicy = null,
+    /// Override the global resampling filter for mismatched-scale surfaces.
+    scale_filter: ?scaling.ScaleFilter = null,
     /// Auto HDR expansion override for matching windows on HDR outputs with
     /// `auto_hdr` enabled. Null follows the default (fullscreen windows and
     /// game content).
@@ -191,6 +193,7 @@ pub const Rule = struct {
         hashOptionalBool(&hash, rule.blur);
         hashOptionalFloat(&hash, rule.opacity);
         hashOptionalEnum(&hash, rule.buffer_scale_policy);
+        hashOptionalEnum(&hash, rule.scale_filter);
         hashOptionalBool(&hash, rule.hdr_expand);
         hash.update(std.mem.asBytes(&rule.overlay_plane));
         hashOptionalEnum(&hash, rule.stack_layer);

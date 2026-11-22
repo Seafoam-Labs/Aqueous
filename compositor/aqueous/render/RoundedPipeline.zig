@@ -153,6 +153,7 @@ pub fn drawTexture(
     clip: ?EffectMetadata.BufferClip,
     swapchain_path: bool,
     itm: ?auto_hdr.ItmParams,
+    area_filter: bool,
 ) !bool {
     if (!validPass(&attributes.render_pass) or
         attributes.pipeline_layout == null or
@@ -164,7 +165,7 @@ pub fn drawTexture(
 
     const box = options.dst_box;
     if (box.width <= 0 or box.height <= 0) return false;
-    if (clip == null and itm == null) return false;
+    if (clip == null and itm == null and !area_filter) return false;
 
     const texture_pipeline = try pipeline.texturePipelineFor(attributes);
     var vertex_push: TextureVertexPush = .{
@@ -188,6 +189,9 @@ pub fn drawTexture(
         .{ @floatCast(mask.x), @floatCast(mask.y), 0, 0 }
     else
         .{ 0, 0, 0, 0 };
+    // Spare slot: the area-downscale flag consumed by rounded_texture.frag.
+    // It shares color_rows[3] with the mask origin (xy) without conflict.
+    fragment_push.color_matrix[3][2] = if (area_filter) 1.0 else 0.0;
 
     const command_buffer = attributes.render_pass.command_buffer;
     c.vkCmdBindPipeline(

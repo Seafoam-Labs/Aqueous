@@ -186,6 +186,7 @@ const RenderingRequested = struct {
     /// aqueous_window_v1.set_window_opacity.
     opacity: ?u32 = null,
     buffer_scale_policy: scaling.BufferScalePolicy = .native,
+    scale_filter: scaling.ScaleFilter = .auto,
     overlay_plane: OverlayPreference = .off,
 
     pub const init: RenderingRequested = .{
@@ -203,6 +204,7 @@ const RenderingRequested = struct {
         .blur_enabled = true,
         .opacity = null,
         .buffer_scale_policy = .native,
+        .scale_filter = .auto,
         .overlay_plane = .off,
     };
 };
@@ -674,6 +676,7 @@ pub fn policyApplyVisualRule(
     opacity: ?f64,
     hdr_expand: ?bool,
     buffer_scale_policy: scaling.BufferScalePolicy,
+    scale_filter: scaling.ScaleFilter,
     overlay_plane: OverlayPreference,
     force_ssd: bool,
 ) void {
@@ -684,6 +687,7 @@ pub fn policyApplyVisualRule(
     } else window.rendering_requested.opacity = null;
     window.hdr_expand_rule = hdr_expand;
     window.rendering_requested.buffer_scale_policy = buffer_scale_policy;
+    window.rendering_requested.scale_filter = scale_filter;
     window.rendering_requested.overlay_plane = overlay_plane;
     // Integrated policy owns this value outright. Recompute it on every cycle
     // so disabling force_ssd or losing the xdg-decoration object cannot leave
@@ -765,6 +769,7 @@ pub fn policyTrace(window: *const Window, hasher: *std.hash.Wyhash) void {
     hasher.update(std.mem.asBytes(&window.rendering_requested.precise_y));
     hasher.update(std.mem.asBytes(&window.rendering_requested.output_scale));
     hasher.update(std.mem.asBytes(&window.rendering_requested.buffer_scale_policy));
+    hasher.update(std.mem.asBytes(&window.rendering_requested.scale_filter));
     hasher.update(std.mem.asBytes(&window.rendering_requested.hidden));
     const fullscreen = window.wm_requested.fullscreen != null;
     hasher.update(std.mem.asBytes(&fullscreen));
@@ -2797,6 +2802,12 @@ pub fn applyOpacity(window: *Window) void {
 
 pub fn applySurfaceVisualState(window: *Window) void {
     fx.setTreeClip(window.surfaces.tree, window.surfaceMask(&window.rendering_requested.content_clip));
+    // Publish the resampling filter policy to every surface (and popup) so the
+    // render hook can resolve it against the live draw geometry. wlroots' own
+    // filter mode is set for the forced bilinear/nearest paths; the area
+    // downscale is intercepted in the Vulkan buffer hook.
+    fx.setTreeScaleFilter(window.surfaces.tree, window.rendering_requested.scale_filter);
+    fx.setTreeScaleFilter(window.popup_tree, window.rendering_requested.scale_filter);
     // Saved transaction buffers own frozen masks. In
     // particular, a later live resize must not change a snapshot's silhouette.
     window.applyOpacity();

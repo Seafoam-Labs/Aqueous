@@ -469,6 +469,7 @@ pub fn build(b: *Build) !void {
         effect_metadata_test.root_module.addImport("wayland", wayland);
         effect_metadata_test.root_module.addImport("wlroots", wlroots);
         effect_metadata_test.root_module.addImport("slotmap", slotmap);
+        effect_metadata_test.root_module.addImport("scaling", scaling);
         const run_effect_metadata_test = b.addRunArtifact(effect_metadata_test);
 
         const output_hdr_test = b.addTest(.{
