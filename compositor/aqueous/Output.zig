@@ -701,22 +701,65 @@ fn roundedBufferHook(
         @ptrCast(@alignCast(c_scene_buffer orelse return false));
     const effect = server.effect_metadata.bufferData(scene_buffer);
     const itm = output.autoHdrExpansion(scene_buffer);
-    if (effect == null and itm == null) return false;
+    const opts = options orelse return false;
+    const attrs = attributes orelse return false;
+    const policy = if (effect) |entry| entry.scale_filter else .auto;
+    const area = bufferDrawNeedsArea(policy, opts);
+    if (effect == null and itm == null and !area) return false;
     const clip = if (effect) |entry| entry.clip else null;
     const physical_clip = if (clip) |mask|
         output.bufferEffectClip(scene_buffer, mask)
     else
         null;
     return server.vulkan_context.rounded_pipeline.drawTexture(
-        attributes orelse return false,
-        options orelse return false,
+        attrs,
+        opts,
         physical_clip,
         output.effects_swapchain_path,
         itm,
+        area,
     ) catch |err| {
         log.err("Vulkan rounded texture draw failed: {s}", .{@errorName(err)});
         return false;
     };
+}
+
+/// Whether this draw must use the high-quality area downscale. The buffer's
+/// stored policy is resolved against the draw's physical resampling ratio:
+/// `options.dst_box` is already in physical pixels and `src_box` in buffer
+/// pixels, so the ratio needs no extra output-scale factor here. Forced
+/// bilinear/nearest policies never intercept (wlroots renders them directly).
+fn bufferDrawNeedsArea(
+    policy: scaling.ScaleFilter,
+    options: *const c.struct_wlr_render_texture_options,
+) bool {
+    if (policy == .nearest or policy == .bilinear) return false;
+    const ratio = scaling.downscaleRatio(
+        options.src_box.width,
+        options.src_box.height,
+        @floatFromInt(options.dst_box.width),
+        @floatFromInt(options.dst_box.height),
+    );
+    return scaling.resolveFilter(policy, ratio) == .area;
+}
+
+/// Scanout-side counterpart of `bufferDrawNeedsArea`. The composition predicate
+/// has no draw options, so reconstruct the physical destination from the
+/// buffer's logical size and the owning output's scale. Forcing composition
+/// here keeps direct scanout from bypassing the area filter on mismatched
+/// surfaces.
+fn bufferNeedsAreaScale(policy: scaling.ScaleFilter, output: *Output, scene_buffer: *wlr.SceneBuffer) bool {
+    if (policy == .nearest or policy == .bilinear) return false;
+    const scale: f64 = @floatCast(output.effectRenderState().scale);
+    const dst_w = @round(@as(f64, @floatFromInt(scene_buffer.dst_width)) * scale);
+    const dst_h = @round(@as(f64, @floatFromInt(scene_buffer.dst_height)) * scale);
+    const ratio = scaling.downscaleRatio(
+        scene_buffer.src_box.width,
+        scene_buffer.src_box.height,
+        dst_w,
+        dst_h,
+    );
+    return scaling.resolveFilter(policy, ratio) == .area;
 }
 
 /// Resolve the Auto HDR expansion for one buffer draw, or null when the
@@ -743,17 +786,20 @@ fn autoHdrExpansion(output: *Output, scene_buffer: *wlr.SceneBuffer) ?auto_hdr.I
 
 fn roundedBufferNeedsComposition(
     c_scene_buffer: ?*c.struct_wlr_scene_buffer,
-    _: ?*anyopaque,
+    data: ?*anyopaque,
 ) callconv(.c) bool {
     if (comptime !build_options.vulkan_effects) return false;
     const scene_buffer: *wlr.SceneBuffer =
         @ptrCast(@alignCast(c_scene_buffer orelse return false));
-    const rounded = if (server.effect_metadata.bufferData(scene_buffer)) |effect|
-        effect.clip != null
+    const effect = server.effect_metadata.bufferData(scene_buffer);
+    const rounded = if (effect) |entry| entry.clip != null else false;
+    const policy = if (effect) |entry| entry.scale_filter else .auto;
+    const area = if (data) |output_ptr|
+        bufferNeedsAreaScale(policy, @ptrCast(@alignCast(output_ptr)), scene_buffer)
     else
         false;
     return visual_state.effectsRequireComposition(
-        rounded,
+        rounded or area,
         bufferNeedsBackdropBlur(scene_buffer),
     );
 }

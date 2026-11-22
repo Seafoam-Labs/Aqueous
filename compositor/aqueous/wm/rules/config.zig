@@ -236,6 +236,9 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "buffer_scale_policy")) {
         rule.buffer_scale_policy = scaling.BufferScalePolicy.parse(value) orelse rule.buffer_scale_policy;
     }
+    if (std.mem.eql(u8, key, "scale_filter")) {
+        rule.scale_filter = scaling.ScaleFilter.parse(value) orelse rule.scale_filter;
+    }
     if (std.mem.eql(u8, key, "hdr_expand")) rule.hdr_expand = parseBool(value) orelse rule.hdr_expand;
     if (std.mem.eql(u8, key, "overlay_plane")) {
         rule.overlay_plane = Engine.OverlayPreference.parse(value) orelse rule.overlay_plane;
@@ -375,6 +378,7 @@ test "rules parser preserves order and parses native placement behavior" {
         \\ignore_struts = true
         \\opacity = 0.8
         \\buffer_scale_policy = "integer-ceil"
+        \\scale_filter = "high-quality"
         \\hdr_expand = false
         \\overlay_plane = "prefer"
         \\stack_layer = "above"
@@ -408,6 +412,7 @@ test "rules parser preserves order and parses native placement behavior" {
     try std.testing.expectEqual(@as(?bool, false), game.focus);
     try std.testing.expect(game.fixed_position and game.skip_switcher and game.skip_taskbar);
     try std.testing.expectEqual(scaling.BufferScalePolicy.integer_ceil, game.buffer_scale_policy.?);
+    try std.testing.expectEqual(scaling.ScaleFilter.high_quality, game.scale_filter.?);
     try std.testing.expectEqual(Engine.Layout.rows, engine.game_mode.remainder_layout);
     try std.testing.expectEqual(Engine.Layout.tile, engine.game_mode.fallback_layout);
     try std.testing.expectEqual(@as(i32, 3), engine.game_mode.gaps_inner);

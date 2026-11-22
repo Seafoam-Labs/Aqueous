@@ -130,3 +130,59 @@ has been retired; the daemon's socket protocol is unchanged.)
   process), which is independent of Wayland fractional scene placement.
 - Headless pixel comparisons confirm cursor dimensions and resampling coverage,
   but subjective crispness for real theme artwork remains manual.
+
+## Mismatched-scale resampling (`scale_filter`)
+
+Surfaces whose buffer scale does not match the output scale (GTK3 and other
+integer-only clients, `integer-ceil` buffers, legacy Xwayland) must be
+resampled by the compositor. Stock wlroots uses non-mipmapped bilinear, which
+undersamples glyph edges when minifying by more than ~1.5x and produces the
+soft text reported in issue #149. `scale_filter` adds a high-quality path:
+
+- **Predicate** — `scaling.downscaleRatio` compares physical destination pixels
+  to source buffer pixels; `scaling.resolveFilter` selects the area downscale
+  only when minified (`ratio < 1 - ratio_epsilon`). Matched 1:1 and magnified
+  surfaces keep bilinear; `nearest`/`bilinear` force the stock filters.
+- **Policy** — global `[scaling] scale_filter` (`wm.toml`) and per-window
+  `scale_filter` rule, default `auto`. Stored per scene buffer in
+  `EffectMetadata.BufferData.scale_filter`; snapshots inherit it via
+  `copyBufferData`.
+- **Filter** — a linear-light box (area) integration added to
+  `rounded_texture.frag`, gated by a flag in the spare `color_rows[3].z` push
+  slot. It averages 1-4 bilinear taps per axis over the output pixel's source
+  footprint (`fwidth(uv) * textureSize`), un-premultiplying and transferring to
+  linear light before averaging so downscaled text picks up no gamma halos. The
+  rounded-mask and Auto-HDR paths are unchanged. No new pipeline, descriptor,
+  or push-constant layout is introduced.
+- **Dispatch** — `Output.roundedBufferHook` resolves the policy against the live
+  draw geometry and passes the area flag to `RoundedPipeline.drawTexture`;
+  `roundedBufferNeedsComposition` forces composition for area-scaled buffers so
+  direct scanout cannot bypass the filter.
+- **Scope** — Vulkan effects builds only (the default; `RendererSelection`
+  forces `WLR_RENDERER=vulkan`). No GLES fallback is planned.
+
+### Coverage
+
+| Test | Module | Asserts |
+|---|---|---|
+| `scale filter parses aliases and rejects unknown values` | `aqueous/scaling.zig` | enum parsing |
+| `downscale ratio classifies fractional-scaling buffer mismatches` | `aqueous/scaling.zig` | 0.625/0.75/0.875/1.0/1.25 ratios, anisotropic min-axis, degenerate sizes |
+| `resolve filter applies area downscale only to minified auto surfaces` | `aqueous/scaling.zig` | auto/high_quality/forced resolution around the epsilon |
+| `scaling scale filter defaults to auto and parses aliases` | `aqueous/wm/config/wm.zig` | global config default + parse + unknown-value retention |
+| rules parser test | `aqueous/wm/rules/config.zig` | per-window `scale_filter` parse |
+
+The headless pixel oracle (a 2x text/grid fixture on a 1.25 output, comparing
+bilinear vs area sharpness/overshoot) and the GTK3/Chromium manual cells remain
+ to be added to `scripts/test-client-buffer-scaling.sh`; they require a live
+Vulkan session and are not covered by the unit suite.
+
+### Manual matrix addition
+
+| Axis | Values |
+|---|---|
+| `scale_filter` | auto, bilinear, nearest, high-quality |
+| Clients | GTK3 (`gpu-screen-recorder-gtk`), Chromium (fractional-capable), `integer-ceil` fixture |
+| Scales | 1.0, 1.25, 1.5, 1.75, 2.0 |
+
+Per cell: ✅ crisp text / ⚠️ soft (expected for bilinear/nearest minification) /
+❌ regression. Matched 1:1 cells must be pixel-identical to the stock path.

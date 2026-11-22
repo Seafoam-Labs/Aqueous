@@ -123,6 +123,14 @@ gaps_inner = 8             # integer >= 0
 #                   native | integer-ceil; integer-ceil requests a larger
 #                   integer-scale client buffer while preserving fractional
 #                   logical geometry. It is opt-in and costs GPU/memory.
+#   scale_filter    auto | bilinear | nearest | high-quality. Resampling filter
+#                   for surfaces whose buffer scale does not match the output
+#                   scale (e.g. GTK3 or integer-ceil clients on a fractional
+#                   output). auto (default) applies a high-quality area
+#                   downscale only when the buffer is actually minified; 1:1
+#                   surfaces keep the cheap bilinear path. bilinear/nearest
+#                   force the stock filters. high-quality opts into the area
+#                   downscale whenever minified. Vulkan effects builds only.
 #   hdr_expand      true/false; expand SDR highlights toward the HDR peak on
 #                   auto_hdr outputs. Unset follows the default (fullscreen
 #                   windows and game content).

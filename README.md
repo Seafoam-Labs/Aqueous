@@ -169,6 +169,27 @@ live session, [scripts/aqueous-scalebench.py](scripts/aqueous-scalebench.py)
 A/B-measures the cost of the global policy: mpv render wall time, Qt Quick
 GPU load via MangoHud, and battery power while discharging.
 
+When a surface's buffer scale does not match the output scale — for example a
+GTK3 client (which only does integer scaling) or an `integer-ceil` client on a
+fractional output — the compositor must resample it. The `scale_filter` setting
+controls that resampling. The default `auto` applies a high-quality area
+downscale (linear-light box filtering) only when the buffer is actually
+minified, which removes the bilinear smear on downscaled text; matched 1:1
+surfaces keep the cheap bilinear path. `bilinear`/`nearest` force the stock
+filters, and `high-quality` opts into the area downscale whenever minified:
+
+```toml
+[scaling]
+scale_filter = "auto" # auto | bilinear | nearest | high-quality
+
+[[window]]
+app_id = "com.dec05eba.gpu_screen_recorder"
+scale_filter = "high-quality"
+```
+
+The area downscale runs in the Vulkan effects pipeline (the default build) and
+adds no cost for surfaces that are already pixel-matched.
+
 See the [layout guide](docs/layout.md), [rules reference](docs/rules.md), and
 [compositor interaction guide](docs/compositor-interactions.md) for the full
 configuration and window-flow model.

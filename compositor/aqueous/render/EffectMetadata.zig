@@ -9,6 +9,7 @@ const AutoHashMapUnmanaged = std.AutoHashMapUnmanaged;
 const SlotMap = @import("slotmap").SlotMap;
 const wl = @import("wayland").server.wl;
 const wlr = @import("wlroots");
+const scaling = @import("scaling");
 
 pub const CornerRadii = struct {
     top_left: u31 = 0,
@@ -54,6 +55,10 @@ pub const BufferData = struct {
     clip: ?BufferClip = null,
     /// Frozen render policy for input-inert snapshots; contains no live owners.
     snapshot_hdr: ?SnapshotHdrPolicy = null,
+    /// Per-window resampling filter policy. `auto` is the default and leaves no
+    /// record behind on its own; the render hook resolves it against the actual
+    /// draw geometry.
+    scale_filter: scaling.ScaleFilter = .auto,
     generation: u64 = 1,
 };
 
@@ -293,6 +298,44 @@ pub fn bufferData(metadata: *EffectMetadata, buffer: *wlr.SceneBuffer) ?BufferDa
     return record.data;
 }
 
+/// The resampling filter policy stored for a buffer, or `auto` when no record
+/// exists. Read by the render hook to decide whether to intercept the draw.
+pub fn bufferScaleFilter(metadata: *EffectMetadata, buffer: *wlr.SceneBuffer) scaling.ScaleFilter {
+    const record = metadata.buffers.get(buffer) orelse return .auto;
+    return record.data.scale_filter;
+}
+
+/// Store the per-window resampling filter policy on a buffer. Mirrors
+/// `setBufferClip`: a record is created only for a non-default policy and is
+/// retired once the buffer carries no clip, snapshot HDR policy, or non-default
+/// filter. Returns whether the stored state changed.
+pub fn setBufferScaleFilter(
+    metadata: *EffectMetadata,
+    buffer: *wlr.SceneBuffer,
+    filter: scaling.ScaleFilter,
+) error{OutOfMemory}!bool {
+    if (metadata.buffers.get(buffer)) |record| {
+        if (record.data.scale_filter == filter) return false;
+        record.data.scale_filter = filter;
+        record.data.generation = nextGeneration(record.data.generation);
+        if (filter == .auto and record.data.clip == null and record.data.snapshot_hdr == null)
+            metadata.removeBufferRecord(record);
+        return true;
+    }
+    if (filter == .auto) return false;
+
+    const record = try metadata.allocator.create(BufferRecord);
+    errdefer metadata.allocator.destroy(record);
+    record.* = .{
+        .owner = metadata,
+        .object = buffer,
+        .data = .{ .scale_filter = filter },
+    };
+    try metadata.buffers.put(metadata.allocator, buffer, record);
+    buffer.node.events.destroy.add(&record.destroy);
+    return true;
+}
+
 pub fn setBufferClip(
     metadata: *EffectMetadata,
     buffer: *wlr.SceneBuffer,
@@ -302,7 +345,8 @@ pub fn setBufferClip(
         if (std.meta.eql(record.data.clip, clip)) return false;
         record.data.clip = clip;
         record.data.generation = nextGeneration(record.data.generation);
-        if (clip == null and record.data.snapshot_hdr == null) metadata.removeBufferRecord(record);
+        if (clip == null and record.data.snapshot_hdr == null and record.data.scale_filter == .auto)
+            metadata.removeBufferRecord(record);
         return true;
     }
     if (clip == null) return false;
