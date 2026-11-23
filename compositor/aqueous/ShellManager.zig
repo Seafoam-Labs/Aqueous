@@ -286,7 +286,8 @@ fn refresh(manager: *ShellManager) !void {
             const id = try idString(a, group.shell_id);
             try add(&next, &total, "keyboard", id, .{ .kind = "keyboard", .id = id, .seat = name, .layouts = names, .index = if (group.state.xkb_state) |state| state.serializeLayout(@fromBackingInt(@intCast(1 << 7))) else 0 });
         }
-        try add(&next, &total, "seat", name, .{ .kind = "seat", .id = name, .output = try optionalId(a, if (seat.selected_output) |o| o.shell_id else null), .window = if (seat.focused == .window) windowId(seat.focused.window) else null, .focus_kind = @tagName(seat.focused), .keyboard = try optionalId(a, active_group) });
+        const kb_focus = seat.wlr_seat.keyboard_state.focused_surface;
+        try add(&next, &total, "seat", name, .{ .kind = "seat", .id = name, .output = try optionalId(a, if (seat.selected_output) |o| o.shell_id else null), .window = if (seat.focused == .window) windowId(seat.focused.window) else null, .focus_kind = @tagName(seat.focused), .keyboard = try optionalId(a, active_group), .kb_focus_null = kb_focus == null, .kb_focus_match = kb_focus != null and kb_focus == seat.focused.surface(), .kb_grab = seat.wlr_seat.keyboard_state.grab != seat.wlr_seat.keyboard_state.default_grab });
     }
     var overview_output: ?u64 = null;
     var overview_window: ?[]const u8 = null;

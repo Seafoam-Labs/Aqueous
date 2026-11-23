@@ -715,6 +715,7 @@ fn renderFinish(wm: *WindowManager) void {
         while (it.next()) |seat| {
             seat.finishFocusWarp();
             seat.cursor.updateState();
+            seat.resyncKeyboardFocus();
         }
     }
 

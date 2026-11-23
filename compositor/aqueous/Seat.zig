@@ -1141,6 +1141,27 @@ fn keyboardNotifyEnter(seat: *Seat, wlr_surface: *wlr.Surface) void {
     }
 }
 
+/// Reconcile wlroots keyboard delivery focus with the logical seat focus.
+/// Keyboard/capability churn — notably a virtual keyboard that is the seat's
+/// only keyboard being removed and re-added — can leave
+/// `keyboard_state.focused_surface` cleared while `Seat.focused` still names a
+/// live surface. Nothing else re-enters in that case (the policy only requests
+/// focus on change), so keys are silently dropped until an explicit activate.
+/// Repair only a *cleared* delivery focus: a different live surface (e.g. a
+/// grabbed popup) is intentional and must not be overridden. Skip while a
+/// keyboard grab is active, while locked, or when the seat has no keyboard.
+pub fn resyncKeyboardFocus(seat: *Seat) void {
+    if (server.lock_manager.state != .unlocked) return;
+    if (seat.wlr_seat.getKeyboard() == null) return;
+    if (seat.wlr_seat.keyboard_state.grab != seat.wlr_seat.keyboard_state.default_grab) return;
+    if (seat.wlr_seat.keyboard_state.focused_surface != null) return;
+    const target = seat.focused.surface() orelse return;
+    seat.keyboardEnterOrLeave(target);
+    // Logical focus did not change, so the text input may still be focused on
+    // the target surface; InputRelay.focus() requires a focus change.
+    if (!seat.relay.isFocusedOn(target)) seat.relay.focus(target);
+}
+
 pub fn handleActivity(seat: Seat) void {
     server.input_manager.idle_notifier.notifyActivity(seat.wlr_seat);
 }
@@ -1304,6 +1325,9 @@ pub fn activateKeyboardGroup(seat: *Seat, group: *KeyboardGroup) void {
     if (seat.wlr_seat.keyboard_state.focused_surface) |wlr_surface| {
         seat.keyboardNotifyEnter(wlr_surface);
     }
+    // A newly attached keyboard (e.g. a fresh virtual keyboard) must re-enter
+    // the logical focus even if delivery focus was cleared during the gap.
+    seat.resyncKeyboardFocus();
 }
 
 pub fn detachDevice(seat: *Seat, device: *InputDevice) void {
@@ -1336,6 +1360,9 @@ pub fn updateCapabilities(seat: *Seat) void {
     }
 
     seat.wlr_seat.setCapabilities(capabilities);
+    // Capability churn (keyboard removed/re-added) can clear delivery focus;
+    // repair it against the logical focus once a keyboard is present again.
+    seat.resyncKeyboardFocus();
 }
 
 fn handleRequestSetSelection(

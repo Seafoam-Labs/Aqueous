@@ -330,6 +330,13 @@ int main(int argc, char **argv) {
                 zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, 0, 0, 0, 0);
             } else if (!strncmp(command, "layout", 6)) zwp_virtual_keyboard_v1_modifiers(virtual_keyboard, 0, 0, 0, 1);
             else if (!strncmp(command, "reload", 6)) make_keyboard("us,fr,de");
+            else if (!strncmp(command, "busy ", 5)) {
+                // Block the main loop without dispatching Wayland, simulating a
+                // client busy with other work (e.g. a GVfs mount) while the seat
+                // keyboard churns. Used by test-virtual-keyboard-churn.py.
+                unsigned ms; assert(sscanf(command + 5, "%u", &ms) == 1);
+                usleep(ms * 1000);
+            }
             else if (!strcmp(command, "token\n")) {
                 token_on_key = 1;
                 zwp_virtual_keyboard_v1_key(virtual_keyboard, 3, 30, WL_KEYBOARD_KEY_STATE_PRESSED);
