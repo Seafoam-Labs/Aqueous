@@ -548,6 +548,17 @@ clicks are delivered through scene hit-testing. Modifier drags are intercepted
 before client delivery. Holding the configured pointer-untrap binding
 temporarily suppresses pointer constraints and restores them on key release.
 
+A fullscreen game or other client may seize the keyboard with an honored
+Xwayland keyboard grab or with keyboard-shortcuts inhibition. While either is
+active, ordinary policy bindings and unbound keys are delivered to the client,
+but a small set of escape verbs stays reachable so the user is never trapped:
+the workspace window cycle (`cycle_focus` / `cycle_focus_reverse`, bound to
+Alt+Tab and Alt+Shift+Tab by default), the global window switcher
+(`window_switcher_*`), and the pointer-untrap hold. These are matched by verb,
+so the guarantee follows rebindings. Cycling to a non-fullscreen window while
+seized also demotes the workspace's fullscreen owner, surfacing the target
+instead of leaving it buried under the fullscreen layer.
+
 Client-side drag and drop is a temporary exception to focus-follows-mouse.
 wlroots owns both pointer and keyboard grabs for the duration of a pointer
 drag, so Aqueous cancels pending hover focus and does not change its logical

@@ -231,6 +231,15 @@ pub fn step(self: *Self, origin: *Output, seat: *Seat, workspace: u32, reverse: 
     self.warp_allowed = all or server.aqueous.config.wm.input.mouse_follows_focus;
     self.serial +%= 1;
     self.reduced_motion = reduced_motion;
+    // Escape surfacing: while a client has seized the keyboard, cycling to a
+    // non-fullscreen window must actually reveal it. Demote the workspace's
+    // fullscreen owner so the target is not buried under the fullscreen band.
+    // clearOtherFullscreen is workspace-local and spares the target itself.
+    if (seat.xwaylandKeyboardGrabActive() or server.shortcuts.active(seat.wlr_seat)) {
+        if (window.workspace) |target_ws| {
+            server.aqueous.api.clearOtherFullscreen(target_ws.output.policyId(), next);
+        }
+    }
     self.activating = true;
     defer self.activating = false;
     if (!server.aqueous.activateShellWindow(@bitCast(window.ref), std.mem.span(seat.wlr_seat.name))) {
