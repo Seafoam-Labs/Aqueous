@@ -260,7 +260,7 @@ fn boundCapsLock(group: *KeyboardGroup, keycode: u32) bool {
     if (server.shortcuts.active(group.seat.wlr_seat)) return false;
     if (!group.keycodeIsCapsLock(keycode)) return false;
     const modifiers: u32 = @bitCast(group.state.getModifiers());
-    return server.aqueous.hasKeyBinding(@intFromEnum(xkb.Keysym.Caps_Lock), modifiers);
+    return server.aqueous.hasKeyBinding(@backingInt(xkb.Keysym.Caps_Lock), modifiers);
 }
 
 fn handleKey(listener: *wl.Listener(*wlr.Keyboard.event.Key), event: *wlr.Keyboard.event.Key) void {
@@ -303,7 +303,6 @@ fn handleKey(listener: *wl.Listener(*wlr.Keyboard.event.Key), event: *wlr.Keyboa
                 break :blk .builtin;
             }
         }
-        if (server.shortcuts.active(group.seat.wlr_seat)) break :blk .focus;
         // Policy chords are written in terms of the base key on the active
         // layout. For example, `Super+Shift+1` names the 1 key, not the `!`
         // keysym produced after applying Shift. Match level zero first, just
@@ -312,15 +311,17 @@ fn handleKey(listener: *wl.Listener(*wlr.Keyboard.event.Key), event: *wlr.Keyboa
         const keymap = xkb_state.getKeymap();
         const layout = xkb_state.keyGetLayout(xkb_keycode);
         for (keymap.keyGetSymsByLevel(xkb_keycode, layout, 0)) |sym| {
-            if (server.aqueous.handleKey(@intFromEnum(sym), @bitCast(modifiers), true)) break :blk .{ .policy = sym };
+            if (server.aqueous.handleKey(@backingInt(sym), @bitCast(modifiers), true)) break :blk .{ .policy = sym };
         }
         for (xkb_state.keyGetSyms(xkb_keycode)) |sym| {
-            if (server.aqueous.handleKey(@intFromEnum(sym), @bitCast(modifiers), true)) break :blk .{ .policy = sym };
+            if (server.aqueous.handleKey(@backingInt(sym), @bitCast(modifiers), true)) break :blk .{ .policy = sym };
         }
-        // An honored X11 active keyboard grab receives compositor shortcuts as
-        // ordinary keys. Aqueous.handleKey() still recognizes the dedicated
-        // pointer-untrap action above, which remains the user's escape hatch.
-        if (group.seat.xwaylandKeyboardGrabActive()) break :blk .focus;
+        // A seized keyboard — an honored X11 active grab or shortcut inhibition —
+        // receives every non-escape key as ordinary input. The escape verbs (the
+        // workspace window cycle, the global switcher, and pointer-untrap) were
+        // already consumed by the policy path above, which keeps them reachable
+        // through keyBindingVerb's allowlist even while the client holds input.
+        if (group.seat.xwaylandKeyboardGrabActive() or server.shortcuts.active(group.seat.wlr_seat)) break :blk .focus;
         if (group.seat.matchXkbBinding(xkb_keycode, modifiers, xkb_state)) |binding| {
             log.debug("matched xkb binding", .{});
             group.seat.xkb_bindings_seat.ensure_next_key_eaten = false;
@@ -360,7 +361,7 @@ fn handleKey(listener: *wl.Listener(*wlr.Keyboard.event.Key), event: *wlr.Keyboa
     switch (consumer) {
         .builtin => {},
         .policy => |sym| if (event.state == .released) {
-            _ = server.aqueous.handleKey(@intFromEnum(sym), @bitCast(group.state.getModifiers()), false);
+            _ = server.aqueous.handleKey(@backingInt(sym), @bitCast(group.state.getModifiers()), false);
         },
         .binding => |b| if (b) |binding| {
             if (event.state == .pressed) {
@@ -477,11 +478,11 @@ fn handleModifiers(listener: *wl.Listener(*wlr.Keyboard), _: *wlr.Keyboard) void
 /// Handle any builtin, hardcoded compositor keybindings such as VT switching.
 /// Returns true if the keysym was handled.
 fn handleBuiltinBinding(keysym: xkb.Keysym) bool {
-    switch (@intFromEnum(keysym)) {
-        @intFromEnum(xkb.Keysym.XF86Switch_VT_1)...@intFromEnum(xkb.Keysym.XF86Switch_VT_12) => {
+    switch (@backingInt(keysym)) {
+        @backingInt(xkb.Keysym.XF86Switch_VT_1)...@backingInt(xkb.Keysym.XF86Switch_VT_12) => {
             log.debug("switch VT keysym received", .{});
             if (server.session) |session| {
-                const vt = @intFromEnum(keysym) - @intFromEnum(xkb.Keysym.XF86Switch_VT_1) + 1;
+                const vt = @backingInt(keysym) - @backingInt(xkb.Keysym.XF86Switch_VT_1) + 1;
                 std.log.info("switching to VT {}", .{vt});
                 session.changeVt(vt) catch std.log.err("changing VT failed", .{});
             }

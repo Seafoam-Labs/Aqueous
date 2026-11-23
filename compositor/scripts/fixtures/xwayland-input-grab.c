@@ -241,6 +241,11 @@ int main(int argc, char **argv) {
     }
 
     const bool override_redirect = strcmp(argv[1], "override") == 0;
+    // Opt-in: keep the grab across received keys so an escape regression can
+    // observe which chords the compositor intercepts vs forwards. Default off
+    // preserves the single-key-then-release behavior of test-xwayland-input.sh.
+    const char *hold_env = getenv("AQUEOUS_GRAB_HOLD");
+    const bool hold_grab = hold_env != NULL && strcmp(hold_env, "1") == 0;
     struct wayland_state wayland = {0};
     if (!initialize_virtual_input(&wayland)) {
         fprintf(stderr, "could not create persistent test virtual input devices\n");
@@ -343,6 +348,7 @@ int main(int argc, char **argv) {
             if (event.type == KeyPress && grabbed) {
                 printf("KEY keycode=%u\n", event.xkey.keycode);
                 fflush(stdout);
+                if (hold_grab) continue;
                 XUngrabKeyboard(display, CurrentTime);
                 XUngrabPointer(display, CurrentTime);
                 XSync(display, False);
@@ -371,5 +377,5 @@ int main(int argc, char **argv) {
     XDestroyWindow(display, window);
     XCloseDisplay(display);
     destroy_virtual_input(&wayland);
-    return 1;
+    return hold_grab ? 0 : 1;
 }

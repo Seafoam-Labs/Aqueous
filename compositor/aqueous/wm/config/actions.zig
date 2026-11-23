@@ -158,6 +158,18 @@ pub fn initDefaults(snapshot: *Snapshot) void {
     addBuiltin(snapshot, "wheel_scroll_down", "Alt+Meta+WheelDown");
 }
 
+/// Verbs that remain reachable even when a client has seized the keyboard
+/// (an honored Xwayland grab) or inhibited compositor shortcuts. They are the
+/// user's guaranteed escape from a fullscreen/grabbing window: the workspace
+/// window cycle, the global window switcher, and the pointer-untrap hold.
+/// Matched by verb so the guarantee follows user rebindings.
+pub fn isEscapeVerb(verb: []const u8) bool {
+    if (std.mem.eql(u8, verb, "builtin:cycle_focus") or
+        std.mem.eql(u8, verb, "builtin:cycle_focus_reverse") or
+        std.mem.eql(u8, verb, "builtin:untrap_pointer")) return true;
+    return std.mem.startsWith(u8, verb, "builtin:window_switcher_");
+}
+
 pub fn addBuiltin(snapshot: *Snapshot, action: []const u8, chord: []const u8) void {
     removeBuiltin(snapshot, action);
     var verb_buf: [280]u8 = undefined;
@@ -316,6 +328,32 @@ test "workspace cycle defaults support both modifiers and explicit replacement o
     try std.testing.expect(snapshot.find(super.keysym, super.modifiers) == null);
     const reverse = parseChord("Alt+Shift+Tab").?;
     try std.testing.expectEqualStrings("builtin:cycle_focus_reverse", snapshot.find(reverse.keysym, reverse.modifiers).?);
+}
+
+test "escape verbs stay reachable under keyboard seizure" {
+    try std.testing.expect(isEscapeVerb("builtin:cycle_focus"));
+    try std.testing.expect(isEscapeVerb("builtin:cycle_focus_reverse"));
+    try std.testing.expect(isEscapeVerb("builtin:untrap_pointer"));
+    try std.testing.expect(isEscapeVerb("builtin:window_switcher_next"));
+    try std.testing.expect(isEscapeVerb("builtin:window_switcher_previous"));
+    try std.testing.expect(isEscapeVerb("builtin:window_switcher_dismiss"));
+    try std.testing.expect(!isEscapeVerb("builtin:focus_workspace_1"));
+    try std.testing.expect(!isEscapeVerb("builtin:toggle_fullscreen"));
+    try std.testing.expect(!isEscapeVerb("builtin:toggle_overview"));
+    try std.testing.expect(!isEscapeVerb("builtin:close_focused"));
+    try std.testing.expect(!isEscapeVerb("builtin:move_to_workspace_1"));
+    try std.testing.expect(!isEscapeVerb("spawn:terminal"));
+    try std.testing.expect(!isEscapeVerb(""));
+}
+
+test "default escape chords bind escape verbs" {
+    var snapshot: Snapshot = .{};
+    initDefaults(&snapshot);
+    for ([_][]const u8{ "Alt+Tab", "Alt+Shift+Tab", "Super+Tab", "Super+Shift+Tab", "Super+grave" }) |text| {
+        const chord = parseChord(text).?;
+        const verb = snapshot.find(chord.keysym, chord.modifiers).?;
+        try std.testing.expect(isEscapeVerb(verb));
+    }
 }
 
 test "gesture bindings can be captured, resolved, and replaced" {

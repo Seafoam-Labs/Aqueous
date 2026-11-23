@@ -1351,11 +1351,9 @@ pub fn finishDrag(aqueous: *Aqueous, drag: Drag) void {
 fn keyBindingVerb(aqueous: *Aqueous, keysym: u32, modifiers: u32) ?[]const u8 {
     if (!aqueous.mode.runsInternal()) return null;
     const verb = aqueous.config.actions.find(keysym, modifiers & (1 | 4 | 8 | 64)) orelse return null;
-    if (server.input_manager.defaultSeat().xwaylandKeyboardGrabActive() and
-        !std.mem.eql(u8, verb, "builtin:untrap_pointer"))
-    {
-        return null;
-    }
+    const seat = server.input_manager.defaultSeat();
+    const seized = seat.xwaylandKeyboardGrabActive() or server.shortcuts.active(seat.wlr_seat);
+    if (seized and !action_config.isEscapeVerb(verb)) return null;
     return verb;
 }
 
