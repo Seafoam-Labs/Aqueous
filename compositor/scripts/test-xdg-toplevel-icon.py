@@ -183,10 +183,33 @@ def main():
         pixel(window(1), (0, 255, 0, 255), size=30)
         print('PASS names, replacements, invalid scales, query bounds, live overview and manager destruction', flush=True)
 
+        # Wine/Proton updates a window icon by destroying the old icon wl_buffer
+        # before the old xdg_toplevel_icon_v1 (wayland_surface_set_icon_buffer
+        # unrefs the buffer, then wayland_surface_assign_icon destroys the icon).
+        # The compositor owns a pixel copy made at add_buffer time, so this must
+        # be tolerated rather than raised as a fatal no_buffer error.
+        wine = fixture('wine-icon-update')
+        command('icon 0', wine, 'wine-icon-update')
+        command('buffer 0 32 32 ffff0000 0', wine, 'wine-icon-update')
+        command('add 0 0 1', wine, 'wine-icon-update')
+        command('window 4 0 1', wine, 'wine-icon-update')
+        w = wait(lambda: window(4)); pixel(w, (255, 0, 0, 255))
+        command('buffer 1 32 32 ff00ff00 0', wine, 'wine-icon-update')
+        command('destroy-buffer 0', wine, 'wine-icon-update')
+        command('destroy-icon 0', wine, 'wine-icon-update')
+        command('icon 1', wine, 'wine-icon-update')
+        command('add 1 1 1', wine, 'wine-icon-update')
+        previous = window(4)['icon']
+        command('set 4 1', wine, 'wine-icon-update'); command('commit 4', wine, 'wine-icon-update')
+        w = wait(lambda: window(4) if window(4)['icon'] != previous else None)
+        pixel(w, (0, 255, 0, 255))
+        wine.stdin.write(b'quit\n'); wine.stdin.flush(); assert wine.wait(timeout=5) == 0
+        wait(lambda: window(4) is None)
+        print('PASS wine/proton icon-update buffer lifetime tolerated', flush=True)
+
         for label, setup, bad, error in [
             ('immutable', ['icon 0', 'window 3 0 1'], 'name 0 changed', 2),
             ('immutable-buffer', ['icon 0', 'buffer 0 32 32 ffffffff 0', 'window 3 0 1'], 'add 0 0 1', 2),
-            ('no-buffer', ['icon 0', 'buffer 0 32 32 ffffffff 0', 'add 0 0 1'], 'destroy-buffer 0', 3),
             ('not-square', ['icon 0', 'buffer 0 32 16 ffffffff 0'], 'add 0 0 1', 1),
             ('not-shm', ['icon 0', 'nonshm 0'], 'add 0 0 1', 1),
         ]:
