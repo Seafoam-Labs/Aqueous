@@ -1,0 +1,725 @@
+drm: nvidia-aware color pipeline discovery and cost-based planner
+
+Derived from the nvidia-drm color pipeline work in the local spicy tree
+(smithay 401912a6, 650a3457, cee8872a, c5c2d494; niri 96c7e4a7);
+knowledge only, no code reuse. Evidence and gates are recorded in
+docs/color-pipeline-nvidia-plan.md.
+
+Discovery records each pipeline's COLOR_PIPELINE enum name (the only
+stable vendor identifier; object ids shift between driver versions) and
+qualifies 1D LUT interpolation by its current advertised value.
+
+The greedy in-order matcher becomes a bounded cost-based DFS: a 1D LUT
+can synthesize a decode curve the pipeline's curve ops lack (nvidia
+offers only the PQ 125 pair), folding a following multiplier while the
+decoded range fits [0,1] and leaving the rest pending for a later
+multiplier or matrix; unused non-bypassable matrix/multiplier/LUT ops
+are programmed to identity; a non-bypassable curve rejects the plan.
+Fewest LUTs wins, so named curves stay preferred.
+
+Format effectiveness follows the nvidia display engine: FP16 framebuffers
+exclude the non-FP pipelines (their input-LUT ops fail atomic check) and
+leave the leading FMT matrix inert. On 620.73.04 the FP pipelines were
+reshaped (FP Lite is FMT-only), so FP16 transforms resolve nowhere and
+stay composited until FMT effectiveness or the FP Full round-trip pair is
+pixel-verified.
+
+nvidia-drm negotiates the capability only with the experimental
+AQUEOUS_DRM_COLOR_PIPELINE_POST_BLEND=1 opt-in; without the post-blend
+encode path the capability would only disable implicit legacy YUV
+scanout for no benefit. nouveau remains unqualified. Other drivers are
+unchanged.
+
+The FMT-inert assumption for FP16 is now switchable:
+AQUEOUS_DRM_COLOR_PIPELINE_FP16_FMT=1 (drm_color_pipeline_set_fp16_fmt)
+treats the leading FMT matrix as effective, letting gain-folded matrices
+resolve on the FMT-only FP Lite pipeline. The default stays conservative:
+an inert FMT silently drops the placed stage, so the assumption must be
+pixel-verified before it can become a default.
+--- a/backend/drm/color_pipeline.c
++++ b/backend/drm/color_pipeline.c
+@@ -4,9 +4,13 @@
+ #include "backend/drm/drm.h"
+ #include "config.h"
+ #include "render/color_pipeline.h"
++#include <drm_fourcc.h>
++#include <limits.h>
+ #include <math.h>
++#include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <wlr/render/dmabuf.h>
+ #include <wlr/util/log.h>
+ #include <xf86drm.h>
+ 
+@@ -30,6 +34,9 @@
+ };
+ struct color_pipeline {
+ 	uint32_t root;
++	/* COLOR_PIPELINE enum entry name; the only stable vendor identifier.
++	 * Object ids shift between driver versions and must never be hardcoded. */
++	char name[64];
+ 	size_t len;
+ 	struct colorop nodes[MAX_NODES];
+ };
+@@ -51,6 +58,17 @@
+ 	return prop && drmModeAtomicAddProperty(req, id, prop, value) >= 0;
+ }
+ 
++/* Whether the leading FMT matrix is assumed effective on FP16 surfaces.
++ * 620 reshaped the FP pipelines and effectiveness is not decidable read-only;
++ * the conservative default treats FMT as inert. An inert FMT silently drops
++ * the placed gamut/gain stage, so the assumption is opt-in and must be
++ * pixel-verified before it can become a default. */
++static bool fp16_fmt_effective;
++
++void drm_color_pipeline_set_fp16_fmt(bool effective) {
++	fp16_fmt_effective = effective;
++}
++
+ void drm_color_pipeline_init(struct wlr_drm_backend *drm) {
+ 	const char *mode = getenv("AQUEOUS_DRM_COLOR_PIPELINE");
+ 	if (mode && strcmp(mode, "off") == 0) {
+@@ -61,6 +79,12 @@
+ 		wlr_log(WLR_ERROR, "Invalid AQUEOUS_DRM_COLOR_PIPELINE (expected off or auto)");
+ 		return;
+ 	}
++	const char *fp16_fmt = getenv("AQUEOUS_DRM_COLOR_PIPELINE_FP16_FMT");
++	drm_color_pipeline_set_fp16_fmt(fp16_fmt && strcmp(fp16_fmt, "1") == 0);
++	if (fp16_fmt_effective) {
++		wlr_log(WLR_INFO, "DRM color pipelines: FP16 FMT effectiveness assumed "
++			"(experimental; pixel verification required)");
++	}
+ 	if (drm->iface == &legacy_iface || drm->parent) {
+ 		wlr_log(WLR_INFO, "Color pipelines unavailable on legacy/multi-GPU backend");
+ 		return;
+@@ -74,13 +98,25 @@
+ 		wlr_log(WLR_INFO, "DRM fd %d: color pipelines disabled; driver identification failed", drm->fd);
+ 		return;
+ 	}
+-	bool nvidia = strcmp(version->name, "nvidia-drm") == 0 ||
+-		strcmp(version->name, "nouveau") == 0;
++	bool nvidia = strcmp(version->name, "nvidia-drm") == 0;
++	bool nouveau = strcmp(version->name, "nouveau") == 0;
+ 	drmFreeVersion(version);
+-	if (nvidia) {
+-		wlr_log(WLR_INFO, "DRM fd %d: color pipelines disabled by NVIDIA compatibility policy", drm->fd);
++	if (nouveau) {
++		wlr_log(WLR_INFO, "DRM fd %d: color pipelines disabled; nouveau is unqualified", drm->fd);
+ 		return;
+ 	}
++	if (nvidia) {
++		/* nvidia's plane pipelines always end in linear light; useful scanout
++		 * conversion needs the experimental post-blend encode path. Without
++		 * that opt-in, enabling the capability would only disable implicit
++		 * legacy YUV scanout for no benefit. */
++		const char *post_blend = getenv("AQUEOUS_DRM_COLOR_PIPELINE_POST_BLEND");
++		if (!post_blend || strcmp(post_blend, "1") != 0) {
++			wlr_log(WLR_INFO, "DRM fd %d: NVIDIA color pipelines disabled; "
++				"set AQUEOUS_DRM_COLOR_PIPELINE_POST_BLEND=1 to opt in", drm->fd);
++			return;
++		}
++	}
+ 
+ 	drm->color_pipeline_enabled =
+ 		drmSetClientCap(drm->fd, DRM_CLIENT_CAP_PLANE_COLOR_PIPELINE, 1) == 0;
+@@ -125,9 +161,15 @@
+ 		} else if (strcmp(p->name, "MULTIPLIER") == 0 && kind == DRM_MODE_PROP_RANGE) {
+ 			op->multiplier = p->prop_id;
+ 		} else if (strstr(p->name, "INTERPOLATION") != NULL) {
+-			/* Only a fixed advertised linear 1D interpolation is qualified. */
+-			op->interpolation_supported = kind == DRM_MODE_PROP_ENUM && p->count_enums == 1 &&
+-										  strcmp(p->enums[0].name, "Linear") == 0;
++			/* Qualify the current advertised mode, not the enum shape. */
++			op->interpolation_supported = false;
++			if (kind == DRM_MODE_PROP_ENUM) {
++				for (int e = 0; e < p->count_enums; e++) {
++					if (p->enums[e].value == value && strcmp(p->enums[e].name, "Linear") == 0) {
++						op->interpolation_supported = true;
++					}
++				}
++			}
+ 		}
+ 		drmModeFreeProperty(p);
+ 	}
+@@ -198,6 +240,7 @@
+ 		}
+ 		struct color_pipeline *p = &cp->pipelines[cp->len];
+ 		p->root = root;
++		snprintf(p->name, sizeof(p->name), "%s", roots->enums[i].name);
+ 		uint32_t next = root;
+ 		bool valid = true;
+ 		while (next) {
+@@ -213,6 +256,8 @@
+ 			}
+ 		}
+ 		if (valid && p->len) {
++			wlr_log(WLR_DEBUG, "DRM plane %u: color pipeline \"%s\" root %u, %zu nodes",
++				plane->id, p->name, p->root, p->len);
+ 			cp->len++;
+ 		} else {
+ 			finish_pipeline(drm->fd, p);
+@@ -292,54 +337,238 @@
+ 	return true;
+ }
+ 
+-static bool compatible(const struct colorop *n, const struct color_pipeline_op *op) {
+-	uint64_t ignored;
+-	switch (op->type) {
+-	case CP_CURVE:
+-		return n->type == DRM_COLOROP_1D_CURVE && curve_value(n, op->curve, &ignored);
+-	case CP_MATRIX:
+-		if (n->type != DRM_COLOROP_CTM_3X4 || !n->data) {
+-			return false;
+-		}
+-		for (size_t i = 0; i < 12; i++) {
+-			if (!color_pipeline_fixed(op->matrix[i], &ignored)) {
+-				return false;
+-			}
+-		}
++/* Kernel decode curves, for synthesizing 1D LUT contents on pipelines whose
++ * curve ops lack the named curve (nvidia offers only the PQ 125 pair).
++ * Scales follow the kernel definitions: PQ 125 maps [0,1] to [0,125] with
++ * 1.0 = 80 cd/m²; the SDR curves map [0,1] to [0,1]. */
++static bool curve_decode(const char *name, double x, double *out, double *max) {
++	if (strcmp(name, "sRGB EOTF") == 0) {
++		x = fmin(fmax(x, 0.0), 1.0);
++		*out = x <= 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4);
++		*max = 1.0;
+ 		return true;
+-	case CP_MULTIPLIER:
+-		return n->type == DRM_COLOROP_MULTIPLIER && n->multiplier &&
+-			   color_pipeline_fixed(op->multiplier, &ignored);
+-	case CP_LUT: {
+-		struct wlr_color_transform_lut_3x1d *lut =
+-			color_transform_lut_3x1d_from_base(op->transform);
+-		return n->type == DRM_COLOROP_1D_LUT && n->data && n->interpolation_supported &&
+-			   lut_resample_qualified(lut, n->size);
+ 	}
+-	case CP_LUT3D:
+-		/* LCMS domains/interpolation are not yet qualified against KMS. */
+-		return false;
++	if (strcmp(name, "Gamma 2.2") == 0) {
++		*out = pow(fmin(fmax(x, 0.0), 1.0), 2.2);
++		*max = 1.0;
++		return true;
++	}
++	if (strcmp(name, "PQ 125 EOTF") == 0) {
++		const double m1 = 2610.0 / 16384.0, m2 = 2523.0 / 4096.0 * 128.0;
++		const double c1 = 3424.0 / 4096.0, c2 = 2413.0 / 4096.0 * 32.0;
++		const double c3 = 2392.0 / 4096.0 * 32.0;
++		double p = pow(fmin(fmax(x, 0.0), 1.0), 1.0 / m2);
++		*out = 125.0 * pow(fmax(p - c1, 0.0) / (c2 - c3 * p), 1.0 / m1);
++		*max = 125.0;
++		return true;
+ 	}
+ 	return false;
+ }
+ 
+-static bool match(const struct color_pipeline *p, const struct color_pipeline_recipe *r, size_t ni,
+-	size_t oi, int assignment[MAX_NODES], unsigned *budget) {
+-	if (!*budget) {
++static bool float_format(uint32_t format) {
++	switch (format) {
++	case DRM_FORMAT_ABGR16161616F:
++	case DRM_FORMAT_XBGR16161616F:
++	case DRM_FORMAT_ARGB16161616F:
++	case DRM_FORMAT_XRGB16161616F:
++		return true;
++	default:
+ 		return false;
+ 	}
+-	--*budget;
+-	if (ni == p->len) {
+-		return oi == r->len;
+-	}
+-	if (oi < r->len && compatible(&p->nodes[ni], &r->ops[oi])) {
+-		assignment[ni] = oi;
+-		if (match(p, r, ni + 1, oi + 1, assignment, budget)) {
+-			return true;
++}
++
++/* Which ops take effect for a framebuffer format, or false when the pipeline
++ * does not apply at all. nvidia's display engine silently skips parts of the
++ * plane pipeline for FP16 surfaces: the non-FP pipelines implement curve/LUT/
++ * multiplier on the plane input LUT, which nvidia-modeset refuses for FP16
++ * (atomic check fails), and the leading FMT matrix only converts the surface
++ * format to the pipe's native FP16, so it is inert for FP16. On 620.73.04 the
++ * FP pipelines were reshaped (FP Lite is FMT-only), so with FMT inert no FP16
++ * transform resolves there and the buffer stays composited. Ineffective ops
++ * may only be programmed in ways that place no stage. The FMT-inert assumption
++ * is lifted by drm_color_pipeline_set_fp16_fmt (startup opt-in, pixel-verified
++ * testing only): with FMT effective, gain-folded matrices resolve on FP Lite. */
++static bool pipeline_effective(const struct color_pipeline *p, uint32_t format,
++	bool effective[MAX_NODES]) {
++	for (size_t i = 0; i < p->len; i++) {
++		effective[i] = true;
++	}
++	if (float_format(format) && strncmp(p->name, "NVIDIA ", 7) == 0) {
++		if (!strstr(p->name, " FP ")) {
++			return false;
++		}
++		if (p->len && p->nodes[0].type == DRM_COLOROP_CTM_3X4) {
++			effective[0] = fp16_fmt_effective;
++		}
++	}
++	return true;
++}
++
++enum node_action {
++	NODE_BYPASS,
++	NODE_CURVE,
++	NODE_MULTIPLIER,
++	NODE_MATRIX,
++	NODE_LUT_CLIENT,
++	NODE_LUT_DECODE,
++	NODE_IDENTITY_MATRIX,
++	NODE_IDENTITY_MULTIPLIER,
++	NODE_IDENTITY_LUT,
++};
++struct node_plan {
++	enum node_action action;
++	uint64_t curve;
++	double multiplier;
++	double matrix[12];
++	const char *decode;
++	double lut_gain;
++	const struct color_pipeline_op *op;
++};
++
++struct plan_search {
++	const struct color_pipeline *p;
++	const struct color_pipeline_recipe *r;
++	const bool *effective;
++	unsigned budget;
++	unsigned best_cost;
++	bool found;
++	struct node_plan current[MAX_NODES], best[MAX_NODES];
++};
++
++static bool gain_placed(double gain) {
++	return fabs(gain - 1.0) < 1e-9;
++}
++
++static void plan_node(struct plan_search *s, size_t ni, size_t oi, double gain, unsigned cost);
++
++static void plan_try(struct plan_search *s, size_t ni, size_t oi, double gain, unsigned cost,
++	const struct node_plan *np) {
++	s->current[ni] = *np;
++	plan_node(s, ni + 1, oi, gain, cost);
++}
++
++/* Cost-based DFS over assignments of recipe ops to pipeline ops. A 1D LUT can
++ * synthesize a decode curve; the gain folds into it while the decoded range
++ * fits [0,1], else the LUT normalizes by the curve's output max and the rest
++ * stays pending for a later multiplier or matrix. Unused bypassable ops are
++ * bypassed; unused non-bypassable matrix/multiplier/LUT ops are programmed to
++ * an identity; a non-bypassable curve has no identity and rejects the plan.
++ * Among complete plans the fewest LUTs wins (named curves are exact). */
++static void plan_node(struct plan_search *s, size_t ni, size_t oi, double gain, unsigned cost) {
++	if (!s->budget || (s->found && cost >= s->best_cost)) {
++		return;
++	}
++	--s->budget;
++	if (ni == s->p->len) {
++		if (oi == s->r->len && gain_placed(gain) && (!s->found || cost < s->best_cost)) {
++			memcpy(s->best, s->current, ni * sizeof(*s->best));
++			s->best_cost = cost;
++			s->found = true;
++		}
++		return;
++	}
++	const struct colorop *n = &s->p->nodes[ni];
++	const struct color_pipeline_op *op = oi < s->r->len ? &s->r->ops[oi] : NULL;
++	uint64_t fixed;
++	struct node_plan np;
++
++	/* Stage placements first, so equal-cost plans use the earliest ops.
++	 * A pending gain folds into a consumed multiplier or matrix (scalars
++	 * commute; the matrix scales its input columns, not the offset); curves
++	 * and client LUTs must wait until it is placed to preserve recipe order. */
++	if (s->effective[ni] && op) {
++		if (n->type == DRM_COLOROP_1D_CURVE && op->type == CP_CURVE && gain_placed(gain) &&
++			curve_value(n, op->curve, &fixed)) {
++			np = (struct node_plan){.action = NODE_CURVE, .curve = fixed};
++			plan_try(s, ni, oi + 1, gain, cost, &np);
++		}
++		if (n->type == DRM_COLOROP_MULTIPLIER && n->multiplier && op->type == CP_MULTIPLIER &&
++			color_pipeline_fixed(op->multiplier * gain, &fixed)) {
++			np = (struct node_plan){.action = NODE_MULTIPLIER, .multiplier = op->multiplier * gain};
++			plan_try(s, ni, oi + 1, 1.0, cost, &np);
++		}
++		if (n->type == DRM_COLOROP_CTM_3X4 && n->data && op->type == CP_MATRIX) {
++			np = (struct node_plan){.action = NODE_MATRIX};
++			bool ok = true;
++			for (size_t i = 0; i < 12 && ok; i++) {
++				np.matrix[i] = op->matrix[i] * (i % 4 < 3 ? gain : 1.0);
++				ok = color_pipeline_fixed(np.matrix[i], &fixed);
++			}
++			if (ok) {
++				plan_try(s, ni, oi + 1, 1.0, cost, &np);
++			}
++		}
++		if (n->type == DRM_COLOROP_1D_LUT && n->data && n->interpolation_supported &&
++			n->size >= 2 && gain_placed(gain)) {
++			if (op->type == CP_LUT && lut_resample_qualified(
++					color_transform_lut_3x1d_from_base(op->transform), n->size)) {
++				np = (struct node_plan){.action = NODE_LUT_CLIENT, .op = op};
++				plan_try(s, ni, oi + 1, gain, cost + 1, &np);
++			}
++			double unused, max;
++			if (op->type == CP_CURVE && curve_decode(op->curve, 0.0, &unused, &max)) {
++				const struct color_pipeline_op *next =
++					oi + 1 < s->r->len ? &s->r->ops[oi + 1] : NULL;
++				bool fold = next && next->type == CP_MULTIPLIER;
++				double g = fold ? next->multiplier : 1.0;
++				double range = max * g, lut_gain, rest = 1.0;
++				if (range <= 1.0) {
++					lut_gain = g;
++				} else {
++					lut_gain = 1.0 / max;
++					rest = range;
++				}
++				np = (struct node_plan){.action = NODE_LUT_DECODE,
++					.decode = op->curve, .lut_gain = lut_gain};
++				plan_try(s, ni, oi + (fold ? 2 : 1), rest, cost + 1, &np);
++			}
+ 		}
+ 	}
+-	assignment[ni] = -1;
+-	return p->nodes[ni].bypass && match(p, r, ni + 1, oi, assignment, budget);
++	/* A pending gain lands on a multiplier or matrix without consuming an op. */
++	if (s->effective[ni] && !gain_placed(gain)) {
++		if (n->type == DRM_COLOROP_MULTIPLIER && n->multiplier &&
++			color_pipeline_fixed(gain, &fixed)) {
++			np = (struct node_plan){.action = NODE_MULTIPLIER, .multiplier = gain};
++			plan_try(s, ni, oi, 1.0, cost, &np);
++		}
++		if (n->type == DRM_COLOROP_CTM_3X4 && n->data && color_pipeline_fixed(gain, &fixed)) {
++			np = (struct node_plan){.action = NODE_MATRIX};
++			np.matrix[0] = np.matrix[5] = np.matrix[10] = gain;
++			plan_try(s, ni, oi, 1.0, cost, &np);
++		}
++	}
++	if (n->bypass) {
++		np = (struct node_plan){.action = NODE_BYPASS};
++		plan_try(s, ni, oi, gain, cost, &np);
++	} else if (n->type == DRM_COLOROP_CTM_3X4 && n->data) {
++		np = (struct node_plan){.action = NODE_IDENTITY_MATRIX};
++		np.matrix[0] = np.matrix[5] = np.matrix[10] = 1.0;
++		plan_try(s, ni, oi, gain, cost, &np);
++	} else if (n->type == DRM_COLOROP_MULTIPLIER && n->multiplier) {
++		np = (struct node_plan){.action = NODE_IDENTITY_MULTIPLIER, .multiplier = 1.0};
++		plan_try(s, ni, oi, gain, cost, &np);
++	} else if (n->type == DRM_COLOROP_1D_LUT && n->data && n->interpolation_supported &&
++		n->size >= 2) {
++		np = (struct node_plan){.action = NODE_IDENTITY_LUT};
++		plan_try(s, ni, oi, gain, cost + 1, &np);
++	}
++}
++
++static bool plan_pipeline(const struct color_pipeline *p, const struct color_pipeline_recipe *r,
++	uint32_t format, struct node_plan out[MAX_NODES]) {
++	bool effective[MAX_NODES];
++	if (!pipeline_effective(p, format, effective)) {
++		return false;
++	}
++	struct plan_search s = {
++		.p = p, .r = r, .effective = effective, .budget = 4096, .best_cost = UINT_MAX,
++	};
++	plan_node(&s, 0, 0, 1.0, 0);
++	if (!s.found) {
++		return false;
++	}
++	memcpy(out, s.best, p->len * sizeof(*out));
++	return true;
+ }
+ 
+ /* Takes ownership of contents. Returns the colorop's DATA blob for these exact
+@@ -369,42 +598,60 @@
+ 	return true;
+ }
+ 
+-static bool emit(int fd, drmModeAtomicReq *req, struct colorop *node,
+-	const struct color_pipeline_op *op) {
+-	if (node->bypass && !add(req, node->id, node->bypass, op == NULL)) {
++static bool emit_matrix_blob(int fd, drmModeAtomicReq *req, struct colorop *node,
++	const double values[12]) {
++	struct drm_color_ctm_3x4 *matrix = calloc(1, sizeof(*matrix));
++	if (!matrix) {
+ 		return false;
+ 	}
+-	if (!op) {
+-		return true;
+-	}
+-	uint64_t value;
+-	if (op->type == CP_CURVE) {
+-		return curve_value(node, op->curve, &value) && add(req, node->id, node->curve, value);
++	for (size_t i = 0; i < 12; i++) {
++		uint64_t entry;
++		if (!color_pipeline_fixed(values[i], &entry)) {
++			free(matrix);
++			return false;
++		}
++		matrix->matrix[i] = entry;
+ 	}
+-	if (op->type == CP_MULTIPLIER) {
+-		return color_pipeline_fixed(op->multiplier, &value) &&
+-			   add(req, node->id, node->multiplier, value);
++	uint32_t blob = 0;
++	if (!node_data_blob(fd, node, matrix, sizeof(*matrix), &blob)) {
++		return false;
+ 	}
++	return add(req, node->id, node->data, blob);
++}
++
++/* Takes ownership of lut. */
++static bool emit_lut_blob(int fd, drmModeAtomicReq *req, struct colorop *node,
++	struct drm_color_lut32 *lut) {
+ 	uint32_t blob = 0;
+-	if (op->type == CP_MATRIX) {
+-		struct drm_color_ctm_3x4 *matrix = calloc(1, sizeof(*matrix));
+-		if (!matrix) {
+-			return false;
+-		}
+-		for (size_t i = 0; i < 12; i++) {
+-			uint64_t entry;
+-			if (!color_pipeline_fixed(op->matrix[i], &entry)) {
+-				free(matrix);
+-				return false;
+-			}
+-			matrix->matrix[i] = entry;
+-		}
+-		if (!node_data_blob(fd, node, matrix, sizeof(*matrix), &blob)) {
+-			return false;
+-		}
+-	} else if (op->type == CP_LUT) {
+-		struct wlr_color_transform_lut_3x1d *tr = color_transform_lut_3x1d_from_base(op->transform);
+-		struct drm_color_lut32 *lut = calloc(node->size, sizeof(*lut));
++	if (!node_data_blob(fd, node, lut, node->size * sizeof(*lut), &blob)) {
++		return false;
++	}
++	return add(req, node->id, node->data, blob);
++}
++
++static bool emit_plan(int fd, drmModeAtomicReq *req, struct colorop *node,
++	const struct node_plan *np) {
++	if (node->bypass && !add(req, node->id, node->bypass, np->action == NODE_BYPASS)) {
++		return false;
++	}
++	uint64_t value;
++	struct drm_color_lut32 *lut;
++	switch (np->action) {
++	case NODE_BYPASS:
++		return true;
++	case NODE_CURVE:
++		return add(req, node->id, node->curve, np->curve);
++	case NODE_MULTIPLIER:
++	case NODE_IDENTITY_MULTIPLIER:
++		return color_pipeline_fixed(np->multiplier, &value) &&
++			   add(req, node->id, node->multiplier, value);
++	case NODE_MATRIX:
++	case NODE_IDENTITY_MATRIX:
++		return emit_matrix_blob(fd, req, node, np->matrix);
++	case NODE_LUT_CLIENT: {
++		struct wlr_color_transform_lut_3x1d *tr =
++			color_transform_lut_3x1d_from_base(np->op->transform);
++		lut = calloc(node->size, sizeof(*lut));
+ 		if (!lut) {
+ 			return false;
+ 		}
+@@ -413,13 +660,29 @@
+ 			lut[i].green = lut_resample(tr->lut_3x1d + tr->dim, tr->dim, node->size, i);
+ 			lut[i].blue = lut_resample(tr->lut_3x1d + 2 * tr->dim, tr->dim, node->size, i);
+ 		}
+-		if (!node_data_blob(fd, node, lut, node->size * sizeof(*lut), &blob)) {
++		return emit_lut_blob(fd, req, node, lut);
++	}
++	case NODE_LUT_DECODE:
++	case NODE_IDENTITY_LUT:
++		lut = calloc(node->size, sizeof(*lut));
++		if (!lut) {
+ 			return false;
+ 		}
+-	} else {
+-		return false;
++		for (size_t i = 0; i < node->size; i++) {
++			double u = (double)i / (node->size - 1), v = u, max;
++			if (np->action == NODE_LUT_DECODE) {
++				if (!curve_decode(np->decode, u, &v, &max)) {
++					free(lut);
++					return false;
++				}
++				v *= np->lut_gain;
++			}
++			uint32_t q = (uint32_t)llround(fmin(fmax(v, 0.0), 1.0) * UINT32_MAX);
++			lut[i].red = lut[i].green = lut[i].blue = q;
++		}
++		return emit_lut_blob(fd, req, node, lut);
+ 	}
+-	return add(req, node->id, node->data, blob);
++	return false;
+ }
+ 
+ bool drm_color_pipeline_reset(struct wlr_drm_connector_state *s, drmModeAtomicReq *req) {
+@@ -436,6 +699,90 @@
+ 	return true;
+ }
+ 
++/* nvidia rejects FB imports of non-FP16 formats while an FP color pipeline is
++ * bound on the plane. The unbind normally rides the same atomic commit as the
++ * new FB, whose import happens first — a deadlock that loops into unbounded
++ * buffer reallocation. Commit the unbind alone (the current FB and gamma stay
++ * for one frame) so the import can be retried. Returns false when nothing was
++ * committed or the standalone commit failed. */
++bool drm_color_pipeline_unbind_committed(struct wlr_drm_connector_state *s) {
++	struct wlr_drm_backend *drm = s->connector->backend;
++	if (!s->connector->crtc) {
++		return false;
++	}
++	uint32_t crtc = s->connector->crtc->id;
++	drmModeAtomicReq *req = drmModeAtomicAlloc();
++	if (!req) {
++		return false;
++	}
++	bool any = false;
++	for (size_t i = 0; i < drm->num_planes; i++) {
++		struct wlr_drm_plane *p = &drm->planes[i];
++		struct color_plane *cp = p->color_pipeline;
++		if (cp && cp->committed_crtc == crtc && cp->committed_root) {
++			if (!add(req, p->id, cp->property, 0)) {
++				drmModeAtomicFree(req);
++				return false;
++			}
++			any = true;
++		}
++	}
++	bool ok = false;
++	if (any) {
++		ok = drmModeAtomicCommit(drm->fd, req, 0, NULL) == 0;
++		if (ok) {
++			for (size_t i = 0; i < drm->num_planes; i++) {
++				struct color_plane *cp = drm->planes[i].color_pipeline;
++				if (cp && cp->committed_crtc == crtc) {
++					cp->committed_root = 0;
++					cp->logged_root = 0;
++				}
++			}
++			wlr_log(WLR_DEBUG, "DRM color pipeline unbound to recover buffer import");
++		}
++	}
++	drmModeAtomicFree(req);
++	return ok;
++}
++
++/* Backend-wide variant for the FB-import path (fb.c), which has no connector
++ * state. Unbinds every plane with a committed pipeline so a blocked addfb2 can
++ * be retried before the buffer is poisoned. */
++bool drm_color_pipeline_unbind_committed_all(struct wlr_drm_backend *drm) {
++	drmModeAtomicReq *req = drmModeAtomicAlloc();
++	if (!req) {
++		return false;
++	}
++	bool any = false;
++	for (size_t i = 0; i < drm->num_planes; i++) {
++		struct wlr_drm_plane *p = &drm->planes[i];
++		struct color_plane *cp = p->color_pipeline;
++		if (cp && cp->committed_root) {
++			if (!add(req, p->id, cp->property, 0)) {
++				drmModeAtomicFree(req);
++				return false;
++			}
++			any = true;
++		}
++	}
++	bool ok = false;
++	if (any) {
++		ok = drmModeAtomicCommit(drm->fd, req, 0, NULL) == 0;
++		if (ok) {
++			for (size_t i = 0; i < drm->num_planes; i++) {
++				struct color_plane *cp = drm->planes[i].color_pipeline;
++				if (cp && cp->committed_root) {
++					cp->committed_root = 0;
++					cp->logged_root = 0;
++				}
++			}
++			wlr_log(WLR_DEBUG, "DRM color pipelines unbound to recover buffer import");
++		}
++	}
++	drmModeAtomicFree(req);
++	return ok;
++}
++
+ bool drm_color_pipeline_add(struct wlr_drm_connector_state *s, drmModeAtomicReq *req,
+ 	struct wlr_drm_plane *plane, struct wlr_buffer *buffer) {
+ 	const struct color_pipeline_recipe *recipe = color_pipeline_get(buffer);
+@@ -447,11 +794,16 @@
+ 	if (!drm->color_pipeline_enabled || !cp || drm_connector_is_cursor_visible(s->connector)) {
+ 		return false;
+ 	}
++	/* The framebuffer format selects which pipelines and ops take effect;
++	 * without it no pipeline can be qualified safely. */
++	struct wlr_dmabuf_attributes attrs;
++	if (!wlr_buffer_get_dmabuf(buffer, &attrs)) {
++		return false;
++	}
+ 	for (size_t i = 0; i < cp->len; i++) {
+ 		struct color_pipeline *p = &cp->pipelines[i];
+-		int assignment[MAX_NODES];
+-		unsigned budget = 4096;
+-		if (!match(p, recipe, 0, 0, assignment, &budget)) {
++		struct node_plan plan[MAX_NODES];
++		if (!plan_pipeline(p, recipe, attrs.format, plan)) {
+ 			continue;
+ 		}
+ 		struct color_state *pending = wl_array_add(&s->color_pipeline_state, sizeof(*pending));
+@@ -463,9 +815,7 @@
+ 			return false;
+ 		}
+ 		for (size_t j = 0; j < p->len; j++) {
+-			const struct color_pipeline_op *op =
+-				assignment[j] < 0 ? NULL : &recipe->ops[assignment[j]];
+-			if (!emit(drm->fd, req, &p->nodes[j], op)) {
++			if (!emit_plan(drm->fd, req, &p->nodes[j], &plan[j])) {
+ 				return false;
+ 			}
+ 		}
+@@ -511,12 +861,19 @@
+ 		wlr_log(WLR_INFO, "DRM color pipelines unavailable in build headers");
+ 	}
+ }
++bool drm_color_pipeline_unbind_committed(struct wlr_drm_connector_state *s) {
++	return false;
++}
++bool drm_color_pipeline_unbind_committed_all(struct wlr_drm_backend *drm) {
++	return false;
++}
+ bool drm_color_pipeline_discover(struct wlr_drm_backend *drm, struct wlr_drm_plane *plane) {
+ 	return true;
+ }
+ bool drm_color_pipeline_supported(struct wlr_drm_backend *drm) {
+ 	return false;
+ }
++void drm_color_pipeline_set_fp16_fmt(bool effective) {}
+ void drm_color_pipeline_finish(struct wlr_drm_plane *plane) {}
+ bool drm_color_pipeline_reset(struct wlr_drm_connector_state *s, drmModeAtomicReq *req) {
+ 	return true;
+--- a/include/backend/drm/color_pipeline.h
++++ b/include/backend/drm/color_pipeline.h
+@@ -7,6 +7,16 @@
+ struct wlr_drm_connector_state;
+ struct wlr_buffer;
+ 
++/* Assume the leading FMT matrix takes effect on FP16 surfaces (nvidia 620
++ * reshaped the FP pipelines; the conservative default treats it as inert).
++ * Startup opt-in via AQUEOUS_DRM_COLOR_PIPELINE_FP16_FMT=1; verify pixels. */
++void drm_color_pipeline_set_fp16_fmt(bool effective);
++/* Commit a standalone unbind of this connector's committed color pipelines so
++ * a blocked FB import can be retried (nvidia rejects non-FP16 imports while an
++ * FP pipeline is bound). False when nothing was committed or it failed. */
++bool drm_color_pipeline_unbind_committed(struct wlr_drm_connector_state *state);
++/* Backend-wide unbind for the FB-import path (no connector state available). */
++bool drm_color_pipeline_unbind_committed_all(struct wlr_drm_backend *drm);
+ void drm_color_pipeline_init(struct wlr_drm_backend *drm);
+ bool drm_color_pipeline_discover(struct wlr_drm_backend *drm, struct wlr_drm_plane *plane);
+ bool drm_color_pipeline_supported(struct wlr_drm_backend *drm);

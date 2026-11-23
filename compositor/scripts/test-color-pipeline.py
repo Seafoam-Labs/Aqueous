@@ -35,6 +35,10 @@ with tempfile.TemporaryDirectory(prefix="aqueous-color-tests-") as directory:
         function(liftoff, name) for name in (
             "assigned_plane", "add_color_pipelines", "reset_device_color_pipelines",
             "add_device_color_pipelines")))
+    scene = (source / "types/scene/wlr_scene.c").read_text()
+    (tmp / "scene-color.h").write_text("\n".join(
+        function(scene, name) for name in (
+            "scene_output_encode_lut", "scene_output_post_blend_state")))
     probe = tmp / "probe.c"
     probe.write_text("#include <xf86drm.h>\n#include <xf86drmMode.h>\n"
                      "int x = DRM_CLIENT_CAP_PLANE_COLOR_PIPELINE;\n"

@@ -18,8 +18,12 @@ args = parser.parse_args()
 source, prefix = args.source, args.prefix
 function = runpy.run_path(str(Path(__file__).with_name('test-vulkan-sync.py')))['function']
 atomic = (source / 'backend/drm/atomic.c').read_text()
-production = '\n'.join(function(atomic, name) for name in [
-    'create_mode_blob', 'create_gamma_lut_blob', 'create_fb_damage_clips_blob',
+gamma = (source / 'backend/drm/color_pipeline.c').read_text()
+production = '\n'.join(function(gamma, name) for name in [
+    'drm_color_gamma_lut_contents', 'drm_color_gamma_lut_blob',
+    'drm_color_gamma_lut_apply', 'drm_color_gamma_lut_rollback', 'drm_color_gamma_lut_finish'])
+production += '\n'.join(function(atomic, name) for name in [
+    'create_mode_blob', 'create_fb_damage_clips_blob',
     'convert_cta861_eotf', 'convert_cta861_color_coord', 'create_hdr_output_metadata_blob',
     'convert_primaries_to_colorspace', 'destroy_blob', 'commit_blob', 'rollback_blob', 'drm_atomic_connector_prepare',
     'drm_atomic_connector_apply_commit', 'drm_atomic_connector_rollback_commit',
