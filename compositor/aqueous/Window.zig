@@ -324,6 +324,8 @@ backdrop_blur: ?fx.WindowBlur,
 /// Auto HDR expansion override from the matched window rule, reapplied every
 /// manage cycle. Null follows the output default (fullscreen windows expand).
 hdr_expand_rule: ?bool = null,
+/// Per-window decoration rule override published in the shell state.
+decoration_override: ?@import("wm/rules/engine.zig").DecorationOverride = null,
 
 /// Keep delivering frame callbacks while this window is hidden, so
 /// callback-driven clients (games) keep rendering in the background. Set from
@@ -632,9 +634,13 @@ pub fn policyApplyPlacement(
     window.wm_requested.tiled = if (tiled) .{ .top = true, .bottom = true, .left = true, .right = true } else .{};
     window.wm_requested.maximized = maximized;
     const expand: u32 = 0x01010101;
+    // A mapped shell-drawn decoration (Pearl titlebar) replaces the compositor
+    // border for this window. Until the shell commits its first buffer the
+    // built-in border stays, so the window is never undecorated.
+    const effective_border_width: u31 = if (window.hasShellDecoration()) 0 else border_width;
     window.rendering_requested.border = .{
-        .edges = if (border_width > 0) .{ .top = true, .bottom = true, .left = true, .right = true } else .{},
-        .width = border_width,
+        .edges = if (effective_border_width > 0) .{ .top = true, .bottom = true, .left = true, .right = true } else .{},
+        .width = effective_border_width,
         .corner_radius = if (build_options.vulkan_effects) corner_radius else 0,
         .r = ((border_color >> 16) & 0xff) * expand,
         .g = ((border_color >> 8) & 0xff) * expand,
@@ -678,7 +684,9 @@ pub fn policyApplyVisualRule(
     buffer_scale_policy: scaling.BufferScalePolicy,
     scale_filter: scaling.ScaleFilter,
     overlay_plane: OverlayPreference,
+    decoration: ?@import("wm/rules/engine.zig").DecorationOverride,
     force_ssd: bool,
+    shell_ssd: bool,
 ) void {
     window.rendering_requested.blur_enabled = blur orelse true;
     if (opacity) |fraction| {
@@ -692,11 +700,55 @@ pub fn policyApplyVisualRule(
     // Integrated policy owns this value outright. Recompute it on every cycle
     // so disabling force_ssd or losing the xdg-decoration object cannot leave
     // server-side mode stuck on from an earlier transaction.
-    window.wm_requested.ssd = integratedSsdMode(force_ssd, window.hasXdgDecoration());
+    const policy = @import("wm/decoration_policy.zig");
+    window.wm_requested.ssd = switch (window.impl) {
+        .toplevel => integratedSsdMode(force_ssd, window.hasXdgDecoration(), shell_ssd, window.wm_scheduled.decoration_hint),
+        .xwayland => if (build_options.xwayland)
+            policy.x11SsdMode(force_ssd, shell_ssd, switch (window.wm_scheduled.decoration_hint) {
+                .only_supports_csd => .only_supports_csd,
+                .prefers_csd => .prefers_csd,
+                .prefers_ssd => .prefers_ssd,
+                .no_preference => .no_preference,
+                _ => .no_preference,
+            })
+        else
+            false,
+        .destroying => false,
+    };
+    // Per-window rule override: `csd` keeps the client's decorations, `ssd`
+    // forces server-side for capable clients. CSD-only clients are never
+    // forced either way.
+    window.decoration_override = decoration;
+    const capable = switch (window.impl) {
+        .toplevel => window.hasXdgDecoration() and window.wm_scheduled.decoration_hint != .only_supports_csd,
+        .xwayland => window.wm_scheduled.decoration_hint != .prefers_csd and window.wm_scheduled.decoration_hint != .only_supports_csd,
+        .destroying => false,
+    };
+    window.wm_requested.ssd = policy.withOverride(window.wm_requested.ssd, if (decoration) |o| switch (o) {
+        .csd => .csd,
+        .ssd => .ssd,
+    } else null, capable);
+    // X11 clients draw their own decorations unless the WM strips them via
+    // MOTIF hints; keep that negotiation in step with the SSD decision.
+    if (build_options.xwayland and window.impl == .xwayland) {
+        @import("XwaylandDecoration.zig").setSuppressed(window.impl.xwayland.xsurface.window_id, window.wm_requested.ssd);
+    }
 }
 
-fn integratedSsdMode(force_ssd: bool, has_xdg_decoration: bool) bool {
-    return force_ssd and has_xdg_decoration;
+fn integratedSsdMode(
+    force_ssd: bool,
+    has_xdg_decoration: bool,
+    shell_ssd: bool,
+    hint: aqueous.WindowV1.DecorationHint,
+) bool {
+    const policy = @import("wm/decoration_policy.zig");
+    return policy.ssdMode(force_ssd, has_xdg_decoration, shell_ssd, switch (hint) {
+        .only_supports_csd => .only_supports_csd,
+        .prefers_csd => .prefers_csd,
+        .prefers_ssd => .prefers_ssd,
+        .no_preference => .no_preference,
+        _ => .no_preference,
+    });
 }
 
 fn hasXdgDecoration(window: *const Window) bool {
@@ -706,11 +758,60 @@ fn hasXdgDecoration(window: *const Window) bool {
     };
 }
 
+/// True when a shell client (Pearl) has committed a mapped above-placement
+/// decoration for this window. The compositor suppresses its own borders in
+/// that case; the shell owns the decoration appearance.
+pub fn hasShellDecoration(window: *Window) bool {
+    var it = window.decorations_above.iterator(.forward);
+    while (it.next()) |decoration| {
+        if (decoration.shell and decoration.surface.mapped) return true;
+    }
+    return false;
+}
+
+pub const DecorationSnapshot = struct {
+    capability: []const u8,
+    requested: []const u8,
+    effective: []const u8,
+    configure_pending: bool,
+    override: ?[]const u8 = null,
+};
+
+/// xdg-decoration negotiation state for the shell state stream, mirroring
+/// aqueous_window_info_v1.decoration.
+pub fn decorationSnapshot(window: *const Window) DecorationSnapshot {
+    const unavailable: DecorationSnapshot = .{
+        .capability = "unavailable",
+        .requested = "client-side",
+        .effective = "client-side",
+        .configure_pending = false,
+        .override = if (window.decoration_override) |o| @tagName(o) else null,
+    };
+    return switch (window.impl) {
+        .toplevel => |*toplevel| if (toplevel.decoration) |decoration| .{
+            .capability = "xdg-decoration",
+            .requested = decorationModeName(decoration.wlr_decoration.requested_mode),
+            .effective = decorationModeName(decoration.wlr_decoration.current.mode),
+            .configure_pending = toplevel.decoration_configure_pending,
+            .override = if (window.decoration_override) |o| @tagName(o) else null,
+        } else unavailable,
+        .xwayland, .destroying => unavailable,
+    };
+}
+
+fn decorationModeName(mode: wlr.XdgToplevelDecorationV1.Mode) []const u8 {
+    return switch (mode) {
+        .none => "none",
+        .client_side => "client-side",
+        .server_side => "server-side",
+    };
+}
+
 test "integrated SSD policy follows force setting and protocol capability" {
-    try std.testing.expect(!integratedSsdMode(false, false));
-    try std.testing.expect(!integratedSsdMode(false, true));
-    try std.testing.expect(!integratedSsdMode(true, false));
-    try std.testing.expect(integratedSsdMode(true, true));
+    try std.testing.expect(!integratedSsdMode(false, false, false, .no_preference));
+    try std.testing.expect(!integratedSsdMode(false, true, false, .no_preference));
+    try std.testing.expect(!integratedSsdMode(true, false, false, .no_preference));
+    try std.testing.expect(integratedSsdMode(true, true, false, .no_preference));
 }
 
 pub fn overlayPreference(window: *const Window) OverlayPreference {
@@ -892,7 +993,12 @@ pub fn destroy(window: *Window) void {
 
     inline for (.{ &window.decorations_above, &window.decorations_below }) |decorations| {
         var it = decorations.safeIterator(.forward);
-        while (it.next()) |decoration| decoration.destroy();
+        while (it.next()) |decoration| {
+            // The owning client may still hold a live decoration object; the
+            // window dies before the state stream can report its removal.
+            decoration.detach();
+            decoration.destroy();
+        }
     }
 
     window.tree.node.destroy();
@@ -2813,12 +2919,22 @@ pub fn applySurfaceVisualState(window: *Window) void {
     window.applyOpacity();
 }
 
-fn surfaceMask(window: *const Window, content_clip: *const wlr.Box) ?fx.BufferClip {
+fn surfaceMask(window: *Window, content_clip: *const wlr.Box) ?fx.BufferClip {
     const radius = window.rendering_requested.border.corner_radius;
     if (window.wm_requested.fullscreen != null or radius == 0) return null;
     var content: wlr.Box = .{ .x = 0, .y = 0, .width = window.box.width, .height = window.box.height };
     if (!content_clip.empty()) _ = content.intersection(&content, content_clip);
-    return fx.BufferClip.init(.{ .x = content.x, .y = content.y, .width = content.width, .height = content.height }, radius);
+    // A shell titlebar covers the window's top edge, so the content must meet
+    // it squarely: shift the mask's rounded top corners up behind the titlebar
+    // (there is no content there) and keep only the bottom corners rounded.
+    // Layout-cut top edges (content.y > 0) keep their own rounding.
+    var top = content.y;
+    var height = content.height;
+    if (content.y == 0 and window.hasShellDecoration()) {
+        top -= @as(i32, @intCast(radius));
+        height += @as(i32, @intCast(radius));
+    }
+    return fx.BufferClip.init(.{ .x = content.x, .y = top, .width = content.width, .height = height }, radius);
 }
 
 /// Effective compositor opacity shared by a top-level and its popup surfaces.

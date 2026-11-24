@@ -202,7 +202,7 @@ pub fn build(b: *Build) !void {
 
     scanner.generate("aqueous_window_manager_v1", 10);
     scanner.generate("aqueous_window_info_manager_v1", 9);
-    scanner.generate("aqueous_shell_manager_v1", 3);
+    scanner.generate("aqueous_shell_manager_v1", 4);
     scanner.generate("aqueous_xkb_bindings_v1", 3);
     scanner.generate("aqueous_layer_shell_v1", 1);
     scanner.generate("aqueous_input_manager_v1", 2);
@@ -696,6 +696,17 @@ pub fn build(b: *Build) !void {
         });
         const run_aqueous_test = b.addRunArtifact(aqueous_test);
 
+        const decoration_policy_test = b.addTest(.{
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("aqueous/wm/decoration_policy.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+            .use_llvm = use_llvm,
+            .use_lld = use_llvm,
+        });
+        const run_decoration_policy_test = b.addRunArtifact(decoration_policy_test);
+
         const trace_test = b.addTest(.{
             .root_module = b.createModule(.{
                 .root_source_file = b.path("aqueous/wm/Trace.zig"),
@@ -1052,6 +1063,7 @@ pub fn build(b: *Build) !void {
         test_step.dependOn(&run_overlay_planes_test.step);
         test_step.dependOn(&run_output_retry_test.step);
         test_step.dependOn(&run_aqueous_test.step);
+        test_step.dependOn(&run_decoration_policy_test.step);
         test_step.dependOn(&run_trace_test.step);
         test_step.dependOn(&run_config_test.step);
         test_step.dependOn(&run_keyboard_test.step);

@@ -1194,7 +1194,9 @@ pub fn applyRuleVisual(
     buffer_scale_policy: scaling.BufferScalePolicy,
     scale_filter: scaling.ScaleFilter,
     overlay_plane: @import("rules/engine.zig").OverlayPreference,
+    decoration: ?@import("rules/engine.zig").DecorationOverride,
     force_ssd: bool,
+    shell_ssd: bool,
 ) void {
     const ref: Window.Ref = @bitCast(handle);
     if (ref.get()) |window| window.policyApplyVisualRule(
@@ -1204,7 +1206,9 @@ pub fn applyRuleVisual(
         buffer_scale_policy,
         scale_filter,
         overlay_plane,
+        decoration,
         force_ssd,
+        shell_ssd,
     );
 }
 

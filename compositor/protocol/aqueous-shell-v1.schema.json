@@ -442,6 +442,63 @@
         },
         "switcher_eligible": {
           "type": "boolean"
+        },
+        "decoration": {
+          "description": "xdg-decoration negotiation state; optional for older compositors.",
+          "type": "object",
+          "required": [
+            "capability",
+            "requested",
+            "effective",
+            "configure_pending"
+          ],
+          "properties": {
+            "capability": {
+              "enum": [
+                "unavailable",
+                "xdg-decoration"
+              ]
+            },
+            "requested": {
+              "enum": [
+                "none",
+                "client-side",
+                "server-side"
+              ]
+            },
+            "effective": {
+              "enum": [
+                "none",
+                "client-side",
+                "server-side"
+              ]
+            },
+            "configure_pending": {
+              "type": "boolean"
+            },
+            "override": {
+              "description": "Per-window decoration rule override; optional.",
+              "enum": [
+                "csd",
+                "ssd"
+              ]
+            }
+          }
+        },
+        "ssd_renderer": {
+          "description": "Who draws this window's server-side decorations; optional for older compositors.",
+          "enum": [
+            "compositor",
+            "shell"
+          ]
+        },
+        "operation": {
+          "description": "Interactive pointer operation in progress; optional for older compositors.",
+          "enum": [
+            "none",
+            "move",
+            "resize"
+          ]
         }
       }
     },

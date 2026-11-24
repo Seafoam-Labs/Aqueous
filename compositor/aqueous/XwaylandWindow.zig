@@ -4,6 +4,7 @@
 const XwaylandWindow = @This();
 
 const std = @import("std");
+const build_options = @import("build_options");
 const assert = std.debug.assert;
 const math = std.math;
 
@@ -226,6 +227,8 @@ fn setActivated(xwindow: XwaylandWindow, activated: bool) void {
 
 fn handleDestroy(listener: *wl.Listener(void)) void {
     const xwindow: *XwaylandWindow = @fieldParentPtr("destroy", listener);
+
+    if (build_options.xwayland) @import("XwaylandDecoration.zig").forget(xwindow.xsurface.window_id);
 
     // Remove listeners that are active for the entire lifetime of the window
     xwindow.destroy.link.remove();
@@ -581,6 +584,14 @@ fn handleSetHints(listener: *wl.Listener(void)) void {
 
 fn handleSetDecorations(listener: *wl.Listener(void)) void {
     const xwindow: *XwaylandWindow = @fieldParentPtr("set_decorations", listener);
+
+    // Ignore the hint event produced by our own SSD suppression write; the
+    // policy re-asserts suppression every cycle while it wants SSD.
+    if (build_options.xwayland and @import("XwaylandDecoration.zig").matchesSuppression(
+        xwindow.xsurface.window_id,
+        xwindow.xsurface.decorations.no_border,
+        xwindow.xsurface.decorations.no_title,
+    )) return;
 
     if (xwindow.xsurface.decorations.no_border or xwindow.xsurface.decorations.no_title) {
         xwindow.window.setDecorationHint(.prefers_csd);

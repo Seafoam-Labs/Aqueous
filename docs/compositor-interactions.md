@@ -143,6 +143,21 @@ normal GTK window can honor server-side mode while its snapshot still reports
 `capability: "unavailable"`. Explicit `GtkHeaderBar` and `AdwHeaderBar` widgets
 are application content and are not removed.
 
+With `[decoration] renderer = "shell"` and a version-4
+`aqueous_shell_manager_v1` client connected (Pearl), the integrated policy
+also configures SSD for xdg-decoration clients which prefer SSD, and the shell
+client draws the decorations through `get_window_decoration`. Decoration
+surfaces reuse the `Decoration.zig` scene machinery: they follow their windows
+through transactions, are hidden with them, and are saved for workspace
+slides. While a shell decoration is mapped the compositor suppresses its own
+borders for that window (`Window.hasShellDecoration`); borders return in the
+next transaction if the decoration or the shell client goes away
+(`ShellManager.destroyOwnedDecorations`). Titlebar presses activate the window
+through the normal interaction path; drags and edge resizes arrive as
+serial-validated `window_interactive_move`/`window_interactive_resize`
+requests feeding the same `pointer_move_requested` path as xdg-toplevel
+`_move`/`_resize`.
+
 Manager version 7 adds effective cursor-theme queries and live cursor control.
 Every response includes a status plus the effective theme and size, including
 after a rejected update.

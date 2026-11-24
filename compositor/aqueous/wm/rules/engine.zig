@@ -93,6 +93,21 @@ pub const OverlayPreference = enum {
     }
 };
 
+/// Per-window decoration side override. Null ("auto") follows the global
+/// renderer/force_ssd policy; `csd` keeps the client's own decorations;
+/// `ssd` forces server-side decorations for capable clients. CSD-only
+/// clients are never forced either way.
+pub const DecorationOverride = enum {
+    csd,
+    ssd,
+
+    pub fn parse(value: []const u8) ?DecorationOverride {
+        if (std.mem.eql(u8, value, "csd")) return .csd;
+        if (std.mem.eql(u8, value, "ssd")) return .ssd;
+        return null;
+    }
+};
+
 pub const Rule = struct {
     scope: Scope = .managed,
     window_type: ?X11WindowType = null,
@@ -134,6 +149,8 @@ pub const Rule = struct {
     hdr_expand: ?bool = null,
     /// Request zero-copy promotion when the output/backend accepts it.
     overlay_plane: OverlayPreference = .off,
+    /// Decoration side override; null follows the global SSD policy.
+    decoration: ?DecorationOverride = null,
     stack_layer: ?StackLayer = null,
     placement_policy: ?PlacementPolicy = null,
     focus: ?bool = null,
@@ -196,6 +213,7 @@ pub const Rule = struct {
         hashOptionalEnum(&hash, rule.scale_filter);
         hashOptionalBool(&hash, rule.hdr_expand);
         hash.update(std.mem.asBytes(&rule.overlay_plane));
+        hashOptionalEnum(&hash, rule.decoration);
         hashOptionalEnum(&hash, rule.stack_layer);
         hashOptionalEnum(&hash, rule.placement_policy);
         hashOptionalBool(&hash, rule.focus);
@@ -241,6 +259,7 @@ pub const Rule = struct {
         placement_only.opacity = null;
         placement_only.hdr_expand = null;
         placement_only.overlay_plane = .off;
+        placement_only.decoration = null;
         placement_only.stack_layer = null;
         placement_only.focus = null;
         placement_only.fixed_position = false;

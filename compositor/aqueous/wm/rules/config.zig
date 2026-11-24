@@ -243,6 +243,9 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
     if (std.mem.eql(u8, key, "overlay_plane")) {
         rule.overlay_plane = Engine.OverlayPreference.parse(value) orelse rule.overlay_plane;
     }
+    if (std.mem.eql(u8, key, "decoration")) {
+        rule.decoration = Engine.DecorationOverride.parse(value) orelse rule.decoration;
+    }
     if (std.mem.eql(u8, key, "stack_layer") or std.mem.eql(u8, key, "layer")) rule.stack_layer = parseStackLayer(value) orelse rule.stack_layer;
     if (std.mem.eql(u8, key, "placement_policy")) rule.placement_policy = parsePlacementPolicy(value) orelse rule.placement_policy;
     if (std.mem.eql(u8, key, "focus")) rule.focus = parseBool(value) orelse rule.focus;
@@ -381,6 +384,7 @@ test "rules parser preserves order and parses native placement behavior" {
         \\scale_filter = "high-quality"
         \\hdr_expand = false
         \\overlay_plane = "prefer"
+        \\decoration = "ssd"
         \\stack_layer = "above"
         \\placement_policy = "minimal-overlap"
         \\focus = false
@@ -407,6 +411,7 @@ test "rules parser preserves order and parses native placement behavior" {
     try std.testing.expect(game.fullscreen and game.ignore_struts);
     try std.testing.expectEqual(@as(?bool, false), game.hdr_expand);
     try std.testing.expectEqual(Engine.OverlayPreference.prefer, game.overlay_plane);
+    try std.testing.expectEqual(Engine.DecorationOverride.ssd, game.decoration.?);
     try std.testing.expectEqual(Engine.StackLayer.above, game.stack_layer.?);
     try std.testing.expectEqual(Engine.PlacementPolicy.minimal_overlap, game.placement_policy.?);
     try std.testing.expectEqual(@as(?bool, false), game.focus);

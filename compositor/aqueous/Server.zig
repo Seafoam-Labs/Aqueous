@@ -480,6 +480,7 @@ pub fn deinit(server: *Server) void {
         }
     }
     server.child_processes.deinit();
+    if (comptime build_options.xwayland) @import("XwaylandDecoration.zig").deinit();
     if (comptime build_options.input_activity_testing) @import("InputActivityTest.zig").finish();
     server.input_activity.stop();
     server.drm_lease.stop();

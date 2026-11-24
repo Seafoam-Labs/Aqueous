@@ -3,9 +3,12 @@
 const ShellManager = @This();
 const std = @import("std");
 const wl = @import("wayland").server.wl;
+const wlr = @import("wlroots");
 const protocol = @import("wayland").server.aqueous.ShellManagerV1;
+const aqueous = @import("wayland").server.aqueous;
 const server = &@import("main.zig").server;
 const util = @import("util.zig");
+const Decoration = @import("Decoration.zig");
 const Window = @import("Window.zig");
 const Workspace = @import("Workspace.zig");
 const Output = @import("Output.zig");
@@ -21,6 +24,8 @@ initialized: bool = false,
 idle: ?*wl.EventSource = null,
 clients: wl.list.Head(Client, .link) = undefined,
 client_count: usize = 0,
+/// Wayland-bound clients at version >= 4 which may draw shell decorations.
+decoration_clients: u32 = 0,
 sequence: u64 = 0,
 session: [32:0]u8 = undefined,
 state: Map = .empty,
@@ -51,7 +56,7 @@ pub fn init(manager: *ShellManager) !void {
     const hex = std.fmt.bytesToHex(random, .lower);
     @memcpy(manager.session[0..32], &hex);
     manager.session[32] = 0;
-    manager.global = try wl.Global.create(server.wl_server, protocol, 3, *ShellManager, manager, bind);
+    manager.global = try wl.Global.create(server.wl_server, protocol, 4, *ShellManager, manager, bind);
     manager.initialized = true;
     server.wl_server.addDestroyListener(&manager.server_destroy);
 }
@@ -91,6 +96,7 @@ fn bind(client: *wl.Client, manager: *ShellManager, version: u32, id: u32) void 
     state.* = .{ .resource = resource };
     manager.clients.append(state);
     manager.client_count += 1;
+    if (version >= 4) manager.decoration_clients += 1;
     resource.setHandler(*Client, request, clientDestroy, state);
     var arena = std.heap.ArenaAllocator.init(util.gpa);
     defer arena.deinit();
@@ -107,6 +113,7 @@ fn bind(client: *wl.Client, manager: *ShellManager, version: u32, id: u32) void 
         .icon_metadata = true,
         .window_order = true,
         .unmanaged_windows = version >= 3,
+        .window_decorations = server.aqueous.mode == .internal and version >= 4,
         .geometry = "committed-content-global-logical",
     }, .{}) catch {
         client.postNoMemory();
@@ -127,11 +134,51 @@ pub fn detach(client: *Client) void {
     const switcher = &server.window_switcher;
     if (switcher.owner == @as(*anyopaque, @ptrCast(client)) or
         (switcher.handoff != null and switcher.handoff.?.owner == @as(*anyopaque, @ptrCast(client)))) switcher.dismiss();
+    if (client.resource) |resource| {
+        if (resource.getVersion() >= 4) server.shell_manager.decoration_clients -= 1;
+        // The shell renderer is gone: drop its decorations so the compositor
+        // border fallback returns in the next transaction.
+        destroyOwnedDecorations(resource.getClient());
+    }
     client.link.remove();
     server.shell_manager.client_count -= 1;
     clear(&client.previous);
     if (client.queued) |cmd| cmd.deinit(util.gpa);
     util.gpa.destroy(client);
+    server.shell_manager.dirty();
+}
+
+fn destroyOwnedDecorations(owner: *wl.Client) void {
+    var destroyed = false;
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        inline for (.{ &window.decorations_above, &window.decorations_below }) |decorations| {
+            var it = decorations.safeIterator(.forward);
+            while (it.next()) |decoration| {
+                if (!decoration.shell or decoration.owner != owner) continue;
+                if (decoration.shell_object) |object| {
+                    // Resource destroy runs Decoration.handleShellDestroy,
+                    // which clears the object and frees the decoration.
+                    object.destroy();
+                } else if (decoration.object) |object| {
+                    object.destroy();
+                } else {
+                    decoration.destroy();
+                }
+                destroyed = true;
+            }
+        }
+    }
+    if (destroyed) server.wm.dirtyWindowing();
+}
+
+/// True when a v4 shell client is connected and configuration selects the
+/// shell as the SSD renderer. Integrated policy then configures SSD for
+/// eligible windows and Pearl draws the decorations.
+pub fn shellSsdActive(manager: *const ShellManager) bool {
+    return manager.decoration_clients > 0 and
+        server.aqueous.mode == .internal and
+        server.aqueous.config.wm.decoration_renderer == .shell;
 }
 
 pub fn dirty(manager: *ShellManager) void {
@@ -252,7 +299,7 @@ fn refresh(manager: *ShellManager) !void {
         const outer = .{ .x = @as(i64, info.geometry.x) - left, .y = @as(i64, info.geometry.y) - top, .width = @as(i64, info.geometry.width) + left + right, .height = @as(i64, info.geometry.height) + top + bottom };
         const freeform = window.policy_state.presentation == .floating or server.aqueous.clientWindowUsesFloatingLayout(@bitCast(window.ref));
         const layout_index = if (freeform or info.floating or info.minimized or info.maximized or info.fullscreen) null else server.aqueous.clientWindowLayoutIndex(@bitCast(window.ref));
-        try add(&next, &total, "window", id, .{ .kind = "window", .id = id, .layout_index = layout_index, .backend = @tagName(info.backend), .app_id = span(info.app_id), .class = span(info.class), .title = span(info.title), .tag = span(info.tag), .description = span(info.description), .icon = if (window.impl == .toplevel) try window.impl.toplevel.icon.metadata(a) else null, .workspace = try optionalId(a, if (ws) |v| v.id else null), .output = try optionalId(a, if (ws) |v| v.output.shell_id else null), .geometry = info.geometry, .outer_geometry = outer, .focused = info.focused, .visible = info.visible, .floating = info.floating, .minimized = info.minimized, .maximized = info.maximized, .fullscreen = info.fullscreen, .skip_taskbar = info.skip_taskbar, .skip_switcher = info.skip_switcher, .always_above = info.always_above, .always_below = info.always_below, .snapped = info.snapped, .fixed_position = info.fixed_position, .layout = info.layout, .switcher_eligible = if (ws) |workspace| @import("WindowSwitcher.zig").eligible(window, workspace) else false, .can_minimize = freeform, .can_maximize = freeform, .can_activate = window.wm_scheduled.accepts_focus and window.policy_state.focus_allowed });
+        try add(&next, &total, "window", id, .{ .kind = "window", .id = id, .layout_index = layout_index, .backend = @tagName(info.backend), .app_id = span(info.app_id), .class = span(info.class), .title = span(info.title), .tag = span(info.tag), .description = span(info.description), .icon = if (window.impl == .toplevel) try window.impl.toplevel.icon.metadata(a) else null, .workspace = try optionalId(a, if (ws) |v| v.id else null), .output = try optionalId(a, if (ws) |v| v.output.shell_id else null), .geometry = info.geometry, .outer_geometry = outer, .focused = info.focused, .visible = info.visible, .floating = info.floating, .minimized = info.minimized, .maximized = info.maximized, .fullscreen = info.fullscreen, .skip_taskbar = info.skip_taskbar, .skip_switcher = info.skip_switcher, .always_above = info.always_above, .always_below = info.always_below, .snapped = info.snapped, .fixed_position = info.fixed_position, .layout = info.layout, .switcher_eligible = if (ws) |workspace| @import("WindowSwitcher.zig").eligible(window, workspace) else false, .decoration = window.decorationSnapshot(), .ssd_renderer = @as([]const u8, if (window.wm_requested.ssd and manager.shellSsdActive()) "shell" else "compositor"), .operation = @tagName(window.interactive), .can_minimize = freeform, .can_maximize = freeform, .can_activate = window.wm_scheduled.accepts_focus and window.policy_state.focus_allowed });
     }
     if (@import("build_options").xwayland) {
         var cursor = @import("XwaylandOverrideRedirect.zig").first;
@@ -425,6 +472,29 @@ fn request(resource: *protocol, req: protocol.Request, client: *Client) void {
             const id = if (ws) |value| std.mem.printSentinel(&buf, "{d}", .{value.id}, 0) catch unreachable else "";
             resource.sendWorkspaceId(args.request_id, id);
         },
+        .get_window_decoration => |args| {
+            if (resource.getVersion() < 4) {
+                resource.getClient().postImplementationError("unsupported shell decoration request");
+                return;
+            }
+            getWindowDecoration(resource, client, args.request_id, std.mem.span(args.window_id), args.placement, args.surface, args.id);
+        },
+        .window_interactive_move => |args| {
+            if (resource.getVersion() < 4) {
+                resource.getClient().postImplementationError("unsupported shell decoration request");
+                return;
+            }
+            const status = startInteractive(client, std.mem.span(args.window_id), std.mem.span(args.seat), args.serial, null);
+            result(client, args.request_id, status);
+        },
+        .window_interactive_resize => |args| {
+            if (resource.getVersion() < 4) {
+                resource.getClient().postImplementationError("unsupported shell decoration request");
+                return;
+            }
+            const status = startInteractive(client, std.mem.span(args.window_id), std.mem.span(args.seat), args.serial, args.edges);
+            result(client, args.request_id, status);
+        },
         .command => |args| {
             // These decisions do not require a settled policy transaction.
             // An absent external controller must not turn unsupported into a timeout.
@@ -464,6 +534,118 @@ fn request(resource: *protocol, req: protocol.Request, client: *Client) void {
             server.shell_manager.dirty();
         },
     }
+}
+
+fn windowForId(id: []const u8) ?*Window {
+    if (id.len == 0) return null;
+    var it = server.wm.windows.iterator();
+    while (it.next()) |window| {
+        if (window.state != .mapped) continue;
+        const wid = windowId(window) orelse continue;
+        if (std.mem.eql(u8, wid, id)) return window;
+    }
+    return null;
+}
+
+fn shellDecorationCount(owner: ?*wl.Client) u32 {
+    var count: u32 = 0;
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        inline for (.{ &window.decorations_above, &window.decorations_below }) |decorations| {
+            var it = decorations.iterator(.forward);
+            while (it.next()) |decoration| {
+                if (decoration.shell and (owner == null or decoration.owner == owner)) count += 1;
+            }
+        }
+    }
+    return count;
+}
+
+fn inertDecorationRequest(object: *aqueous.ShellDecorationV1, req: aqueous.ShellDecorationV1.Request, _: ?*anyopaque) void {
+    if (req == .destroy) object.destroy();
+}
+
+/// Create an inert decoration object for a rejected get_window_decoration and
+/// report the recoverable status. The client must destroy the inert object.
+fn rejectDecoration(resource: *protocol, client: *Client, request_id: u32, id: u32, status: Status) void {
+    const object = aqueous.ShellDecorationV1.create(resource.getClient(), 1, id) catch {
+        resource.getClient().postNoMemory();
+        return;
+    };
+    object.setHandler(?*anyopaque, inertDecorationRequest, null, null);
+    result(client, request_id, status);
+}
+
+fn getWindowDecoration(
+    resource: *protocol,
+    client: *Client,
+    request_id: u32,
+    window_id: []const u8,
+    placement: protocol.DecorationPlacement,
+    surface: *wl.Surface,
+    id: u32,
+) void {
+    if (client.socket != null) return rejectDecoration(resource, client, request_id, id, .unsupported);
+    if (@backingInt(placement) > 1 or window_id.len > 1024) return rejectDecoration(resource, client, request_id, id, .invalid);
+    if (server.aqueous.mode != .internal) return rejectDecoration(resource, client, request_id, id, .unsupported);
+    if (server.lock_manager.state != .unlocked) return rejectDecoration(resource, client, request_id, id, .locked);
+    const window = windowForId(window_id) orelse return rejectDecoration(resource, client, request_id, id, .not_found);
+    if (shellDecorationCount(resource.getClient()) >= 64 or shellDecorationCount(null) >= 512) {
+        return rejectDecoration(resource, client, request_id, id, .busy);
+    }
+    const above = placement == .above;
+    const decoration = Decoration.createShell(
+        resource.getClient(),
+        1,
+        id,
+        wlr.Surface.fromWlSurface(surface),
+        if (above) window.decorations_above_tree else window.decorations_below_tree,
+    ) catch |err| switch (err) {
+        error.OutOfMemory, error.ResourceCreateFailed => {
+            resource.getClient().postNoMemory();
+            return;
+        },
+        // setRole already posted a protocol error for a surface with a role.
+        error.AlreadyHasRole => return,
+    };
+    if (above) {
+        window.decorations_above.append(decoration);
+    } else {
+        window.decorations_below.append(decoration);
+    }
+    result(client, request_id, .applied);
+    server.wm.dirtyWindowing();
+    server.shell_manager.dirty();
+}
+
+fn startInteractive(client: *Client, window_id: []const u8, seat_name: []const u8, serial: u32, edges: ?u32) Status {
+    if (client.socket != null) return .unsupported;
+    if (window_id.len > 1024 or seat_name.len > 1024) return .invalid;
+    if (server.aqueous.mode != .internal) return .unsupported;
+    if (server.lock_manager.state != .unlocked) return .locked;
+    if (edges) |value| {
+        if (value == 0 or value & ~@as(u32, 15) != 0) return .invalid;
+    }
+    const window = windowForId(window_id) orelse return .not_found;
+    const seat = Commands.findSeat(seat_name) orelse return if (seat_name.len == 0) .ambiguous_seat else .not_found;
+    // Same contract as xdg_toplevel.move/resize: the serial must belong to the
+    // seat's current pointer grab, i.e. a real button press on the titlebar.
+    if (!seat.wlr_seat.validatePointerGrabSerial(null, serial)) return .invalid;
+    if (edges) |value| {
+        window.wm_scheduled.pointer_resize_requested = .{
+            .seat = seat,
+            .edges = .{
+                .top = value & 1 != 0,
+                .bottom = value & 2 != 0,
+                .left = value & 4 != 0,
+                .right = value & 8 != 0,
+            },
+        };
+    } else {
+        window.wm_scheduled.pointer_move_requested = seat;
+    }
+    server.wm.dirtyWindowing();
+    return .applied;
 }
 
 pub fn attachSocket(socket: *@import("IpcServer.zig").Client) !*Client {

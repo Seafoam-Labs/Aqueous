@@ -9,6 +9,11 @@ pub const max_mappings = 32;
 
 pub const DrmColorPipeline = enum { auto, off };
 
+/// Who draws server-side decorations. `compositor` keeps the built-in
+/// border-only SSD rendering; `shell` hands decoration drawing to a connected
+/// shell client (Pearl) through aqueous_shell_manager_v1.get_window_decoration.
+pub const DecorationRenderer = enum { compositor, shell };
+
 pub const Text = struct {
     bytes: [256]u8 = undefined,
     len: u16 = 0,
@@ -142,6 +147,7 @@ pub const Snapshot = struct {
     fullscreen_hides_bar: bool = true,
     maximize_full_output: bool = false,
     corner_radius: u31 = 15,
+    decoration_renderer: DecorationRenderer = .compositor,
     blur_enabled: bool = false,
     blur_radius: i32 = 5,
     blur_passes: i32 = 3,
@@ -243,10 +249,13 @@ pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []c
                 if (std.mem.eql(u8, key, "fullscreen_hides_bar")) snapshot.fullscreen_hides_bar = parseBool(value) orelse snapshot.fullscreen_hides_bar;
                 if (std.mem.eql(u8, key, "maximize_full_output")) snapshot.maximize_full_output = parseBool(value) orelse snapshot.maximize_full_output;
             },
-            .decoration => if (std.mem.eql(u8, key, "corner_radius")) {
-                // Parse the raw value so quoted strings are not accepted as integers.
-                const radius = parseNonNegative(std.mem.trim(u8, line[equal + 1 ..], " \t")) orelse continue;
-                if (radius <= 128) snapshot.corner_radius = @intCast(radius);
+            .decoration => {
+                if (std.mem.eql(u8, key, "corner_radius")) {
+                    // Parse the raw value so quoted strings are not accepted as integers.
+                    const radius = parseNonNegative(std.mem.trim(u8, line[equal + 1 ..], " \t")) orelse continue;
+                    if (radius <= 128) snapshot.corner_radius = @intCast(radius);
+                }
+                if (std.mem.eql(u8, key, "renderer")) snapshot.decoration_renderer = std.meta.stringToEnum(DecorationRenderer, value) orelse snapshot.decoration_renderer;
             },
             .blur => {
                 if (std.mem.eql(u8, key, "enabled")) snapshot.blur_enabled = parseBool(value) orelse snapshot.blur_enabled;
@@ -719,4 +728,20 @@ test "window corner radius defaults, bounds and replacement snapshots" {
 
 test "comments inside quoted values are preserved" {
     try std.testing.expectEqualStrings("key = \"a#b\"", cleanLine(" key = \"a#b\" # comment"));
+}
+
+test "decoration renderer defaults to compositor and parses shell selection" {
+    var snapshot: Snapshot = .{};
+    var layout_snapshot: layout.Snapshot = .{};
+    try std.testing.expectEqual(DecorationRenderer.compositor, snapshot.decoration_renderer);
+    apply(&snapshot, &layout_snapshot, "[decoration]\nrenderer = \"shell\"");
+    try std.testing.expectEqual(DecorationRenderer.shell, snapshot.decoration_renderer);
+    apply(&snapshot, &layout_snapshot, "[decoration]\nrenderer = \"invalid\"");
+    try std.testing.expectEqual(DecorationRenderer.shell, snapshot.decoration_renderer);
+    apply(&snapshot, &layout_snapshot, "[decoration]\nrenderer = \"compositor\"");
+    try std.testing.expectEqual(DecorationRenderer.compositor, snapshot.decoration_renderer);
+    // Reload starts from defaults.
+    var replacement: Snapshot = .{};
+    apply(&replacement, &layout_snapshot, "[decoration]\ncorner_radius = 8\n");
+    try std.testing.expectEqual(DecorationRenderer.compositor, replacement.decoration_renderer);
 }

@@ -280,6 +280,54 @@ use the entity shape above (including output ID plus `output_name`, and no
 workspace/layout state). Older compositors retain managed-only discovery.
 
 
+## Shell-drawn server-side decorations (manager version 4)
+
+The `window_decorations` capability advertises shell-rendered SSD support.
+It requires integrated internal policy and a Wayland-bound manager object;
+socket clients observe the state but cannot create decoration surfaces.
+
+With `[decoration] renderer = "shell"` in `wm.toml` and a version-4 shell
+client connected, the integrated policy configures server-side decorations
+for xdg-decoration clients which prefer SSD (and for all capable clients when
+`[layout] force_ssd` is set). CSD-only clients are never forced. Each window
+entity then carries:
+
+- `decoration`: `{capability, requested, effective, configure_pending}`,
+  mirroring `aqueous_window_info_v1.decoration`.
+- `ssd_renderer`: `"shell"` when the shell is expected to draw this window's
+  decorations, otherwise `"compositor"` (built-in borders).
+- `operation`: `"none"`, `"move"` or `"resize"` — the interactive pointer
+  operation in progress. Shells use it to request `sync_next_commit` for
+  decoration updates which must land atomically with the drag.
+
+`get_window_decoration(request_id, window_id, placement, surface, id)` creates
+an `aqueous_shell_decoration_v1` attached to a managed window. `placement` is
+`above` (titlebar layer) or `below` (shadow/backdrop layer). The decoration
+follows the window through moves, resizes, transitions and hiding. The shell
+owns all drawing and theming; while a mapped above-placement decoration exists
+the compositor suppresses its own borders for that window, and restores them
+if the decoration or the shell client goes away. The `result` event reports a
+recoverable status; on any non-`applied` status the created object is inert
+and must be destroyed. Limits: 64 decorations per client, 512 total.
+
+`aqueous_shell_decoration_v1` mirrors `aqueous_decoration_v1` (`destroy`,
+`set_offset`, `sync_next_commit`) without the external window manager render
+sequence: requests may be sent at any time. `sync_next_commit` still requires
+a surface commit before the compositor's next render finishes, so decoration
+updates can land atomically with workspace slides and interactive resizes.
+
+`window_interactive_move(request_id, window_id, seat, serial)` and
+`window_interactive_resize(request_id, window_id, seat, serial, edges)` start
+pointer operations, typically from a titlebar press/drag. The serial must
+match the seat's current pointer grab serial (the button press on the
+decoration surface); `edges` uses xdg_toplevel resize edge bits. Both report
+through `result`. Pressing a decoration surface also activates its window
+through the normal interaction path.
+
+Decoration creation and interactive requests are rejected while the session
+is locked and under external/comparison policy.
+
+
 To run the isolated regression matrix (legacy coordinates, fractional legacy,
 and fractional native coordinates with negative output origins), build with
 XWayland enabled and the Pixman test renderer:

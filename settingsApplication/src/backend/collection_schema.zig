@@ -19,7 +19,7 @@ pub const rule_keys: []const []const u8 = &.{
     "app_id",               "class",           "title",         "content_type", "layout",         "output",        "workspace",
     "floating",             "fullscreen",      "ignore_struts", "width",        "height",         "x",             "y",
     "placement_policy",     "anchor",          "size",          "scale",        "blur",           "opacity",       "buffer_scale_policy",
-    "hdr_expand",           "overlay_plane",   "stack_layer",   "focus",        "fixed_position", "skip_switcher", "skip_taskbar",
+    "hdr_expand",           "overlay_plane",   "decoration",    "stack_layer",   "focus",        "fixed_position", "skip_switcher", "skip_taskbar",
     "scrolling_full_width", "scrolling_width", "tag",           "scope",        "window_type",    "matching",      "keep_render",
 };
 
@@ -181,6 +181,7 @@ pub fn ruleOptions(key: []const u8) []const []const u8 {
     if (std.mem.eql(u8, key, "anchor")) return &.{ "center", "top", "bottom", "left", "right" };
     if (std.mem.eql(u8, key, "buffer_scale_policy")) return &.{ "native", "integer-ceil" };
     if (std.mem.eql(u8, key, "overlay_plane")) return &.{ "off", "prefer" };
+    if (std.mem.eql(u8, key, "decoration")) return &.{ "csd", "ssd" };
     if (std.mem.eql(u8, key, "stack_layer")) return &.{ "below", "normal", "above" };
     if (std.mem.eql(u8, key, "matching")) return &.{ "always", "once", "startup" };
     return &.{};

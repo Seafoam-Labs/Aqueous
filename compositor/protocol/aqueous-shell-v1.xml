@@ -9,7 +9,11 @@ SPDX-License-Identifier: MIT</copyright>
     acknowledge each bounded batch before another is sent. Intermediate states
     may be coalesced; base_sequence identifies the state to which a delta applies.
   </description>
-  <interface name="aqueous_shell_manager_v1" version="3">
+  <interface name="aqueous_shell_manager_v1" version="4">
+    <enum name="decoration_placement">
+      <entry name="above" value="0" summary="rendered above the window content (titlebar layer)"/>
+      <entry name="below" value="1" summary="rendered below the window content (shadow/backdrop layer)"/>
+    </enum>
     <enum name="action">
       <entry name="window_activate" value="0"/>
       <entry name="window_close" value="1"/>
@@ -96,6 +100,103 @@ SPDX-License-Identifier: MIT</copyright>
         Like subscribe, additionally includes unmanaged_window entities. Exactly
         one of subscribe or subscribe_unmanaged may be used per manager.
         These IDs cannot be used with managed window commands.
+      </description>
+    </request>
+    <request name="get_window_decoration" since="4">
+      <description summary="create a shell-drawn decoration surface for a window">
+        Create an aqueous_shell_decoration_v1 decoration surface attached to the
+        managed window identified by window_id, a shell window ID from the
+        state stream. The decoration is placed above or below the window
+        content per placement and follows the window through moves, resizes,
+        workspace transitions and hiding. The shell client draws the
+        decoration content and owns its theming; the compositor keeps window
+        policy. While a mapped above-placement decoration exists the
+        compositor suppresses its own borders for that window.
+
+        The result event reports request_id with a recoverable status. On
+        any non-applied status the created object is inert and must be
+        destroyed by the client. Only available under integrated policy and
+        an unlocked session; Wayland-bound manager objects only.
+      </description>
+      <arg name="request_id" type="uint"/>
+      <arg name="window_id" type="string"/>
+      <arg name="placement" type="uint" enum="decoration_placement"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+      <arg name="id" type="new_id" interface="aqueous_shell_decoration_v1"/>
+    </request>
+    <request name="window_interactive_move" since="4">
+      <description summary="start an interactive pointer move of a window">
+        Start an interactive move for the window identified by window_id,
+        typically in response to a pointer button press on a shell decoration
+        surface. serial must be the serial of the button press which triggered
+        the request; invalid serials are rejected with invalid status. seat
+        selects the seat by name; empty selects the sole seat. The result
+        event reports request_id.
+      </description>
+      <arg name="request_id" type="uint"/>
+      <arg name="window_id" type="string"/>
+      <arg name="seat" type="string"/>
+      <arg name="serial" type="uint"/>
+    </request>
+    <request name="window_interactive_resize" since="4">
+      <description summary="start an interactive pointer resize of a window">
+        Like window_interactive_move, but starts an interactive resize. edges
+        is a bitmask of xdg_toplevel resize edge values (top 1, bottom 2,
+        left 4, right 8) and must not be zero. The result event reports
+        request_id.
+      </description>
+      <arg name="request_id" type="uint"/>
+      <arg name="window_id" type="string"/>
+      <arg name="seat" type="string"/>
+      <arg name="serial" type="uint"/>
+      <arg name="edges" type="uint"/>
+    </request>
+  </interface>
+
+  <interface name="aqueous_shell_decoration_v1" version="1">
+    <description summary="a shell-drawn window decoration">
+      A decoration surface created through
+      aqueous_shell_manager_v1.get_window_decoration. Rendering order matches
+      aqueous_decoration_v1: below-placement decorations render under the
+      window content, above-placement decorations over it. The decoration
+      follows its window through moves, resizes, workspace transitions and
+      hiding; the shell client owns its content and theming.
+
+      Unlike aqueous_decoration_v1 there is no external window manager
+      render sequence: requests may be sent at any time and the compositor
+      applies them in its next rendering transaction.
+    </description>
+
+    <enum name="error">
+      <entry name="no_commit" value="0"
+        summary="failed to commit the surface before the compositor render"/>
+    </enum>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the decoration object">
+        This request indicates that the client will no longer use the decoration
+        object and that it may be safely destroyed.
+      </description>
+    </request>
+
+    <request name="set_offset">
+      <description summary="set offset from the window's top left corner">
+        This request sets the offset of the decoration surface from the top left
+        corner of the window, in logical pixels. If never sent, the offset is
+        (0, 0).
+      </description>
+      <arg name="x" type="int" summary="x relative to top left window corner"/>
+      <arg name="y" type="int" summary="y relative to top left window corner"/>
+    </request>
+
+    <request name="sync_next_commit">
+      <description summary="sync next commit with the compositor render">
+        Synchronize application of the next wl_surface.commit request on the
+        decoration surface with the compositor's next rendering transaction,
+        so decoration updates land atomically with window moves and workspace
+        transitions. The client must commit the decoration surface after this
+        request and before the compositor's next render finishes; failure to
+        do so is a protocol error.
       </description>
     </request>
   </interface>

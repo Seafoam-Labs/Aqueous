@@ -638,7 +638,9 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 if (rule) |matched| matched.buffer_scale_policy orelse aqueous.config.wm.buffer_scale_policy else aqueous.config.wm.buffer_scale_policy,
                 if (rule) |matched| matched.scale_filter orelse aqueous.config.wm.scale_filter else aqueous.config.wm.scale_filter,
                 if (rule) |matched| matched.overlay_plane else .off,
+                if (rule) |matched| matched.decoration else null,
                 aqueous.config.wm.force_ssd,
+                server.shell_manager.shellSsdActive(),
             );
         }
         var entry = try aqueous.layout_states.getOrPut(util.gpa, layout_key);

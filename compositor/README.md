@@ -764,6 +764,22 @@ motion.
 Fullscreen and no-effects builds stay square; application-drawn transparent
 corners remain transparent.
 
+Server-side decoration drawing is selected with `[decoration] renderer` in
+`wm.toml`: `"compositor"` (default) keeps the built-in border-only SSD
+rendering, `"shell"` hands decoration drawing to a connected version-4
+`aqueous_shell_manager_v1` client (Pearl) through `get_window_decoration`.
+With the shell renderer active, xdg-decoration clients which prefer SSD are
+configured for server-side decorations even without `[layout] force_ssd`;
+CSD-only clients are never forced. XWayland windows are negotiated through
+`_MOTIF_WM_HINTS` (clients insisting on their own decorations are honored).
+Per-window `[[rule]] decoration = "csd" | "ssd"` overrides the side; see
+`docs/rules.md`. The shell draws titlebars as decoration
+surfaces which follow their windows through moves, resizes and workspace
+transitions; the compositor suppresses its own borders while a shell
+decoration is mapped and restores them if the shell disconnects. See
+`protocol/aqueous-shell-v1.md` (manager version 4) for the contract and
+`scripts/test-shell-decoration.sh` for the headless integration test.
+
 Check default rounding, live changes, borderless windows, geometry clamping and
 fullscreen transitions in a private headless session:
 

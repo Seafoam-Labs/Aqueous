@@ -36,7 +36,7 @@ fn findWorkspace(id: []const u8) ?*Workspace {
     }
     return null;
 }
-fn findSeat(name: []const u8) ?*Seat {
+pub fn findSeat(name: []const u8) ?*Seat {
     var it = server.input_manager.seats.iterator(.forward);
     const first = it.next() orelse return null;
     if (name.len == 0) return if (it.next() == null) first else null;
