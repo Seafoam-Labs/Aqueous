@@ -37,7 +37,7 @@ else
         # Include native sources, protocols and dependency patches. Ignore
         # generated output and caches when deciding whether staging is stale.
         if [ "$HERE/scripts/build-compositor.sh" -nt "$LOCAL_COMPOSITOR" ] ||
-            [ -n "$(find "$HERE/compositor" \
+            [ -n "$(find "$HERE/compositor" "$HERE/settingsApplication" \
                 \( -name .deps -o -name .zig-cache -o -name zig-out \) -prune -o \
                 -type f \( -name '*.zig' -o -name '*.zon' -o -name '*.c' -o -name '*.h' \
                     -o -name '*.xml' -o -name '*.patch' -o -name '*.sh' \) \

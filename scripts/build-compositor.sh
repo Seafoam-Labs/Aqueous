@@ -57,3 +57,18 @@ else
     echo "[build-compositor] no aqueousctl binary produced under compositor/zig-out/bin/" >&2
     exit 1
 fi
+
+# The canonical configuration helper lives in settingsApplication/ and is
+# discovered by Pearl through the session PATH; keep it paired with the
+# compositor so dev sessions expose the current field schema.
+(
+    cd "$here/settingsApplication"
+    zig build -Doptimize="$optimize" config
+)
+if [ -x "$here/settingsApplication/zig-out/bin/aqueous-config" ]; then
+    install -m 0755 "$here/settingsApplication/zig-out/bin/aqueous-config" "$here/bin/aqueous-config"
+    echo "[build-compositor] -> $here/bin/aqueous-config"
+else
+    echo "[build-compositor] no aqueous-config binary produced under settingsApplication/zig-out/bin/" >&2
+    exit 1
+fi

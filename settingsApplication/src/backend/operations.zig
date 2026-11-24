@@ -411,9 +411,11 @@ fn writeSchemaField(json: *std.json.Stringify, files: *const config.ConfigFiles,
     var resolved = resolveFieldRaw(&file_item.document, schema_field);
     var configured_raw = if (resolved) |item| item.value else null;
     var inherited = false;
-    if (isSingleWindowField(schema_field)) {
+    if (isSingleWindowField(schema_field) or (schema_field.file == .layout and std.mem.eql(u8, schema_field.section, "layout"))) {
         // Match the compositor's ordered wm.toml -> layout.toml overlays,
-        // including globals encountered after a per-layout assignment.
+        // including globals encountered after a per-layout assignment. The
+        // global [layout] table is honored from both sources per key, so a
+        // default or force_ssd written in wm.toml is reported truthfully.
         resolved = null;
         for ([_]schema.FileId{ .wm, .layout }) |file_id| {
             const document = &files.items[@backingInt(file_id)].document;
