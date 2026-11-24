@@ -62,6 +62,10 @@ scrolling_width: ?f64 = null,
 /// applied. Keeping this edge-triggered lets a user tile the dialog manually
 /// without the next manage cycle immediately forcing it floating again.
 auto_float_parent: types.Handle = 0,
+/// One-shot: a fixed-size X11 window has been evaluated for automatic floating.
+/// Edge-triggered so a user who manually re-tiles such a window is not forced
+/// floating again on the next manage cycle.
+fixed_size_float_evaluated: bool = false,
 /// Parent whose native transient is waiting for its first client-selected
 /// buffer size after an unspecified-size XDG configure.
 pending_natural_parent: types.Handle = 0,

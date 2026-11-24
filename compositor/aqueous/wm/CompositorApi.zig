@@ -12,6 +12,7 @@ const Output = @import("../Output.zig");
 const Seat = @import("../Seat.zig");
 const Trace = @import("Trace.zig");
 const layout = @import("layout/types.zig");
+const layout_math = @import("layout/math.zig");
 const geometry = @import("geometry.zig");
 const overview_model = @import("overview/model.zig");
 const output_transfer = @import("input/output_transfer.zig");
@@ -1281,11 +1282,28 @@ pub fn applyPlacement(
         placement.border.focused
     else
         placement.border.normal;
+    // Enforce the client's WM_NORMAL_HINTS min/max on the final placement so a
+    // fixed-size window (installer splash, dialog) is never stretched or shrunk
+    // to an arbitrary tile. clampToHints is otherwise unused by the layouts.
+    // Maximized/fullscreen windows opt out of their natural-size constraint.
+    var geo = placement.geometry;
+    if (!placement.maximized and window.wm_requested.fullscreen == null and
+        geo.width > 0 and geo.height > 0)
+    {
+        const hint = window.wm_scheduled.dimensions_hint;
+        geo = layout_math.clampToHints(geo, .{
+            .handle = placement.handle,
+            .min_width = @intCast(hint.min_width),
+            .min_height = @intCast(hint.min_height),
+            .max_width = @intCast(hint.max_width),
+            .max_height = @intCast(hint.max_height),
+        });
+    }
     window.policyApplyPlacement(
-        placement.geometry.x,
-        placement.geometry.y,
-        placement.geometry.width,
-        placement.geometry.height,
+        geo.x,
+        geo.y,
+        geo.width,
+        geo.height,
         placement.output_scale,
         placement.output_origin_x,
         placement.output_origin_y,

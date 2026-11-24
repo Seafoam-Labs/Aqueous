@@ -10,6 +10,7 @@ const wl = @import("wayland").server.wl;
 const server = &@import("../main.zig").server;
 
 const Seat = @import("../Seat.zig");
+const Window = @import("../Window.zig");
 const CompositorApi = @import("CompositorApi.zig");
 const Mode = @import("Mode.zig").Mode;
 const Trace = @import("Trace.zig");
@@ -366,6 +367,11 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
         snapshot = refreshed;
     }
     if (aqueous.reconcileTransientParents(&snapshot)) {
+        const refreshed = try aqueous.api.policySnapshot(util.gpa);
+        snapshot.deinit(util.gpa);
+        snapshot = refreshed;
+    }
+    if (aqueous.reconcileFixedSizeFloats(&snapshot)) {
         const refreshed = try aqueous.api.policySnapshot(util.gpa);
         snapshot.deinit(util.gpa);
         snapshot = refreshed;
@@ -1259,6 +1265,39 @@ fn reconcileTransientParent(aqueous: *Aqueous, window: layout_types.Window, usab
     transient.finishPlacement(state, parent);
     const after = aqueous.api.windowWorkspace(window.handle);
     return !sameWorkspace(before, after);
+}
+
+/// Float fixed-size X11 windows (min==max on both axes) such as installer
+/// splashes and dialogs, which have no transient parent to trigger the
+/// parent-based heuristic. Tiling would otherwise assign them an arbitrary tile
+/// and clip their content. Edge-triggered via fixed_size_float_evaluated so a
+/// manual re-tile is respected.
+fn reconcileFixedSizeFloats(aqueous: *Aqueous, snapshot: *const CompositorApi.PolicySnapshot) bool {
+    var changed = false;
+    for (snapshot.outputs) |output| {
+        const usable = aqueous.effectiveUsableArea(output.area, output.usable_area);
+        for (output.windows) |window| {
+            if (window.min_width <= 0 or window.min_height <= 0) continue;
+            if (window.max_width != window.min_width or window.max_height != window.min_height) continue;
+            const ref: Window.Ref = @bitCast(window.handle);
+            const comp = ref.get() orelse continue;
+            if (comp.impl != .xwayland) continue;
+            if (comp.policy_state.fixed_size_float_evaluated) continue;
+            const state = aqueous.window_states.get(window.handle) orelse continue;
+            comp.policy_state.fixed_size_float_evaluated = true;
+            if (state.kind() != .tiled) continue;
+            const w = @min(window.min_width, usable.width);
+            const h = @min(window.min_height, usable.height);
+            const rect = layout_types.Rect{
+                .x = usable.x + @divTrunc(usable.width - w, 2),
+                .y = usable.y + @divTrunc(usable.height - h, 2),
+                .width = w,
+                .height = h,
+            };
+            if (aqueous.window_states.setAutomaticFloating(window.handle, rect)) changed = true;
+        }
+    }
+    return changed;
 }
 
 /// Drop policy state before the compositor invalidates a stable window handle.
