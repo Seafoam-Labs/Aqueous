@@ -70,6 +70,7 @@ static bool atomic_commit(struct atomic *a, struct wlr_drm_backend *d,
     return !reject_commit;
 }
 bool drm_color_pipeline_reset(struct wlr_drm_connector_state *s, drmModeAtomicReq *r) { return true; }
+bool drm_color_pipeline_unbind_committed(struct wlr_drm_connector_state *s) { return false; }
 bool drm_color_pipeline_add(struct wlr_drm_connector_state *s, drmModeAtomicReq *r,
         struct wlr_drm_plane *p, struct wlr_buffer *b) { return true; }
 #define close checked_close
@@ -107,6 +108,10 @@ int main(void) {
     struct wlr_drm_device_state device = {.connectors = state, .connectors_len = 2, .modeset = true};
     for (unsigned frame = 0; frame < 6000; frame++) {
         operation = 0;
+        // Change the gamma contents every frame so the blob creation stays in
+        // the five-operation preparation sequence; this also exercises the
+        // cache replacement path under failure injection.
+        lut[0] = (uint16_t)frame;
         // Five preparation operations per output, including HDR failure after
         // fence export, then a healthy commit. Also fail the second output.
         fail_operation = (frame + 5) % 12;
@@ -152,7 +157,7 @@ int main(void) {
     }
     for (unsigned i = 0; i < 2; i++) {
         destroy_blob(&drm, crtc[i].mode_id);
-        destroy_blob(&drm, crtc[i].gamma_lut);
+        drm_color_gamma_lut_finish(&drm, &crtc[i]);
         destroy_blob(&drm, conn[i].hdr_output_metadata);
     }
     assert(blobs == 0 && fd_count() == baseline);

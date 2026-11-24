@@ -53,6 +53,10 @@ patch_files=(
     "$here/patches/wlroots/0044-color-management-extended-target-volume.patch"
     "$here/patches/wlroots/0045-scene-presentation.patch"
     "$here/patches/wlroots/0046-color-pipeline-stable-blobs.patch"
+    "$here/patches/wlroots/0047-drm-color-pipeline-nvidia-planner.patch"
+    "$here/patches/wlroots/0048-color-pipeline-post-blend-encode.patch"
+    "$here/patches/wlroots/0049-scene-post-blend-cursor.patch"
+    "$here/patches/wlroots/0050-cursor-linear-gpu-copy.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}

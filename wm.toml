@@ -180,10 +180,26 @@ rollback_seconds = 0
 [render]
 overlay_planes = false
 # Experimental DRM hardware color conversion: "auto" (default) or "off".
-# "auto" disables this on NVIDIA and tries supported pipelines on other GPUs.
-# Startup-only: restart Aqueous after changing this. An explicit
-# AQUEOUS_DRM_COLOR_PIPELINE environment variable overrides this setting.
+# "auto" tries supported pipelines; on NVIDIA it additionally requires the
+# post-blend opt-in below. Startup-only: restart Aqueous after changing this.
+# An explicit AQUEOUS_DRM_COLOR_PIPELINE environment variable overrides this
+# setting.
 color_pipeline = "auto"
+# Experimental post-blend encode for NVIDIA color pipelines, which end in
+# linear light: the final encode moves behind blending onto the CRTC gamma
+# LUT. Off by default; requires color_pipeline = "auto". Startup-only: restart
+# Aqueous after changing this. AQUEOUS_DRM_COLOR_PIPELINE_POST_BLEND=1 (or 0)
+# overrides this setting.
+color_pipeline_post_blend = false
+# Experimental assumption that the leading FMT matrix takes effect on FP16
+# surfaces (NVIDIA 620 reshaped the FP pipelines; the conservative default
+# treats FMT as inert, so composed FP16 offload stays disabled). With this on,
+# gain-folded matrices resolve on the FMT-only FP Lite pipeline. An inert FMT
+# silently drops the placed color stage: verify pixels before relying on it.
+# Off by default; requires color_pipeline = "auto". Startup-only: restart
+# Aqueous after changing this. AQUEOUS_DRM_COLOR_PIPELINE_FP16_FMT=1 (or 0)
+# overrides this setting.
+color_pipeline_fp16_fmt = false
 
 # -----------------------------------------------------------------------------
 # Per-workspace layout overrides. Each [[workspace]] block forces one workspace

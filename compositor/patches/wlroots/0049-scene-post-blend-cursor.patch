@@ -1,0 +1,635 @@
+scene, drm, output: wire post-blend encode into scanout and composition
+
+Completes the nvidia color pipeline path (spicy smithay a6a4be6d, niri
+96c7e4a7/31b38918; knowledge only, no code reuse): on outputs whose plane
+pipelines cannot express a terminal encode, the scene now scans out or
+composes with a linear-retargeted recipe and puts the encode on the CRTC
+GAMMA_LUT via the supplied-transform path.
+
+Capability is derived from discovery, not vendor names: an output needs
+post-blend when no pipeline ends in a curve advertising an inverse EOTF
+and the CRTC has a GAMMA_LUT. The scanout path requires a fullscreen
+opaque buffer (the gamma LUT covers the whole output); the composed FP16
+offload retargets the combined output transform the same way. The encode
+LUT is cached per scene output by transfer function, sink peak (max_cll,
+else the curve's default max) and gamma size; linear_max = peak / 80 in
+the PQ 125 scale.
+
+Gamma ownership is scene state: while a frame offloads the encode the
+compositor owns the LUT and the gamma-control attempt is skipped (ramps
+defer naturally via gamma_lut_changed); the first frame without the
+offload commits the reset, and a pending ramp applies on that same frame.
+Mode flips damage the whole output. The verified-key and scanout retry
+caches distinguish post-blend recipes through their fingerprints.
+
+The cursor plane goes through the CRTC gamma LUT, so post-blend frames
+need it in normalized linear light: an output addon selects a matrix-only
+cursor transform (1.0 = output peak) and mode changes re-render cursor
+buffers. The backend replaces the blanket cursor-visible rejection with
+a mode-match check: post-blend recipes require the linearized cursor,
+plane-only conversions require the wire-encoded one, so plane-only
+conversion now also works with a visible hardware cursor.
+
+No public struct ABI changes; new functions only.--- a/include/render/color_pipeline.h
++++ b/include/render/color_pipeline.h
+@@ -29,6 +29,11 @@
+ /* The wrapper owns references to source and recipe transforms. Drop after use. */
+ struct wlr_buffer *color_pipeline_wrap(
+ 	struct wlr_buffer *source, const struct color_pipeline_recipe *recipe);
++/* Marks a linear-retargeted recipe whose encode moves behind blending onto the
++ * CRTC GAMMA_LUT; the cursor must be in the matching linear-light mode. */
++struct wlr_buffer *color_pipeline_wrap_post_blend(
++	struct wlr_buffer *source, const struct color_pipeline_recipe *recipe);
++bool color_pipeline_is_post_blend(struct wlr_buffer *buffer);
+ const struct color_pipeline_recipe *color_pipeline_get(struct wlr_buffer *buffer);
+ 
+ /* Post-blend encode for pipelines that end in linear light (nvidia): strip
+--- a/render/color_pipeline.c
++++ b/render/color_pipeline.c
+@@ -184,6 +184,7 @@
+ 	struct wlr_buffer base;
+ 	struct wlr_buffer *source;
+ 	struct color_pipeline_recipe recipe;
++	bool post_blend;
+ };
+ 
+ static void destroy(struct wlr_buffer *buffer) {
+@@ -205,8 +206,29 @@
+ 	.get_dmabuf = get_dmabuf,
+ };
+ 
++static struct wlr_buffer *wrap(
++	struct wlr_buffer *source, const struct color_pipeline_recipe *recipe, bool post_blend);
++
+ struct wlr_buffer *color_pipeline_wrap(
+ 	struct wlr_buffer *source, const struct color_pipeline_recipe *recipe) {
++	return wrap(source, recipe, false);
++}
++
++struct wlr_buffer *color_pipeline_wrap_post_blend(
++	struct wlr_buffer *source, const struct color_pipeline_recipe *recipe) {
++	return wrap(source, recipe, true);
++}
++
++bool color_pipeline_is_post_blend(struct wlr_buffer *buffer) {
++	if (!buffer || buffer->impl != &impl) {
++		return false;
++	}
++	struct pipeline_buffer *b = wl_container_of(buffer, b, base);
++	return b->post_blend;
++}
++
++static struct wlr_buffer *wrap(
++	struct wlr_buffer *source, const struct color_pipeline_recipe *recipe, bool post_blend) {
+ 	if (!source || !recipe->len || recipe->len > COLOR_PIPELINE_MAX_OPS) {
+ 		return NULL;
+ 	}
+@@ -216,6 +238,7 @@
+ 	}
+ 	b->source = wlr_buffer_lock(source);
+ 	b->recipe = *recipe;
++	b->post_blend = post_blend;
+ 	normalize(&b->recipe);
+ 	for (size_t i = 0; i < b->recipe.len; i++) {
+ 		if (b->recipe.ops[i].transform) {
+--- a/include/backend/drm/color_pipeline.h
++++ b/include/backend/drm/color_pipeline.h
+@@ -11,6 +11,7 @@
+ void drm_color_pipeline_init(struct wlr_drm_backend *drm);
+ bool drm_color_pipeline_discover(struct wlr_drm_backend *drm, struct wlr_drm_plane *plane);
+ bool drm_color_pipeline_supported(struct wlr_drm_backend *drm);
++bool drm_color_pipeline_needs_post_blend(struct wlr_drm_backend *drm, struct wlr_drm_plane *plane);
+ void drm_color_pipeline_finish(struct wlr_drm_plane *plane);
+ bool drm_color_pipeline_reset(struct wlr_drm_connector_state *state, drmModeAtomicReq *req);
+ bool drm_color_pipeline_add(struct wlr_drm_connector_state *state, drmModeAtomicReq *req,
+--- a/backend/drm/color_pipeline.c
++++ b/backend/drm/color_pipeline.c
+@@ -11,6 +11,7 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <wlr/render/dmabuf.h>
++#include <wlr/types/wlr_output.h>
+ #include <wlr/util/log.h>
+ #include <xf86drm.h>
+ 
+@@ -262,6 +263,29 @@
+ 	return false;
+ }
+ 
++/* Whether hardware conversion needs the encode behind blending: no discovered
++ * pipeline can express a terminal encode curve (nvidia's all end in linear
++ * light). A pipeline whose last op is a curve advertising an inverse EOTF can
++ * take the encode directly. */
++bool drm_color_pipeline_needs_post_blend(struct wlr_drm_backend *drm, struct wlr_drm_plane *plane) {
++	struct color_plane *cp = plane ? plane->color_pipeline : NULL;
++	if (!drm->color_pipeline_enabled || !cp || !cp->len) {
++		return false;
++	}
++	for (size_t i = 0; i < cp->len; i++) {
++		const struct color_pipeline *p = &cp->pipelines[i];
++		const struct colorop *last = &p->nodes[p->len - 1];
++		if (last->type == DRM_COLOROP_1D_CURVE && last->curves) {
++			for (int e = 0; e < last->curves->count_enums; e++) {
++				if (strstr(last->curves->enums[e].name, "Inverse") != NULL) {
++					return false;
++				}
++			}
++		}
++	}
++	return true;
++}
++
+ void drm_color_pipeline_finish(struct wlr_drm_plane *plane) {
+ 	struct color_plane *cp = plane->color_pipeline;
+ 	if (!cp) {
+@@ -688,7 +712,15 @@
+ 	if (!recipe) {
+ 		return !cp || add(req, plane->id, cp->property, 0);
+ 	}
+-	if (!drm->color_pipeline_enabled || !cp || drm_connector_is_cursor_visible(s->connector)) {
++	if (!drm->color_pipeline_enabled || !cp) {
++		return false;
++	}
++	/* The CRTC gamma LUT of a post-blend frame applies to the cursor plane
++	 * too, so the cursor must be in the matching linear-light mode; a
++	 * plane-only conversion leaves the wire-encoded cursor untouched. */
++	if (drm_connector_is_cursor_visible(s->connector) &&
++		color_pipeline_is_post_blend(buffer) !=
++			wlr_output_cursor_post_blend(&s->connector->output)) {
+ 		return false;
+ 	}
+ 	/* The framebuffer format selects which pipelines and ops take effect;
+--- a/backend/drm/drm.c
++++ b/backend/drm/drm.c
+@@ -449,7 +449,19 @@
+ 	}
+ 	struct wlr_drm_connector *conn = get_drm_connector_from_output(output);
+ 	return drm_color_pipeline_supported(conn->backend) && !conn->backend->parent &&
+-		   conn->backend->iface != &legacy_iface && !drm_connector_is_cursor_visible(conn);
++		   conn->backend->iface != &legacy_iface;
++}
++
++bool wlr_drm_output_color_pipeline_needs_post_blend(struct wlr_output *output) {
++	if (!wlr_output_is_drm(output)) {
++		return false;
++	}
++	struct wlr_drm_connector *conn = get_drm_connector_from_output(output);
++	struct wlr_drm_backend *drm = conn->backend;
++	if (!conn->crtc || conn->crtc->props.gamma_lut == 0) {
++		return false;
++	}
++	return drm_color_pipeline_needs_post_blend(drm, conn->crtc->primary);
+ }
+ 
+ static void layer_handle_addon_destroy(struct wlr_addon *addon) {
+--- a/include/wlr/backend/drm.h
++++ b/include/wlr/backend/drm.h
+@@ -43,6 +43,9 @@
+ bool wlr_output_is_drm(struct wlr_output *output);
+ /** Negotiated capability; false for nested, legacy and multi-GPU outputs. */
+ bool wlr_drm_output_supports_color_pipeline(struct wlr_output *output);
++/** True when no plane pipeline can express a terminal encode curve, so color
++ * conversion needs the encode behind blending on the CRTC GAMMA_LUT. */
++bool wlr_drm_output_color_pipeline_needs_post_blend(struct wlr_output *output);
+ 
+ /**
+  * Get the parent DRM backend, if any.
+--- a/include/wlr/types/wlr_output.h
++++ b/include/wlr/types/wlr_output.h
+@@ -506,6 +506,15 @@
+ void wlr_output_cursor_destroy(struct wlr_output_cursor *cursor);
+ 
+ /**
++ * Post-blend color pipeline mode: render cursors in normalized linear light
++ * (1.0 = output peak) instead of the output's wire encoding, matching plane
++ * content whose encode moved behind blending onto the CRTC GAMMA_LUT.
++ * Refreshes and re-renders cursor buffers on mode changes.
++ */
++void wlr_output_set_cursor_post_blend(struct wlr_output *output, bool post_blend);
++bool wlr_output_cursor_post_blend(struct wlr_output *output);
++
++/**
+  * Initialize an output state.
+  */
+ void wlr_output_state_init(struct wlr_output_state *state);
+--- a/types/output/cursor.c
++++ b/types/output/cursor.c
+@@ -7,6 +7,7 @@
+ #include <wlr/render/drm_syncobj.h>
+ #include <wlr/render/wlr_renderer.h>
+ #include <wlr/types/wlr_compositor.h>
++#include <wlr/util/addon.h>
+ #include <wlr/util/log.h>
+ #include <wlr/util/region.h>
+ #include <wlr/util/transform.h>
+@@ -521,18 +522,86 @@
+ 		matrix[i] *= luminance_multiplier;
+ 	}
+ 
++	/* Post-blend frames encode behind blending on the CRTC GAMMA_LUT, which
++	 * applies to the cursor plane too: the cursor must stay in normalized
++	 * linear light (1.0 = output peak) instead of the wire encoding. */
++	bool post_blend = wlr_output_cursor_post_blend(output_cursor->output);
+ 	struct wlr_color_transform *transforms[] = {
+ 		wlr_color_transform_init_matrix(matrix),
+-		wlr_color_transform_init_linear_to_inverse_eotf(img_desc->transfer_function),
++		post_blend ? NULL :
++			wlr_color_transform_init_linear_to_inverse_eotf(img_desc->transfer_function),
+ 	};
+-	if (transforms[0] == NULL || transforms[1] == NULL) {
++	if (transforms[0] == NULL || (!post_blend && transforms[1] == NULL)) {
+ 		wlr_color_transform_unref(transforms[0]);
+ 		wlr_color_transform_unref(transforms[1]);
+ 		return false;
+ 	}
+ 	output_cursor->color_transform = wlr_color_transform_init_pipeline(transforms,
+-		sizeof(transforms) / sizeof(transforms[0]));
++		post_blend ? 1 : sizeof(transforms) / sizeof(transforms[0]));
+ 	wlr_color_transform_unref(transforms[0]);
+ 	wlr_color_transform_unref(transforms[1]);
+ 	return output_cursor->color_transform != NULL;
+ }
++
++struct output_cursor_post_blend {
++	struct wlr_addon addon;
++	bool active;
++};
++
++static void post_blend_addon_destroy(struct wlr_addon *addon) {
++	struct output_cursor_post_blend *pb = wl_container_of(addon, pb, addon);
++	wlr_addon_finish(addon);
++	free(pb);
++}
++
++static const struct wlr_addon_interface post_blend_addon_impl = {
++	.name = "wlr_output_cursor_post_blend",
++	.destroy = post_blend_addon_destroy,
++};
++
++static struct output_cursor_post_blend *output_get_post_blend(struct wlr_output *output) {
++	struct wlr_addon *addon = wlr_addon_find(&output->addons, output, &post_blend_addon_impl);
++	if (!addon) {
++		return NULL;
++	}
++	struct output_cursor_post_blend *pb = wl_container_of(addon, pb, addon);
++	return pb;
++}
++
++bool wlr_output_cursor_post_blend(struct wlr_output *output) {
++	struct output_cursor_post_blend *pb = output_get_post_blend(output);
++	return pb != NULL && pb->active;
++}
++
++void wlr_output_set_cursor_post_blend(struct wlr_output *output, bool post_blend) {
++	struct output_cursor_post_blend *pb = output_get_post_blend(output);
++	if (pb != NULL && pb->active == post_blend) {
++		return;
++	}
++	if (pb == NULL) {
++		pb = calloc(1, sizeof(*pb));
++		if (!pb) {
++			return;
++		}
++		wlr_addon_init(&pb->addon, &output->addons, output, &post_blend_addon_impl);
++	}
++	pb->active = post_blend;
++
++	struct wlr_output_cursor *cursor;
++	wl_list_for_each(cursor, &output->cursors, link) {
++		output_cursor_refresh_color_transform(cursor, output->image_description);
++		if (!cursor->enabled) {
++			continue;
++		}
++		if (cursor->visible && output->hardware_cursor == cursor) {
++			if (!output_cursor_attempt_hardware(cursor)) {
++				output_cursor_damage_whole(cursor);
++			}
++		} else if (cursor->texture != NULL) {
++			/* Refresh the cached buffer without changing hardware visibility. */
++			struct wlr_buffer *buffer = render_cursor_buffer(cursor);
++			wlr_buffer_unlock(buffer);
++			output_cursor_damage_whole(cursor);
++		}
++	}
++}
+--- a/include/wlr/types/wlr_scene.h
++++ b/include/wlr/types/wlr_scene.h
+@@ -336,6 +336,14 @@
+ 		/* Final-conversion offload accepted by a test for this key. */
+ 		uint64_t color_pipeline_verified_key;
+ 		bool color_pipeline_verified;
++		/* Post-blend encode: the frame's encode lives on the CRTC GAMMA_LUT. */
++		bool color_pipeline_post_blend;
++		bool color_pipeline_scanout_post_blend;
++		bool color_pipeline_gamma_owned;
++		struct wlr_color_transform *color_pipeline_encode_lut;
++		enum wlr_color_transfer_function color_pipeline_encode_tf;
++		double color_pipeline_encode_linear_max;
++		size_t color_pipeline_encode_dim;
+ 	} WLR_PRIVATE;
+ };
+ 
+--- a/types/scene/wlr_scene.c
++++ b/types/scene/wlr_scene.c
+@@ -2332,6 +2332,7 @@
+ 	wlr_color_transform_unref(scene_output->combined_color_transform);
+ 	wl_array_release(&scene_output->render_list);
+ 	wlr_color_transform_unref(scene_output->color_pipeline_identity);
++	wlr_color_transform_unref(scene_output->color_pipeline_encode_lut);
+ 	wlr_swapchain_destroy(scene_output->color_pipeline_swapchain);
+ 	free(scene_output);
+ }
+@@ -2680,18 +2681,85 @@
+ #endif
+ }
+ 
+-static struct wlr_buffer *scene_buffer_color_pipeline(struct wlr_scene_buffer *buffer,
+-	struct wlr_output *output, const struct wlr_output_image_description *desc) {
+-	if (!scene_color_pipeline_available(output) || buffer->opacity != 1.0f || buffer->force_blend) {
++static bool scene_color_pipeline_needs_post_blend(struct wlr_output *output) {
++#if WLR_HAS_DRM_BACKEND
++	return wlr_drm_output_color_pipeline_needs_post_blend(output);
++#else
++	return false;
++#endif
++}
++
++/* Encode LUT for post-blend frames, cached per output description. linear_max
++ * is the sink peak in the encode curve's input scale (PQ 125: 1.0 = 80 cd/m²);
++ * content above it clamps exactly like the wire encode would. */
++static struct wlr_color_transform *scene_output_encode_lut(struct wlr_scene_output *so,
++		const struct wlr_output_image_description *desc, double *linear_max_out) {
++	if (desc == NULL) {
++		return NULL;
++	}
++	enum wlr_color_transfer_function tf = desc->transfer_function;
++	if (tf != WLR_COLOR_TRANSFER_FUNCTION_SRGB && tf != WLR_COLOR_TRANSFER_FUNCTION_GAMMA22 &&
++			tf != WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ) {
++		return NULL;
++	}
++	struct wlr_color_luminances lum;
++	wlr_color_transfer_function_get_default_luminance(tf, &lum);
++	double peak = desc->max_cll > 0 ? desc->max_cll : lum.max;
++	double linear_max = peak / 80.0;
++	size_t dim = wlr_output_get_gamma_size(so->output);
++	if (dim < 2) {
++		return NULL;
++	}
++	if (so->color_pipeline_encode_lut != NULL && so->color_pipeline_encode_tf == tf &&
++			so->color_pipeline_encode_linear_max == linear_max &&
++			so->color_pipeline_encode_dim == dim) {
++		*linear_max_out = linear_max;
++		return so->color_pipeline_encode_lut;
++	}
++	struct wlr_color_transform *lut = color_pipeline_encode_lut(tf, linear_max, dim);
++	if (lut == NULL) {
+ 		return NULL;
+ 	}
++	wlr_color_transform_unref(so->color_pipeline_encode_lut);
++	so->color_pipeline_encode_lut = lut;
++	so->color_pipeline_encode_tf = tf;
++	so->color_pipeline_encode_linear_max = linear_max;
++	so->color_pipeline_encode_dim = dim;
++	*linear_max_out = linear_max;
++	return lut;
++}
++
++/* Track post-blend ownership of the CRTC gamma LUT across frames: while a
++ * frame offloads the encode the compositor owns the LUT; the first frame
++ * without the offload commits the reset. Gamma-control ramps deferred by the
++ * skipped gamma attempt apply on that same frame. */
++static void scene_output_post_blend_state(struct wlr_scene_output *so,
++		struct wlr_output_state *state, bool post_blend) {
++	if (post_blend != so->color_pipeline_post_blend) {
++		scene_output_damage_whole(so);
++		wlr_log(WLR_DEBUG, "Output '%s': post-blend encode %s (linear_max %.3f)",
++			so->output->name, post_blend ? "engaged" : "disengaged",
++			so->color_pipeline_encode_linear_max);
++	}
++	if (post_blend) {
++		so->color_pipeline_gamma_owned = true;
++	} else if (so->color_pipeline_gamma_owned) {
++		wlr_output_state_set_color_transform(state, NULL);
++		so->color_pipeline_gamma_owned = false;
++	}
++	so->color_pipeline_post_blend = post_blend;
++	wlr_output_set_cursor_post_blend(so->output, post_blend);
++}
++
++static bool scene_buffer_color_recipe(struct wlr_scene_buffer *buffer,
++	struct wlr_output *output, const struct wlr_output_image_description *desc,
++	struct color_pipeline_recipe *recipe) {
+ 	enum wlr_color_transfer_function src_tf =
+ 		buffer->transfer_function ? buffer->transfer_function : WLR_COLOR_TRANSFER_FUNCTION_GAMMA22;
+ 	enum wlr_color_transfer_function dst_tf =
+ 		desc ? desc->transfer_function : WLR_COLOR_TRANSFER_FUNCTION_GAMMA22;
+-	struct color_pipeline_recipe recipe = {0};
+-	if (!color_pipeline_add_decode(&recipe, src_tf)) {
+-		return NULL;
++	if (!color_pipeline_add_decode(recipe, src_tf)) {
++		return false;
+ 	}
+ 	struct wlr_color_primaries src, working, dst;
+ 	wlr_color_primaries_from_named(
+@@ -2704,8 +2772,8 @@
+ 	for (size_t i = 0; i < 9; i++) {
+ 		matrix[i] *= gain;
+ 	}
+-	if (!color_pipeline_add_matrix(&recipe, matrix)) {
+-		return NULL;
++	if (!color_pipeline_add_matrix(recipe, matrix)) {
++		return false;
+ 	}
+ 	wlr_color_primaries_transform_absolute_colorimetric(&working, &dst, matrix);
+ 	struct wlr_color_luminances working_lum, dst_lum;
+@@ -2716,16 +2784,45 @@
+ 	for (size_t i = 0; i < 9; i++) {
+ 		matrix[i] *= gain;
+ 	}
+-	if (!color_pipeline_add_matrix(&recipe, matrix)) {
+-		return NULL;
++	if (!color_pipeline_add_matrix(recipe, matrix)) {
++		return false;
+ 	}
+ 	struct wlr_color_transform *encode = wlr_color_transform_init_linear_to_inverse_eotf(dst_tf);
+ 	if (!encode) {
+-		return NULL;
++		return false;
+ 	}
+-	bool ok = color_pipeline_add_transform(&recipe, encode);
++	bool ok = color_pipeline_add_transform(recipe, encode);
+ 	wlr_color_transform_unref(encode);
+-	return ok ? color_pipeline_wrap(scene_buffer_get_scanout_source(buffer), &recipe) : NULL;
++	return ok;
++}
++
++static struct wlr_buffer *scene_buffer_color_pipeline(struct wlr_scene_buffer *buffer,
++	struct wlr_output *output, const struct wlr_output_image_description *desc) {
++	if (!scene_color_pipeline_available(output) || buffer->opacity != 1.0f || buffer->force_blend) {
++		return NULL;
++	}
++	struct color_pipeline_recipe recipe = {0};
++	if (!scene_buffer_color_recipe(buffer, output, desc, &recipe)) {
++		return NULL;
++	}
++	return color_pipeline_wrap(scene_buffer_get_scanout_source(buffer), &recipe);
++}
++
++/* Linear-retargeted variant for pipelines that cannot express the encode:
++ * the plane outputs normalized linear light and the CRTC GAMMA_LUT encodes. */
++static struct wlr_buffer *scene_buffer_color_pipeline_linear(struct wlr_scene_buffer *buffer,
++	struct wlr_output *output, const struct wlr_output_image_description *desc,
++	double linear_max) {
++	if (!scene_color_pipeline_available(output) || buffer->opacity != 1.0f || buffer->force_blend) {
++		return NULL;
++	}
++	struct color_pipeline_recipe recipe = {0};
++	enum wlr_color_transfer_function encode_tf;
++	if (!scene_buffer_color_recipe(buffer, output, desc, &recipe) ||
++		!color_pipeline_retarget_linear(&recipe, linear_max, &encode_tf)) {
++		return NULL;
++	}
++	return color_pipeline_wrap_post_blend(scene_buffer_get_scanout_source(buffer), &recipe);
+ }
+ 
+ static enum scene_direct_scanout_result scene_entry_try_direct_scanout(
+@@ -2821,8 +2918,32 @@
+ 	struct wlr_buffer *wlr_buffer = scene_buffer_get_scanout_source(buffer);
+ 
+ 	struct wlr_buffer *color_buffer = NULL;
++	scene_output->color_pipeline_scanout_post_blend = false;
+ 	if (needs_color_pipeline) {
+-		color_buffer = scene_buffer_color_pipeline(buffer, scene_output->output, img_desc);
++		bool post_blend = scene_color_pipeline_needs_post_blend(scene_output->output);
++		if (post_blend) {
++			/* The gamma LUT covers the whole output: only a fullscreen buffer
++			 * may offload the encode behind blending. */
++			post_blend = pending.buffer_dst_box.x == 0 && pending.buffer_dst_box.y == 0 &&
++				pending.buffer_dst_box.width == scene_output->output->width &&
++				pending.buffer_dst_box.height == scene_output->output->height;
++		}
++		if (post_blend) {
++			double linear_max;
++			struct wlr_color_transform *lut =
++				scene_output_encode_lut(scene_output, img_desc, &linear_max);
++			color_buffer = lut != NULL ?
++				scene_buffer_color_pipeline_linear(buffer, scene_output->output, img_desc, linear_max) :
++				NULL;
++			if (color_buffer != NULL) {
++				wlr_output_state_set_color_transform(&pending, lut);
++				/* The cursor must match before the atomic test checks it. */
++				wlr_output_set_cursor_post_blend(scene_output->output, true);
++				scene_output->color_pipeline_scanout_post_blend = true;
++			}
++		} else {
++			color_buffer = scene_buffer_color_pipeline(buffer, scene_output->output, img_desc);
++		}
+ 		if (!color_buffer) {
+ 			wlr_output_state_finish(&pending);
+ 			return SCANOUT_INELIGIBLE;
+@@ -3192,7 +3313,8 @@
+ /* Keep scene effects in their existing linear working space. The scanout
+  * wrapper describes only the final output transform, never capture metadata. */
+ static struct wlr_buffer *scene_output_try_color_pipeline(
+-	struct wlr_scene_output *so, struct wlr_output_state *state, int width, int height) {
++	struct wlr_scene_output *so, struct wlr_output_state *state, int width, int height,
++	bool *post_blend_out) {
+ #if WLR_HAS_VULKAN_RENDERER
+ 	struct wlr_output *output = so->output;
+ 	if (!scene_color_pipeline_available(output) || !wlr_renderer_is_vk(output->renderer) ||
+@@ -3209,6 +3331,20 @@
+ 	if (!color_pipeline_add_transform(&recipe, so->combined_color_transform) || !recipe.len) {
+ 		return NULL;
+ 	}
++	bool post_blend = scene_color_pipeline_needs_post_blend(output);
++	struct wlr_color_transform *encode_lut = NULL;
++	if (post_blend) {
++		const struct wlr_output_image_description *desc =
++			output_pending_image_description(output, state);
++		double linear_max;
++		enum wlr_color_transfer_function encode_tf;
++		encode_lut = scene_output_encode_lut(so, desc, &linear_max);
++		if (encode_lut == NULL ||
++			!color_pipeline_retarget_linear(&recipe, linear_max, &encode_tf) ||
++			encode_tf != desc->transfer_function) {
++			return NULL;
++		}
++	}
+ 	if (!so->color_pipeline_identity) {
+ 		so->color_pipeline_identity =
+ 			wlr_color_transform_init_linear_to_inverse_eotf(WLR_COLOR_TRANSFER_FUNCTION_EXT_LINEAR);
+@@ -3236,7 +3372,8 @@
+ 	if (!buffer) {
+ 		return NULL;
+ 	}
+-	struct wlr_buffer *wrapped = color_pipeline_wrap(buffer, &recipe);
++	struct wlr_buffer *wrapped = post_blend ?
++		color_pipeline_wrap_post_blend(buffer, &recipe) : color_pipeline_wrap(buffer, &recipe);
+ 	uint64_t key = color_pipeline_fingerprint(&recipe);
+ 	key ^= (uint64_t)swapchain->format.format << 32;
+ 	struct wlr_dmabuf_attributes attrs;
+@@ -3261,6 +3398,10 @@
+ 		ok = wlr_output_state_copy(&pending, state);
+ 		if (ok) {
+ 			wlr_output_state_set_buffer(&pending, wrapped);
++			if (post_blend) {
++				wlr_output_state_set_color_transform(&pending, encode_lut);
++				wlr_output_set_cursor_post_blend(output, true);
++			}
+ 			ok = wlr_output_test_state(output, &pending);
+ 		}
+ 	}
+@@ -3268,6 +3409,11 @@
+ 	so->color_pipeline_verified_key = key;
+ 	if (ok) {
+ 		wlr_output_state_set_buffer(state, wrapped);
++		if (post_blend) {
++			wlr_output_state_set_color_transform(state, encode_lut);
++			wlr_output_set_cursor_post_blend(output, true);
++			*post_blend_out = true;
++		}
+ 		so->color_pipeline_retry_frames = 0;
+ 	}
+ 	wlr_output_state_finish(&pending);
+@@ -3497,7 +3643,11 @@
+ 		if (layer_candidate != NULL && layer_candidate->previously_promoted) {
+ 			scene_output_damage_whole(scene_output);
+ 		}
+-		scene_output_state_attempt_gamma(scene_output, state);
++		scene_output_post_blend_state(scene_output, state,
++			scene_output->color_pipeline_scanout_post_blend);
++		if (!scene_output->color_pipeline_post_blend) {
++			scene_output_state_attempt_gamma(scene_output, state);
++		}
+ 
+ 		if (timer) {
+ 			struct timespec end_time, duration;
+@@ -3525,16 +3675,18 @@
+ 	}
+ 
+ 	struct wlr_buffer *buffer = NULL;
++	bool composed_post_blend = false;
+ 	if (!options->swapchain && !render_gamma_lut &&
+ 		(!layer_candidate || !layer_candidate->buffer) && !options->color_transform) {
+ 		buffer = scene_output_try_color_pipeline(
+-			scene_output, state, resolution_width, resolution_height);
++			scene_output, state, resolution_width, resolution_height, &composed_post_blend);
+ 	}
+ 	bool color_offload = buffer != NULL;
+ 	if (scene_output->color_pipeline_composed != color_offload) {
+ 		scene_output_damage_whole(scene_output);
+ 		scene_output->color_pipeline_composed = color_offload;
+ 	}
++	scene_output_post_blend_state(scene_output, state, composed_post_blend);
+ 	if (!color_offload) {
+ 		struct wlr_swapchain *swapchain = options->swapchain;
+ 		if (!swapchain) {
+@@ -3764,7 +3916,7 @@
+ 			scene_output->out_point);
+ 	}
+ 
+-	if (!render_gamma_lut) {
++	if (!render_gamma_lut && !scene_output->color_pipeline_post_blend) {
+ 		scene_output_state_attempt_gamma(scene_output, state);
+ 	}
+ 

@@ -177,6 +177,30 @@ pub fn main(init: std.process.Init.Minimal) anyerror!void {
     }
     if (setenv("AQUEOUS_DRM_COLOR_PIPELINE", @tagName(startup_config.wm.color_pipeline), 1) != 0)
         return error.SetEnvironmentFailed;
+    if (init.environ.getPosix("AQUEOUS_DRM_COLOR_PIPELINE_POST_BLEND")) |value| {
+        if (std.mem.eql(u8, value, "1")) {
+            startup_config.wm.color_pipeline_post_blend = true;
+        } else if (std.mem.eql(u8, value, "0")) {
+            startup_config.wm.color_pipeline_post_blend = false;
+        } else {
+            log.warn("ignoring invalid AQUEOUS_DRM_COLOR_PIPELINE_POST_BLEND '{s}'; using render.color_pipeline_post_blend", .{value});
+        }
+    }
+    if (setenv("AQUEOUS_DRM_COLOR_PIPELINE_POST_BLEND",
+        if (startup_config.wm.color_pipeline_post_blend) "1" else "0", 1) != 0)
+        return error.SetEnvironmentFailed;
+    if (init.environ.getPosix("AQUEOUS_DRM_COLOR_PIPELINE_FP16_FMT")) |value| {
+        if (std.mem.eql(u8, value, "1")) {
+            startup_config.wm.color_pipeline_fp16_fmt = true;
+        } else if (std.mem.eql(u8, value, "0")) {
+            startup_config.wm.color_pipeline_fp16_fmt = false;
+        } else {
+            log.warn("ignoring invalid AQUEOUS_DRM_COLOR_PIPELINE_FP16_FMT '{s}'; using render.color_pipeline_fp16_fmt", .{value});
+        }
+    }
+    if (setenv("AQUEOUS_DRM_COLOR_PIPELINE_FP16_FMT",
+        if (startup_config.wm.color_pipeline_fp16_fmt) "1" else "0", 1) != 0)
+        return error.SetEnvironmentFailed;
     const overlay_planes_enabled = if (result.flags.@"drm-overlay-planes")
         true
     else if (result.flags.@"no-drm-overlay-planes")

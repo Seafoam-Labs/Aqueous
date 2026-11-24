@@ -1,0 +1,402 @@
+drm, render: post-blend encode mechanism for linear-light color pipelines
+
+nvidia's plane color pipelines always end in linear light, so the final
+encode must move behind blending onto the CRTC GAMMA_LUT (spicy smithay
+a6a4be6d/650a3457, niri 96c7e4a7; knowledge only, no code reuse). This
+adds the backend mechanism; the scene wiring follows in the next step.
+
+Render side: color_pipeline_retarget_linear strips a recipe's trailing
+encode curve and normalizes the plane output to 1.0 at linear_max (the
+PQ 125 normalization ahead of the curve is kept, so the plane outputs
+linear light in the encode curve's input scale). color_pipeline_encode_lut
+builds the matching lut_3x1d encode, sampled from the kernel's inverse
+curves, for the existing supplied-transform -> GAMMA_LUT commit path.
+
+Backend side: the supplied-transform gamma path created a fresh blob ID
+on every commit, which makes drivers treat every flip as a gamma update
+(the churn 0046 fixed for colorop DATA blobs). The committed blob plus a
+contents snapshot now is the cache: prepare borrows the committed ID
+while contents match, apply transfers ownership and refreshes the
+snapshot, rollback never destroys a borrowed ID, and teardown releases
+both. Atomic and libliftoff share prepare/apply/rollback, so both commit
+paths get stable IDs and atomic GAMMA_LUT updates with the plane state.
+The liftoff-fallback baseline restore carries the cached flag.
+
+No public ABI changes; the gamma helpers are independent of the colorop
+UAPI and compile without it.--- a/include/backend/drm/drm.h
++++ b/include/backend/drm/drm.h
+@@ -86,6 +86,10 @@
+ 	bool own_mode_id;
+ 	uint32_t mode_id;
+ 	uint32_t gamma_lut;
++	/* Contents of the committed gamma_lut blob; reusing the blob ID while
++	 * these are unchanged keeps an unchanged encode an unchanged KMS state. */
++	void *gamma_lut_data;
++	size_t gamma_lut_size;
+ 
+ 	// Legacy only
+ 	int legacy_gamma_size;
+@@ -173,6 +177,7 @@
+ 	// used by atomic
+ 	uint32_t mode_id;
+ 	uint32_t gamma_lut;
++	bool gamma_lut_cached; // borrows crtc->gamma_lut; rollback must not destroy it
+ 	uint32_t fb_damage_clips;
+ 	int primary_in_fence_fd;
+ 	bool vrr_enabled;
+--- a/include/backend/drm/color_pipeline.h
++++ b/include/backend/drm/color_pipeline.h
+@@ -3,6 +3,7 @@
+ 
+ #include <xf86drmMode.h>
+ struct wlr_drm_backend;
++struct wlr_drm_crtc;
+ struct wlr_drm_plane;
+ struct wlr_drm_connector_state;
+ struct wlr_buffer;
+@@ -16,4 +17,15 @@
+ 	struct wlr_drm_plane *plane, struct wlr_buffer *buffer);
+ void drm_color_pipeline_state_finish(struct wlr_drm_connector_state *state, bool committed);
+ 
++/* Content-stable CRTC gamma LUT blobs for the supplied-transform (post-blend
++ * encode) path. Independent of the colorop UAPI. */
++struct drm_color_lut *drm_color_gamma_lut_contents(size_t dim, const uint16_t *lut);
++bool drm_color_gamma_lut_blob(struct wlr_drm_backend *drm, struct wlr_drm_crtc *crtc,
++	size_t dim, const uint16_t *lut, uint32_t *blob_id, bool *cached);
++void drm_color_gamma_lut_apply(struct wlr_drm_backend *drm, struct wlr_drm_crtc *crtc,
++	uint32_t blob_id, bool cached, size_t dim, const uint16_t *lut);
++void drm_color_gamma_lut_rollback(struct wlr_drm_backend *drm, struct wlr_drm_crtc *crtc,
++	uint32_t blob_id, bool cached);
++void drm_color_gamma_lut_finish(struct wlr_drm_backend *drm, struct wlr_drm_crtc *crtc);
++
+ #endif
+--- a/backend/drm/color_pipeline.c
++++ b/backend/drm/color_pipeline.c
+@@ -774,3 +774,93 @@
+ }
+ void drm_color_pipeline_state_finish(struct wlr_drm_connector_state *s, bool committed) {}
+ #endif
++
++/* Content-stable CRTC gamma LUT blobs for the supplied-transform path. The
++ * committed blob plus its contents snapshot is the cache: prepare borrows the
++ * committed ID while the contents match, apply transfers ownership of a new
++ * blob and refreshes the snapshot, rollback never destroys a borrowed ID.
++ * A fresh ID per commit would make drivers treat every flip as a gamma
++ * update, the same churn the colorop DATA blobs avoid. */
++
++struct drm_color_lut *drm_color_gamma_lut_contents(size_t dim, const uint16_t *lut) {
++	if (dim == 0) {
++		return NULL;
++	}
++	struct drm_color_lut *gamma = malloc(dim * sizeof(*gamma));
++	if (!gamma) {
++		return NULL;
++	}
++	for (size_t i = 0; i < dim; i++) {
++		gamma[i].red = lut[i];
++		gamma[i].green = lut[dim + i];
++		gamma[i].blue = lut[2 * dim + i];
++		gamma[i].reserved = 0;
++	}
++	return gamma;
++}
++
++bool drm_color_gamma_lut_blob(struct wlr_drm_backend *drm, struct wlr_drm_crtc *crtc,
++	size_t dim, const uint16_t *lut, uint32_t *blob_id, bool *cached) {
++	*cached = false;
++	if (dim == 0) {
++		*blob_id = 0;
++		return true;
++	}
++	struct drm_color_lut *gamma = drm_color_gamma_lut_contents(dim, lut);
++	if (!gamma) {
++		return false;
++	}
++	size_t size = dim * sizeof(*gamma);
++	if (crtc->gamma_lut && crtc->gamma_lut_data && crtc->gamma_lut_size == size &&
++		memcmp(crtc->gamma_lut_data, gamma, size) == 0) {
++		free(gamma);
++		*blob_id = crtc->gamma_lut;
++		*cached = true;
++		return true;
++	}
++	uint32_t created = 0;
++	if (drmModeCreatePropertyBlob(drm->fd, gamma, size, &created) != 0) {
++		free(gamma);
++		return false;
++	}
++	free(gamma);
++	*blob_id = created;
++	return true;
++}
++
++void drm_color_gamma_lut_apply(struct wlr_drm_backend *drm, struct wlr_drm_crtc *crtc,
++	uint32_t blob_id, bool cached, size_t dim, const uint16_t *lut) {
++	if (cached) {
++		/* Borrowed committed blob; the contents snapshot already matches. */
++		return;
++	}
++	if (crtc->gamma_lut != blob_id) {
++		if (crtc->gamma_lut) {
++			drmModeDestroyPropertyBlob(drm->fd, crtc->gamma_lut);
++		}
++		crtc->gamma_lut = blob_id;
++	}
++	free(crtc->gamma_lut_data);
++	crtc->gamma_lut_data = drm_color_gamma_lut_contents(dim, lut);
++	crtc->gamma_lut_size = crtc->gamma_lut_data ? dim * sizeof(struct drm_color_lut) : 0;
++}
++
++void drm_color_gamma_lut_rollback(struct wlr_drm_backend *drm, struct wlr_drm_crtc *crtc,
++	uint32_t blob_id, bool cached) {
++	if (cached) {
++		return;
++	}
++	if (blob_id && crtc->gamma_lut != blob_id) {
++		drmModeDestroyPropertyBlob(drm->fd, blob_id);
++	}
++}
++
++void drm_color_gamma_lut_finish(struct wlr_drm_backend *drm, struct wlr_drm_crtc *crtc) {
++	if (crtc->gamma_lut) {
++		drmModeDestroyPropertyBlob(drm->fd, crtc->gamma_lut);
++		crtc->gamma_lut = 0;
++	}
++	free(crtc->gamma_lut_data);
++	crtc->gamma_lut_data = NULL;
++	crtc->gamma_lut_size = 0;
++}
+--- a/backend/drm/atomic.c
++++ b/backend/drm/atomic.c
+@@ -121,39 +121,6 @@
+ 	return true;
+ }
+ 
+-static bool create_gamma_lut_blob(struct wlr_drm_backend *drm,
+-		size_t size, const uint16_t *lut, uint32_t *blob_id) {
+-	if (size == 0) {
+-		*blob_id = 0;
+-		return true;
+-	}
+-
+-	struct drm_color_lut *gamma = malloc(size * sizeof(*gamma));
+-	if (gamma == NULL) {
+-		wlr_log(WLR_ERROR, "Failed to allocate gamma table");
+-		return false;
+-	}
+-
+-	const uint16_t *r = lut;
+-	const uint16_t *g = lut + size;
+-	const uint16_t *b = lut + 2 * size;
+-	for (size_t i = 0; i < size; i++) {
+-		gamma[i].red = r[i];
+-		gamma[i].green = g[i];
+-		gamma[i].blue = b[i];
+-	}
+-
+-	if (drmModeCreatePropertyBlob(drm->fd, gamma,
+-			size * sizeof(*gamma), blob_id) != 0) {
+-		wlr_log_errno(WLR_ERROR, "Unable to create gamma LUT property blob");
+-		free(gamma);
+-		return false;
+-	}
+-	free(gamma);
+-
+-	return true;
+-}
+-
+ bool create_fb_damage_clips_blob(struct wlr_drm_backend *drm,
+ 		int width, int height, const pixman_region32_t *damage, uint32_t *blob_id) {
+ 	pixman_region32_t clipped;
+@@ -328,6 +295,7 @@
+ 	// roll back every connector, including one whose preparation failed.
+ 	state->mode_id = crtc->mode_id;
+ 	state->gamma_lut = crtc->gamma_lut;
++	state->gamma_lut_cached = false;
+ 	state->hdr_output_metadata = conn->hdr_output_metadata;
+ 	if (modeset) {
+ 		if (!create_mode_blob(conn, state, &state->mode_id)) {
+@@ -353,7 +321,8 @@
+ 				return false;
+ 			}
+ 		} else {
+-			if (!create_gamma_lut_blob(drm, dim, lut, &state->gamma_lut)) {
++			if (!drm_color_gamma_lut_blob(drm, crtc, dim, lut, &state->gamma_lut,
++				&state->gamma_lut_cached)) {
+ 				return false;
+ 			}
+ 		}
+@@ -411,7 +380,19 @@
+ 	}
+ 	crtc->own_mode_id = true;
+ 	commit_blob(drm, &crtc->mode_id, state->mode_id);
+-	commit_blob(drm, &crtc->gamma_lut, state->gamma_lut);
++	if (state->base->committed & WLR_OUTPUT_STATE_COLOR_TRANSFORM) {
++		size_t dim = 0;
++		const uint16_t *lut = NULL;
++		if (crtc->props.gamma_lut != 0 && state->base->color_transform != NULL) {
++			struct wlr_color_transform_lut_3x1d *tr =
++				color_transform_lut_3x1d_from_base(state->base->color_transform);
++			dim = tr->dim;
++			lut = tr->lut_3x1d;
++		}
++		drm_color_gamma_lut_apply(drm, crtc, state->gamma_lut, state->gamma_lut_cached, dim, lut);
++	} else {
++		commit_blob(drm, &crtc->gamma_lut, state->gamma_lut);
++	}
+ 	commit_blob(drm, &conn->hdr_output_metadata, state->hdr_output_metadata);
+ 
+ 	conn->output.adaptive_sync_status = state->vrr_enabled ?
+@@ -433,7 +414,11 @@
+ 	struct wlr_drm_backend *drm = conn->backend;
+ 
+ 	rollback_blob(drm, &crtc->mode_id, state->mode_id);
+-	rollback_blob(drm, &crtc->gamma_lut, state->gamma_lut);
++	if (state->base->committed & WLR_OUTPUT_STATE_COLOR_TRANSFORM) {
++		drm_color_gamma_lut_rollback(drm, crtc, state->gamma_lut, state->gamma_lut_cached);
++	} else {
++		rollback_blob(drm, &crtc->gamma_lut, state->gamma_lut);
++	}
+ 	rollback_blob(drm, &conn->hdr_output_metadata, state->hdr_output_metadata);
+ 
+ 	destroy_blob(drm, state->fb_damage_clips);
+--- a/backend/drm/drm.c
++++ b/backend/drm/drm.c
+@@ -418,9 +418,7 @@
+ 		if (crtc->mode_id && crtc->own_mode_id) {
+ 			drmModeDestroyPropertyBlob(drm->fd, crtc->mode_id);
+ 		}
+-		if (crtc->gamma_lut) {
+-			drmModeDestroyPropertyBlob(drm->fd, crtc->gamma_lut);
+-		}
++		drm_color_gamma_lut_finish(drm, crtc);
+ 	}
+ 
+ 	free(drm->crtcs);
+@@ -778,6 +776,7 @@
+ 			struct wlr_drm_connector *conn = conn_state->connector;
+ 			conn_state->mode_id = conn->crtc->mode_id;
+ 			conn_state->gamma_lut = conn->crtc->gamma_lut;
++			conn_state->gamma_lut_cached = conn->crtc->gamma_lut != 0;
+ 			conn_state->hdr_output_metadata = conn->hdr_output_metadata;
+ 			conn_state->fb_damage_clips = 0;
+ 			conn_state->primary_in_fence_fd = -1;
+--- a/include/render/color_pipeline.h
++++ b/include/render/color_pipeline.h
+@@ -31,4 +31,14 @@
+ 	struct wlr_buffer *source, const struct color_pipeline_recipe *recipe);
+ const struct color_pipeline_recipe *color_pipeline_get(struct wlr_buffer *buffer);
+ 
++/* Post-blend encode for pipelines that end in linear light (nvidia): strip
++ * the trailing encode curve and normalize the plane output to 1.0 at
++ * linear_max, then encode behind blending on the CRTC GAMMA_LUT. linear_max
++ * uses the encode curve's input scale (PQ 125: 1.0 = 80 cd/m²; SDR curves:
++ * 1.0 = reference white), e.g. peak_nits / 80. */
++bool color_pipeline_retarget_linear(struct color_pipeline_recipe *recipe,
++	double linear_max, enum wlr_color_transfer_function *encode_tf);
++struct wlr_color_transform *color_pipeline_encode_lut(
++	enum wlr_color_transfer_function tf, double linear_max, size_t dim);
++
+ #endif
+--- a/render/color_pipeline.c
++++ b/render/color_pipeline.c
+@@ -237,3 +237,99 @@
+ bool wlr_buffer_has_color_pipeline(struct wlr_buffer *buffer) {
+ 	return color_pipeline_get(buffer) != NULL;
+ }
++
++/* Kernel encode curves for the post-blend gamma LUT. PQ 125 Inverse EOTF
++ * takes linear light in the PQ 125 scale (1.0 = 80 cd/m², 125.0 = 10000);
++ * the SDR curves take [0,1] relative to reference white. */
++static bool curve_encode_eval(const char *name, double x, double *out) {
++	if (strcmp(name, "sRGB Inverse EOTF") == 0) {
++		x = fmin(fmax(x, 0.0), 1.0);
++		*out = x <= 0.0031308 ? x * 12.92 : 1.055 * pow(x, 1.0 / 2.4) - 0.055;
++		return true;
++	}
++	if (strcmp(name, "Gamma 2.2 Inverse") == 0) {
++		*out = pow(fmin(fmax(x, 0.0), 1.0), 1.0 / 2.2);
++		return true;
++	}
++	if (strcmp(name, "PQ 125 Inverse EOTF") == 0) {
++		const double m1 = 2610.0 / 16384.0, m2 = 2523.0 / 4096.0 * 128.0;
++		const double c1 = 3424.0 / 4096.0, c2 = 2413.0 / 4096.0 * 32.0;
++		const double c3 = 2392.0 / 4096.0 * 32.0;
++		double y = pow(fmin(fmax(x / 125.0, 0.0), 1.0), m1);
++		*out = pow((c1 + c2 * y) / (1.0 + c3 * y), m2);
++		return true;
++	}
++	return false;
++}
++
++static bool encode_curve(enum wlr_color_transfer_function tf, const char **name) {
++	switch (tf) {
++	case WLR_COLOR_TRANSFER_FUNCTION_SRGB:
++		*name = "sRGB Inverse EOTF";
++		return true;
++	case WLR_COLOR_TRANSFER_FUNCTION_GAMMA22:
++		*name = "Gamma 2.2 Inverse";
++		return true;
++	case WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ:
++		*name = "PQ 125 Inverse EOTF";
++		return true;
++	default:
++		return false;
++	}
++}
++
++struct wlr_color_transform *color_pipeline_encode_lut(
++	enum wlr_color_transfer_function tf, double linear_max, size_t dim) {
++	const char *name;
++	if (!encode_curve(tf, &name) || !isfinite(linear_max) || linear_max <= 0.0 ||
++		dim < 2 || dim > 65536) {
++		return NULL;
++	}
++	uint16_t *lut = malloc(3 * dim * sizeof(*lut));
++	if (!lut) {
++		return NULL;
++	}
++	for (size_t i = 0; i < dim; i++) {
++		double v;
++		if (!curve_encode_eval(name, (double)i / (dim - 1) * linear_max, &v)) {
++			free(lut);
++			return NULL;
++		}
++		uint16_t q = (uint16_t)llround(fmin(fmax(v, 0.0), 1.0) * UINT16_MAX);
++		lut[i] = lut[dim + i] = lut[2 * dim + i] = q;
++	}
++	struct wlr_color_transform *tr =
++		wlr_color_transform_init_lut_3x1d(dim, lut, lut + dim, lut + 2 * dim);
++	free(lut);
++	return tr;
++}
++
++bool color_pipeline_retarget_linear(struct color_pipeline_recipe *r, double linear_max,
++	enum wlr_color_transfer_function *encode_tf) {
++	if (!isfinite(linear_max) || linear_max <= 0.0 || r->len == 0 ||
++		r->ops[r->len - 1].type != CP_CURVE) {
++		return false;
++	}
++	const char *name = r->ops[r->len - 1].curve;
++	enum wlr_color_transfer_function tf;
++	if (strcmp(name, "sRGB Inverse EOTF") == 0) {
++		tf = WLR_COLOR_TRANSFER_FUNCTION_SRGB;
++	} else if (strcmp(name, "Gamma 2.2 Inverse") == 0) {
++		tf = WLR_COLOR_TRANSFER_FUNCTION_GAMMA22;
++	} else if (strcmp(name, "PQ 125 Inverse EOTF") == 0) {
++		tf = WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ;
++	} else {
++		return false;
++	}
++	/* Keep the PQ 125 normalization ahead of the stripped curve: the plane
++	 * then outputs linear light in the encode curve's input scale, divided
++	 * by linear_max. The matching CRTC LUT re-applies the encode. */
++	r->len--;
++	struct color_pipeline_op *op = append(r, CP_MULTIPLIER);
++	if (!op) {
++		return false;
++	}
++	op->multiplier = 1.0 / linear_max;
++	*encode_tf = tf;
++	return true;
++}

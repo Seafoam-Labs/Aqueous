@@ -156,6 +156,10 @@ let
       "${src}/compositor/patches/wlroots/0044-color-management-extended-target-volume.patch"
       "${src}/compositor/patches/wlroots/0045-scene-presentation.patch"
       "${src}/compositor/patches/wlroots/0046-color-pipeline-stable-blobs.patch"
+      "${src}/compositor/patches/wlroots/0047-drm-color-pipeline-nvidia-planner.patch"
+      "${src}/compositor/patches/wlroots/0048-color-pipeline-post-blend-encode.patch"
+      "${src}/compositor/patches/wlroots/0049-scene-post-blend-cursor.patch"
+      "${src}/compositor/patches/wlroots/0050-cursor-linear-gpu-copy.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending

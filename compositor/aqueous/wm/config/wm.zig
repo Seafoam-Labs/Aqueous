@@ -170,6 +170,13 @@ pub const Snapshot = struct {
     overlay_planes: bool = false,
     /// Startup-only DRM color-pipeline capability negotiation.
     color_pipeline: DrmColorPipeline = .auto,
+    /// Startup-only experimental post-blend encode for DRM color pipelines
+    /// that end in linear light (nvidia). Requires color_pipeline = auto.
+    color_pipeline_post_blend: bool = false,
+    /// Startup-only assumption that the leading FMT matrix is effective on
+    /// FP16 surfaces (nvidia 620). Experimental: an inert FMT silently drops
+    /// the placed color stage, so verify pixels before relying on it.
+    color_pipeline_fp16_fmt: bool = false,
 
     pub fn resolveOutput(snapshot: *const Snapshot, identity: OutputIdentity) ?layout.LayoutId {
         // Name matches have precedence even if a metadata selector appeared first.
@@ -243,6 +250,10 @@ pub fn apply(snapshot: *Snapshot, layout_snapshot: *layout.Snapshot, source: []c
                 snapshot.overlay_planes = parseBool(value) orelse snapshot.overlay_planes;
             } else if (std.mem.eql(u8, key, "color_pipeline")) {
                 snapshot.color_pipeline = std.meta.stringToEnum(DrmColorPipeline, value) orelse snapshot.color_pipeline;
+            } else if (std.mem.eql(u8, key, "color_pipeline_post_blend")) {
+                snapshot.color_pipeline_post_blend = parseBool(value) orelse snapshot.color_pipeline_post_blend;
+            } else if (std.mem.eql(u8, key, "color_pipeline_fp16_fmt")) {
+                snapshot.color_pipeline_fp16_fmt = parseBool(value) orelse snapshot.color_pipeline_fp16_fmt;
             },
             .struts => applyStrut(&snapshot.struts, key, value),
             .state => {
@@ -542,6 +553,30 @@ test "render color pipeline defaults auto and ignores invalid overrides" {
     try std.testing.expect(snapshot.overlay_planes);
     apply(&snapshot, &layout_snapshot, "[render]\ncolor_pipeline = \"auto\"");
     try std.testing.expectEqual(DrmColorPipeline.auto, snapshot.color_pipeline);
+}
+
+test "render post-blend encode defaults off and ignores invalid overrides" {
+    var snapshot: Snapshot = .{};
+    var layout_snapshot: layout.Snapshot = .{};
+    try std.testing.expect(!snapshot.color_pipeline_post_blend);
+    apply(&snapshot, &layout_snapshot, "[render]\ncolor_pipeline_post_blend = true");
+    try std.testing.expect(snapshot.color_pipeline_post_blend);
+    apply(&snapshot, &layout_snapshot, "[render]\ncolor_pipeline_post_blend = invalid");
+    try std.testing.expect(snapshot.color_pipeline_post_blend);
+    apply(&snapshot, &layout_snapshot, "[render]\ncolor_pipeline_post_blend = false");
+    try std.testing.expect(!snapshot.color_pipeline_post_blend);
+}
+
+test "render FP16 FMT assumption defaults off and ignores invalid overrides" {
+    var snapshot: Snapshot = .{};
+    var layout_snapshot: layout.Snapshot = .{};
+    try std.testing.expect(!snapshot.color_pipeline_fp16_fmt);
+    apply(&snapshot, &layout_snapshot, "[render]\ncolor_pipeline_fp16_fmt = true");
+    try std.testing.expect(snapshot.color_pipeline_fp16_fmt);
+    apply(&snapshot, &layout_snapshot, "[render]\ncolor_pipeline_fp16_fmt = invalid");
+    try std.testing.expect(snapshot.color_pipeline_fp16_fmt);
+    apply(&snapshot, &layout_snapshot, "[render]\ncolor_pipeline_fp16_fmt = false");
+    try std.testing.expect(!snapshot.color_pipeline_fp16_fmt);
 }
 
 test "Num Lock parsing records only valid explicit values" {

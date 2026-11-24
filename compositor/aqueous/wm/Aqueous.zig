@@ -267,6 +267,14 @@ pub fn reloadConfig(aqueous: *Aqueous) !void {
         log.warn("render.color_pipeline is startup-only; restart Aqueous to apply the change", .{});
         replacement.wm.color_pipeline = aqueous.config.wm.color_pipeline;
     }
+    if (replacement.wm.color_pipeline_post_blend != aqueous.config.wm.color_pipeline_post_blend) {
+        log.warn("render.color_pipeline_post_blend is startup-only; restart Aqueous to apply the change", .{});
+        replacement.wm.color_pipeline_post_blend = aqueous.config.wm.color_pipeline_post_blend;
+    }
+    if (replacement.wm.color_pipeline_fp16_fmt != aqueous.config.wm.color_pipeline_fp16_fmt) {
+        log.warn("render.color_pipeline_fp16_fmt is startup-only; restart Aqueous to apply the change", .{});
+        replacement.wm.color_pipeline_fp16_fmt = aqueous.config.wm.color_pipeline_fp16_fmt;
+    }
     preserveTabletPolicy(aqueous, &replacement);
     aqueous.config = replacement;
     if (aqueous.pending_tiled_transfer) |*pending| pending.target = null;
@@ -4015,6 +4023,10 @@ fn handleReloadTimer(aqueous: *Aqueous) c_int {
         if (replacement.wm.color_pipeline != aqueous.config.wm.color_pipeline) {
             log.warn("render.color_pipeline is startup-only; restart Aqueous to apply the change", .{});
             replacement.wm.color_pipeline = aqueous.config.wm.color_pipeline;
+        }
+        if (replacement.wm.color_pipeline_fp16_fmt != aqueous.config.wm.color_pipeline_fp16_fmt) {
+            log.warn("render.color_pipeline_fp16_fmt is startup-only; restart Aqueous to apply the change", .{});
+            replacement.wm.color_pipeline_fp16_fmt = aqueous.config.wm.color_pipeline_fp16_fmt;
         }
         preserveTabletPolicy(aqueous, &replacement);
         aqueous.config = replacement;
