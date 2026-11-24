@@ -695,6 +695,7 @@ scripts/test-overlay-planes.sh
 scripts/test-client-buffer-scaling.sh
 scripts/test-xwayland-input.sh
 scripts/test-xwayland-floating.sh
+scripts/test-xwayland-clipboard.sh # X11 <-> Wayland copy/paste with no focused XWayland surface (issue #174)
 ```
 
 Client button presses that request focus are delivered after the normal focus

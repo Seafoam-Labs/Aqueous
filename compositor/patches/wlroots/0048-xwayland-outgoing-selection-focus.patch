@@ -1,0 +1,30 @@
+--- a/xwayland/selection/outgoing.c
++++ b/xwayland/selection/outgoing.c
+@@ -418,19 +418,14 @@
+ 		return;
+ 	}
+ 
+-	bool dnd_allowed = selection == &xwm->dnd_selection
+-		&& (xwm->drag_focus != NULL || xwm->drop_focus != NULL);
+-
+-	// No xwayland surface focused, deny access to clipboard
+-	if (xwm->focus_surface == NULL && !dnd_allowed) {
+-		if (wlr_log_get_verbosity() >= WLR_DEBUG) {
+-			char *selection_name = xwm_get_atom_name(xwm, selection->atom);
+-			wlr_log(WLR_DEBUG, "denying read access to selection %u (%s): "
+-				"no xwayland surface focused", selection->atom, selection_name);
+-			free(selection_name);
+-		}
+-		goto fail_notify_requestor;
+-	}
++	// Aqueous: serve the Wayland selection to X11 requestors without requiring
++	// an XWayland surface to be focused at this instant. Pasting into an X11
++	// client (Steam/CEF, Proton/Wine games) can issue the SelectionRequest from
++	// a window or at a moment when focus_surface is NULL, and the upstream
++	// focus gate then refused the read, so the paste silently failed
++	// (Seafoam-Labs/Aqueous#174). Match Mutter and serve the request
++	// unconditionally; the data offered is exactly what the Wayland owner
++	// published. DND requests continue to be served as before.
+ 
+ 	if (req->target == xwm->atoms[TARGETS]) {
+ 		xwm_selection_send_targets(selection, req);
