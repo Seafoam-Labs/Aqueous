@@ -152,6 +152,10 @@ pub const Rule = struct {
     /// Decoration side override; null follows the global SSD policy.
     decoration: ?DecorationOverride = null,
     stack_layer: ?StackLayer = null,
+    /// Picture-in-picture classification. A PiP window is promoted into a
+    /// dedicated scene layer above fullscreen windows while it is also
+    /// `stack_layer = "above"`. Null leaves the classification alone.
+    pip: ?bool = null,
     placement_policy: ?PlacementPolicy = null,
     focus: ?bool = null,
     fixed_position: bool = false,
@@ -215,6 +219,7 @@ pub const Rule = struct {
         hash.update(std.mem.asBytes(&rule.overlay_plane));
         hashOptionalEnum(&hash, rule.decoration);
         hashOptionalEnum(&hash, rule.stack_layer);
+        hashOptionalBool(&hash, rule.pip);
         hashOptionalEnum(&hash, rule.placement_policy);
         hashOptionalBool(&hash, rule.focus);
         hash.update(std.mem.asBytes(&rule.fixed_position));
@@ -261,6 +266,7 @@ pub const Rule = struct {
         placement_only.overlay_plane = .off;
         placement_only.decoration = null;
         placement_only.stack_layer = null;
+        placement_only.pip = null;
         placement_only.focus = null;
         placement_only.fixed_position = false;
         placement_only.skip_switcher = false;
@@ -422,6 +428,7 @@ pub fn resolve(engine: *const Engine, identity: Identity) ?Rule {
         visual.scrolling_width = null;
         visual.ignore_struts = false;
         visual.stack_layer = null;
+        visual.pip = null;
         visual.placement_policy = null;
         visual.focus = null;
         visual.fixed_position = false;
@@ -464,17 +471,38 @@ fn freeRules(allocator: std.mem.Allocator, rules: []Rule) void {
     if (rules.len > 0) allocator.free(rules);
 }
 
-/// Built-in fallback: present the screen-sharing picker as a centered floating
-/// overlay. It is deliberately kept OUT of `engine.rules` and consulted by
-/// resolve() only after no user rule matched, so any user `[[window]]` rule for
-/// the picker fully replaces it and it never appears in the user ruleset or rule
-/// inspection. The glob covers every instance channel
-/// (org.aqueous[.Git|.IntelGit].PortalPicker).
-const picker_fallback = [_]Rule{.{
-    .app_id = "*PortalPicker",
-    .placement = .{ .floating = true },
-    .placement_policy = .center,
-}};
+/// Built-in fallbacks consulted by resolve() only after no user rule matched,
+/// so any user `[[window]]` rule for the same window fully replaces them and
+/// they never appear in the user ruleset or rule inspection.
+///
+/// The screen-sharing picker is presented as a centered floating overlay; the
+/// glob covers every instance channel (org.aqueous[.Git|.IntelGit].PortalPicker).
+///
+/// Browser picture-in-picture pop-outs are plain toplevels on Wayland with no
+/// protocol hint, identified by their fixed window title (Firefox/Zen/LibreWolf
+/// use "Picture-in-Picture", Chromium-based browsers "Picture in picture").
+/// They float above ordinary windows and, through the PiP scene layer, above
+/// fullscreen windows too. X11 clients additionally arrive with an
+/// `_NET_WM_STATE_ABOVE` hint which is honored independently.
+const picker_fallback = [_]Rule{
+    .{
+        .app_id = "*PortalPicker",
+        .placement = .{ .floating = true },
+        .placement_policy = .center,
+    },
+    .{
+        .title = "Picture-in-Picture",
+        .placement = .{ .floating = true },
+        .stack_layer = .above,
+        .pip = true,
+    },
+    .{
+        .title = "Picture in picture",
+        .placement = .{ .floating = true },
+        .stack_layer = .above,
+        .pip = true,
+    },
+};
 
 fn cloneRules(allocator: std.mem.Allocator, rules: []const Rule) ![]Rule {
     const result = try allocator.alloc(Rule, rules.len);
@@ -896,4 +924,39 @@ test "built-in picker fallback floats centered unless a user rule replaces it" {
         @as(u32, 5),
         engine.resolve(.{ .app_id = "org.aqueous.IntelGit.PortalPicker", .title = "Select a source to share" }).?.placement.workspace,
     );
+}
+
+test "picture-in-picture fallback floats and elevates browser pop-outs" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try engine.reload(&.{});
+
+    // Firefox/Zen/LibreWolf and Chromium-family PiP titles both resolve to the
+    // built-in fallback: floating, above, and classified as picture-in-picture.
+    inline for (.{ "Picture-in-Picture", "Picture in picture" }) |title| {
+        const pip = engine.resolve(.{ .app_id = "firefox", .title = title }).?;
+        try std.testing.expect(pip.placement.floating);
+        try std.testing.expectEqual(StackLayer.above, pip.stack_layer.?);
+        try std.testing.expectEqual(@as(?bool, true), pip.pip);
+    }
+
+    // Ordinary browser windows and a missing title never match the fallback.
+    try std.testing.expect(engine.resolve(.{ .app_id = "firefox", .title = "Some video site" }) == null);
+    try std.testing.expect(engine.resolve(.{ .app_id = "firefox" }) == null);
+
+    // A user rule for the same window fully replaces the fallback.
+    try engine.reload(&.{.{ .title = "Picture-in-Picture", .placement = .{ .workspace = 7 } }});
+    const custom = engine.resolve(.{ .app_id = "firefox", .title = "Picture-in-Picture" }).?;
+    try std.testing.expectEqual(@as(u32, 7), custom.placement.workspace);
+    try std.testing.expect(custom.pip == null);
+    try std.testing.expect(custom.stack_layer == null);
+}
+
+test "pip classification is a semantic effect outside matcher and placement identity" {
+    var enabled: Rule = .{ .app_id = "player", .pip = true };
+    var disabled: Rule = .{ .app_id = "player", .pip = false };
+    try std.testing.expect(enabled.fingerprint() != disabled.fingerprint());
+    try std.testing.expectEqual(enabled.matcherFingerprint(), disabled.matcherFingerprint());
+    try std.testing.expectEqual(enabled.placementFingerprint(), disabled.placementFingerprint());
+    try std.testing.expectEqual(enabled.floatingFingerprint(), disabled.floatingFingerprint());
 }

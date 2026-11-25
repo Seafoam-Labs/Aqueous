@@ -66,6 +66,13 @@ auto_float_parent: types.Handle = 0,
 /// Edge-triggered so a user who manually re-tiles such a window is not forced
 /// floating again on the next manage cycle.
 fixed_size_float_evaluated: bool = false,
+/// Picture-in-picture classification. A PiP window is a small overlay (browser
+/// video pop-out, media mini-player) which must stay above ordinary windows
+/// AND fullscreen windows. The class alone does not elevate the window: it is
+/// promoted into the picture-in-picture scene layer only while `stack_layer`
+/// is `.above`, so a manual `toggle_always_above` still lowers it. Classification
+/// comes from the built-in PiP fallback rules or an explicit `pip = true` rule.
+pip: bool = false,
 /// Parent whose native transient is waiting for its first client-selected
 /// buffer size after an unspecified-size XDG configure.
 pending_natural_parent: types.Handle = 0,
@@ -97,6 +104,15 @@ rule_fullscreen_previous: bool = false,
 rule_floating_previous: Presentation = .tiled,
 rule_stack_layer_previous: StackLayer = .normal,
 rule_stack_layer_requested: ?StackLayer = null,
+/// PiP classification claim, mirroring the stack-layer ownership lifecycle so a
+/// manual stacking intervention blocks the rule from reasserting the class.
+rule_pip_owned: bool = false,
+rule_pip_overridden: bool = false,
+rule_pip_previous: bool = false,
+rule_pip_requested: ?bool = null,
+/// Set when an X11 client's `_NET_WM_STATE_ABOVE`/`_BELOW` hint owns the current
+/// stack layer. Rule and manual claims take precedence over the client hint.
+client_stack_layer_owned: bool = false,
 rule_scrolling_full_width_owned: bool = false,
 rule_scrolling_full_width_overridden: bool = false,
 rule_scrolling_full_width_requested: ?bool = null,
@@ -169,6 +185,9 @@ pub fn overrideFloating(state: *PolicyState) void {
 pub fn overrideStackLayer(state: *PolicyState) void {
     state.rule_stack_layer_owned = false;
     state.rule_stack_layer_overridden = true;
+    // A manual stacking intervention also overrides the rule's PiP claim so a
+    // lowered window is not silently re-elevated on the next matcher change.
+    state.rule_pip_overridden = true;
 }
 
 pub fn toggleScrollingFullWidth(state: *PolicyState) bool {
@@ -248,6 +267,9 @@ pub fn acceptRuleMatch(state: *PolicyState, match: u64) void {
     state.rule_fullscreen_overridden = false;
     state.rule_floating_overridden = false;
     state.rule_stack_layer_overridden = false;
+    state.rule_pip_owned = false;
+    state.rule_pip_overridden = false;
+    state.rule_pip_requested = null;
     state.rule_workspace_requested = 0;
     state.rule_fullscreen_requested = false;
     state.rule_floating_requested = false;
