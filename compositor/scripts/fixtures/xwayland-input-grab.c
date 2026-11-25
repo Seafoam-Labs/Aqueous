@@ -233,14 +233,26 @@ static bool activate_x11_grabs(
     return false;
 }
 
+static int xwayland_connection_lost(Display *display) {
+    (void)display;
+    fprintf(stderr, "CRASHED: lost the connection to Xwayland\n");
+    fflush(stderr);
+    _exit(1);
+}
+
 int main(int argc, char **argv) {
     if (argc != 2 ||
-        (strcmp(argv[1], "managed") != 0 && strcmp(argv[1], "override") != 0)) {
-        fprintf(stderr, "usage: %s managed|override\n", argv[0]);
+        (strcmp(argv[1], "managed") != 0 && strcmp(argv[1], "override") != 0 &&
+         strcmp(argv[1], "destroy-grabbed") != 0)) {
+        fprintf(stderr, "usage: %s managed|override|destroy-grabbed\n", argv[0]);
         return 2;
     }
 
-    const bool override_redirect = strcmp(argv[1], "override") == 0;
+    // Regression mode for issue #172: destroy the window while the keyboard
+    // grab is still held, then verify Xwayland survives.
+    const bool destroy_grabbed = strcmp(argv[1], "destroy-grabbed") == 0;
+    const bool override_redirect =
+        destroy_grabbed || strcmp(argv[1], "override") == 0;
     // Opt-in: keep the grab across received keys so an escape regression can
     // observe which chords the compositor intercepts vs forwards. Default off
     // preserves the single-key-then-release behavior of test-xwayland-input.sh.
@@ -259,6 +271,7 @@ int main(int argc, char **argv) {
         destroy_virtual_input(&wayland);
         return 2;
     }
+    XSetIOErrorHandler(xwayland_connection_lost);
 
     const int screen = DefaultScreen(display);
     const Window root = RootWindow(display, screen);
@@ -342,6 +355,29 @@ int main(int argc, char **argv) {
                     return 1;
                 }
                 grabbed = true;
+                if (destroy_grabbed) {
+                    // Issue #172: tear the window down while the keyboard grab
+                    // is still held. Xwayland destroys the wl_surface before it
+                    // destroys the grab object; the compositor must not kill
+                    // Xwayland with an "invalid object" protocol error. Give the
+                    // compositor a moment to honor the grab, then destroy.
+                    const struct timespec honor_delay = {.tv_nsec = 500000000};
+                    nanosleep(&honor_delay, NULL);
+                    XSync(display, False);
+                    XUnmapWindow(display, window);
+                    XDestroyWindow(display, window);
+                    XSync(display, False);
+                    const struct timespec poll_delay = {.tv_nsec = 100000000};
+                    for (int i = 0; i < 20; ++i) {
+                        nanosleep(&poll_delay, NULL);
+                        XNoOp(display);
+                        XSync(display, False);
+                    }
+                    flush_line("SURVIVED destroy-with-grab");
+                    XCloseDisplay(display);
+                    destroy_virtual_input(&wayland);
+                    return 0;
+                }
                 continue;
             }
 

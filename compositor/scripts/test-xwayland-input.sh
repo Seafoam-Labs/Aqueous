@@ -188,6 +188,59 @@ EOF
     fi
 }
 
+# Regression for issue #172: an X11 window destroyed while still holding an
+# active keyboard grab must not kill Xwayland. Xwayland destroys the wl_surface
+# before the grab object, so the compositor must keep the grab protocol object
+# alive until Xwayland destroys it instead of posting an "invalid object" error.
+run_destroy_case() {
+    local runtime="$TEST_ROOT/destroy-grabbed-runtime"
+    local socket="" n=0
+    mkdir -p "$runtime/config" "$runtime/home"
+    chmod 700 "$runtime"
+    COMPOSITOR_LOG="$TEST_ROOT/destroy-grabbed-compositor.log"
+    CLIENT_LOG="$TEST_ROOT/destroy-grabbed-client.log"
+    local outputs_config="$runtime/outputs.toml"
+    : >"$outputs_config"
+
+    WLR_BACKENDS=headless \
+    WLR_HEADLESS_OUTPUTS=1 \
+    WLR_RENDERER=pixman \
+    AQUEOUS_OUTPUTS="$outputs_config" \
+    XDG_RUNTIME_DIR="$runtime" \
+    XDG_CONFIG_HOME="$runtime/config" \
+    HOME="$runtime/home" \
+        "$AQUEOUS_COMPOSITOR_BIN" -policy internal -log-level debug \
+        -xwayland-scaling "$XWAYLAND_SCALING" \
+        -c "$FIXTURE_BIN destroy-grabbed >$CLIENT_LOG 2>&1" \
+        >"$COMPOSITOR_LOG" 2>&1 &
+    COMPOSITOR_PID=$!
+
+    while [ "$n" -lt 200 ]; do
+        if ! kill -0 "$COMPOSITOR_PID" 2>/dev/null; then
+            tail -120 "$COMPOSITOR_LOG" >&2 || true
+            die "compositor failed during destroy-grabbed startup"
+        fi
+        socket=$(find "$runtime" -maxdepth 1 -type s -name 'wayland-*' -printf '%f\n' | head -1)
+        [ -n "$socket" ] && break
+        sleep 0.05
+        n=$((n + 1))
+    done
+    [ -n "$socket" ] || die "destroy-grabbed compositor did not create a Wayland socket"
+    export XDG_RUNTIME_DIR="$runtime" WAYLAND_DISPLAY="$socket"
+
+    wait_for_text "$CLIENT_LOG" "READY mode=destroy-grabbed" "destroy-grabbed X11 window to map"
+    wait_for_text "$CLIENT_LOG" "GRABBED pointer=0 keyboard=0" "destroy-grabbed X11 grabs"
+    wait_for_text "$COMPOSITOR_LOG" "honoring Xwayland keyboard grab" "destroy-grabbed Wayland keyboard grab"
+    wait_for_text "$CLIENT_LOG" "SURVIVED destroy-with-grab" "Xwayland to survive destroy-with-grab"
+
+    kill -0 "$COMPOSITOR_PID" 2>/dev/null || die "compositor crashed after destroy-with-grab"
+    if grep -q "invalid object" "$COMPOSITOR_LOG"; then
+        die "compositor posted an invalid-object error (issue #172 regression)"
+    fi
+    cleanup_session
+    echo "PASS: Xwayland survives window destroy while keyboard-grabbed (issue #172)"
+}
+
 run_case managed 1
 run_case override 1
 run_case managed 1.5
@@ -195,5 +248,6 @@ run_case override 1.5
 if [ "$RENDER_ONLY" = 1 ]; then
     echo "ALL XWAYLAND RENDER CHECKS PASSED"
 else
+    run_destroy_case
     echo "ALL XWAYLAND INPUT CHECKS PASSED"
 fi

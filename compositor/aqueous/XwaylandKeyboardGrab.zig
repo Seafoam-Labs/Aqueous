@@ -129,6 +129,7 @@ seat: *Seat,
 surface: *wlr.Surface,
 honored: bool = false,
 active: bool = false,
+surface_attached: bool = true,
 keyboard_grab: wlr.Seat.KeyboardGrab,
 surface_destroy: wl.Listener(*wlr.Surface) = .init(handleSurfaceDestroy),
 surface_map: wl.Listener(void) = .init(handleSurfaceMap),
@@ -332,9 +333,13 @@ fn handleDestroy(_: *zwp.XwaylandKeyboardGrabV1, grab: *XwaylandKeyboardGrab) vo
     grab.honored = false;
     if (was_honored) manager.selectNewestForSeat(seat);
 
-    grab.surface_destroy.link.remove();
-    grab.surface_map.link.remove();
-    grab.surface_unmap.link.remove();
+    // The surface listeners may already have been detached by
+    // handleSurfaceDestroy; removing a detached link again would panic.
+    if (grab.surface_attached) {
+        grab.surface_destroy.link.remove();
+        grab.surface_map.link.remove();
+        grab.surface_unmap.link.remove();
+    }
     grab.link.remove();
     util.gpa.destroy(grab);
 
@@ -343,7 +348,23 @@ fn handleDestroy(_: *zwp.XwaylandKeyboardGrabV1, grab: *XwaylandKeyboardGrab) vo
 
 fn handleSurfaceDestroy(listener: *wl.Listener(*wlr.Surface), _: *wlr.Surface) void {
     const grab: *XwaylandKeyboardGrab = @fieldParentPtr("surface_destroy", listener);
-    grab.object.destroy();
+    // The wl_surface is gone, but the grab protocol object is owned by
+    // Xwayland, which destroys the surface *before* it sends the object's
+    // `destroy` request. Destroying the object here would make that in-flight
+    // request reference a dead object id and kill Xwayland with an "invalid
+    // object" protocol error, taking down every X11 client (issue #172).
+    // Release the grab and detach from the surface, but keep the protocol
+    // object alive (inert) until Xwayland destroys it itself.
+    const manager = grab.manager;
+    const seat = grab.seat;
+    const was_honored = grab.honored or grab.active;
+    grab.honored = false;
+    if (was_honored) manager.selectNewestForSeat(seat);
+
+    grab.surface_destroy.link.remove();
+    grab.surface_map.link.remove();
+    grab.surface_unmap.link.remove();
+    grab.surface_attached = false;
 }
 
 fn handleSurfaceMap(listener: *wl.Listener(void)) void {
