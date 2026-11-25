@@ -30,9 +30,10 @@ output_id: u64 = 0,
 visible_count: u8 = 0,
 
 /// Fallback used until the first `show` supplies border-derived colors.
+/// Premultiplied, like every color passed to `show`.
 const default_colors: Colors = .{
-    .normal = .{ 0.12, 0.55, 1.0, 0.18 },
-    .selected = .{ 0.25, 0.72, 1.0, 0.32 },
+    .normal = .{ 0.12 * 0.18, 0.55 * 0.18, 1.0 * 0.18, 0.18 },
+    .selected = .{ 0.25 * 0.32, 0.72 * 0.32, 1.0 * 0.32, 0.32 },
 };
 
 pub fn init(parent: *wlr.SceneTree) !SnapOverlay {

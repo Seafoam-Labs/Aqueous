@@ -135,11 +135,15 @@ const snap_overlay_normal_alpha: f32 = 0.16;
 const snap_overlay_selected_alpha: f32 = 0.32;
 
 fn snapOverlayColor(argb: u32, alpha: f32) [4]f32 {
+    // Scene rects expect premultiplied sRGB: the rounded-rect pipeline
+    // un-premultiplies by alpha before gamma decoding, so straight RGB with a
+    // reduced alpha would overshoot 1.0 and clamp to white.
+    const a = @as(f32, @floatFromInt((argb >> 24) & 0xff)) / 255.0 * alpha;
     return .{
-        @as(f32, @floatFromInt((argb >> 16) & 0xff)) / 255.0,
-        @as(f32, @floatFromInt((argb >> 8) & 0xff)) / 255.0,
-        @as(f32, @floatFromInt(argb & 0xff)) / 255.0,
-        @as(f32, @floatFromInt((argb >> 24) & 0xff)) / 255.0 * alpha,
+        @as(f32, @floatFromInt((argb >> 16) & 0xff)) / 255.0 * a,
+        @as(f32, @floatFromInt((argb >> 8) & 0xff)) / 255.0 * a,
+        @as(f32, @floatFromInt(argb & 0xff)) / 255.0 * a,
+        a,
     };
 }
 
