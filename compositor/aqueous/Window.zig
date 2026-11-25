@@ -382,6 +382,14 @@ wm_scheduled: struct {
         minimize,
         unminimize,
     } = .no_request,
+    /// X11 `_NET_WM_STATE_ABOVE`/`_BELOW` hint consumed by the integrated policy
+    /// as a low-priority stack-layer request. `normal` clears a client claim.
+    stack_layer_requested: enum {
+        no_request,
+        above,
+        below,
+        normal,
+    } = .no_request,
     /// XDG clients and foreign-toplevel controllers request activation.
     /// The integrated policy consumes this as a one-shot focus request.
     activate_requested: bool = false,
@@ -2775,6 +2783,14 @@ pub fn inFullscreenLayer(window: *Window) bool {
         current = parent;
     }
     return false;
+}
+
+/// PiP windows render in a dedicated scene layer above fullscreen windows (and
+/// above the shell surfaces which follow fullscreen). The class only elevates
+/// the window while it is also `above`, so a manual lower still drops it back
+/// into the ordinary windows layer.
+pub fn inPipLayer(window: *const Window) bool {
+    return window.policy_state.pip and window.policy_state.stack_layer == .above;
 }
 
 pub fn unreliablePid(window: *Window) i32 {

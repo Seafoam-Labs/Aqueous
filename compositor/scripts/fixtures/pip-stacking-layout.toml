@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: © 2026 Seafoam Labs
+# SPDX-License-Identifier: GPL-3.0-only
+
+# A tiling default proves the built-in PiP fallback floats the pop-out even when
+# the workspace would otherwise tile it. The peer is floated by an explicit rule.
+[layout]
+default = "tile"
+gaps_outer = 0
+gaps_inner = 0
+border_width = 0

@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: © 2026 Seafoam Labs
+# SPDX-License-Identifier: GPL-3.0-only
+
+# The peer is an ordinary floating window. The PiP pop-out (aqueous.pip-video)
+# intentionally has NO user rule so the built-in PiP fallback must classify it.
+[[window]]
+app_id = "aqueous.pip-peer"
+floating = true
+width = 400
+height = 300

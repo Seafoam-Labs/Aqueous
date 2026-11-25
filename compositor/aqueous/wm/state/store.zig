@@ -76,6 +76,26 @@ pub fn restoreRuleFloating(store: *Store, handle: types.Handle) bool {
     return true;
 }
 
+/// Apply an X11 client's `_NET_WM_STATE_ABOVE`/`_BELOW` hint. The client is the
+/// lowest-priority stacking source: a rule claim or a manual toggle wins, and
+/// the hint is ignored while either owns the layer. Removing the hint (normal)
+/// only resets a layer the client itself previously claimed.
+pub fn setClientStackLayer(store: *Store, handle: types.Handle, layer: types.StackLayer) bool {
+    const entry = store.resolver(handle) orelse return false;
+    if (entry.rule_stack_layer_owned or entry.rule_stack_layer_overridden) return false;
+    if (layer == .normal) {
+        if (!entry.client_stack_layer_owned) return false;
+        entry.client_stack_layer_owned = false;
+        if (entry.stack_layer == .normal) return false;
+        entry.stack_layer = .normal;
+        return true;
+    }
+    entry.client_stack_layer_owned = true;
+    if (entry.stack_layer == layer) return false;
+    entry.stack_layer = layer;
+    return true;
+}
+
 pub fn toggleFloating(store: *Store, handle: types.Handle, geometry: types.Rect) ?bool {
     const entry = store.resolver(handle) orelse return null;
     entry.overrideFloating();
@@ -373,4 +393,36 @@ test "minimized index follows embedded state and prunes destroyed handles" {
     try std.testing.expect(try store.minimize(2));
     store.remove(2);
     try std.testing.expectEqual(@as(types.Handle, 0), store.restoreLastMinimized());
+}
+
+test "client stacking hint yields to rule and manual claims" {
+    TestResolver.reset();
+    var store = Store.init(std.testing.allocator, TestResolver.resolve);
+    defer store.deinit();
+
+    // An X11 _NET_WM_STATE_ABOVE hint elevates an unclaimed window.
+    try std.testing.expect(store.setClientStackLayer(1, .above));
+    try std.testing.expectEqual(StackLayer.above, TestResolver.entries[0].stack_layer);
+    try std.testing.expect(TestResolver.entries[0].client_stack_layer_owned);
+    // Re-asserting the same layer is a no-op.
+    try std.testing.expect(!store.setClientStackLayer(1, .above));
+
+    // Removing the hint resets only a client-owned layer.
+    try std.testing.expect(store.setClientStackLayer(1, .normal));
+    try std.testing.expectEqual(StackLayer.normal, TestResolver.entries[0].stack_layer);
+    try std.testing.expect(!TestResolver.entries[0].client_stack_layer_owned);
+    // A second removal without a client claim changes nothing.
+    try std.testing.expect(!store.setClientStackLayer(1, .normal));
+
+    // A rule claim blocks the client hint.
+    TestResolver.entries[1].rule_stack_layer_owned = true;
+    TestResolver.entries[1].stack_layer = .below;
+    try std.testing.expect(!store.setClientStackLayer(2, .above));
+    try std.testing.expectEqual(StackLayer.below, TestResolver.entries[1].stack_layer);
+
+    // A manual override blocks the client hint too.
+    TestResolver.entries[0].overrideStackLayer();
+    TestResolver.entries[0].stack_layer = .normal;
+    try std.testing.expect(!store.setClientStackLayer(1, .above));
+    try std.testing.expectEqual(StackLayer.normal, TestResolver.entries[0].stack_layer);
 }

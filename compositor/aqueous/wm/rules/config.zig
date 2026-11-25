@@ -247,6 +247,7 @@ fn applyValue(rule: *Engine.Rule, key: []const u8, value: []const u8) void {
         rule.decoration = Engine.DecorationOverride.parse(value) orelse rule.decoration;
     }
     if (std.mem.eql(u8, key, "stack_layer") or std.mem.eql(u8, key, "layer")) rule.stack_layer = parseStackLayer(value) orelse rule.stack_layer;
+    if (std.mem.eql(u8, key, "pip")) rule.pip = parseBool(value) orelse rule.pip;
     if (std.mem.eql(u8, key, "placement_policy")) rule.placement_policy = parsePlacementPolicy(value) orelse rule.placement_policy;
     if (std.mem.eql(u8, key, "focus")) rule.focus = parseBool(value) orelse rule.focus;
     if (std.mem.eql(u8, key, "fixed_position")) rule.fixed_position = parseBool(value) orelse rule.fixed_position;
@@ -745,4 +746,26 @@ test "matching rules parse canonical spellings and aliases and tolerate invalid 
     try std.testing.expectEqual(Engine.Matching.once, engine.resolve(.{ .app_id = "underscore" }).?.matching);
     // An invalid spelling keeps the default without rejecting the reload.
     try std.testing.expectEqual(Engine.Matching.always, engine.resolve(.{ .app_id = "invalid" }).?.matching);
+}
+
+test "pip classification parses as a managed boolean effect" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try parseAndReload(std.testing.allocator, &engine,
+        \\[[window]]
+        \\app_id = "miniplayer"
+        \\pip = true
+        \\stack_layer = "above"
+        \\[[window]]
+        \\app_id = "opted-out"
+        \\pip = false
+        \\[[window]]
+        \\app_id = "invalid"
+        \\pip = "yes"
+    );
+    try std.testing.expectEqual(@as(?bool, true), engine.resolve(.{ .app_id = "miniplayer" }).?.pip);
+    try std.testing.expectEqual(Engine.StackLayer.above, engine.resolve(.{ .app_id = "miniplayer" }).?.stack_layer.?);
+    try std.testing.expectEqual(@as(?bool, false), engine.resolve(.{ .app_id = "opted-out" }).?.pip);
+    // An invalid boolean keeps the default without rejecting the reload.
+    try std.testing.expectEqual(@as(?bool, null), engine.resolve(.{ .app_id = "invalid" }).?.pip);
 }
