@@ -635,7 +635,11 @@ fn renderFinish(wm: *WindowManager) void {
             switch (node.get()) {
                 .window => |window| {
                     hash.update(@ptrCast(&window.ref));
-                    hash.update(&.{@intFromBool(window.inFullscreenLayer())});
+                    // The scene layer is part of the order identity: a window
+                    // moving between windows/fullscreen/PiP trees must reorder
+                    // even when its relative position in the list is unchanged.
+                    const scene_layer: u8 = if (window.inPipLayer()) 2 else if (window.inFullscreenLayer()) 1 else 0;
+                    hash.update(&.{scene_layer});
                 },
                 .shell_surface => |shell_surface| {
                     hash.update(@ptrCast(&shell_surface));
@@ -658,7 +662,12 @@ fn renderFinish(wm: *WindowManager) void {
                 .window => |window| {
                     window.renderFinish();
                     if (!reorder) continue;
-                    if (window.inFullscreenLayer()) {
+                    if (window.inPipLayer()) {
+                        // Above fullscreen windows and the shell surfaces which
+                        // follow them, so a video pop-out is never covered.
+                        window.tree.node.reparent(server.scene.layers.pip);
+                        window.tree.node.raiseToTop();
+                    } else if (window.inFullscreenLayer()) {
                         window.tree.node.reparent(server.scene.layers.fullscreen);
                         window.tree.node.raiseToTop();
                         found_fullscreen = true;

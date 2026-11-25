@@ -64,6 +64,8 @@ pub const ClientWindowRequest = struct {
         minimize,
         unminimize,
         activate,
+        /// X11 EWMH stacking hint (`_NET_WM_STATE_ABOVE`/`_BELOW`).
+        stack_layer: layout.StackLayer,
     },
 };
 
@@ -1006,6 +1008,7 @@ pub fn takeClientWindowRequests(_: CompositorApi, allocator: std.mem.Allocator) 
         if (window.wm_scheduled.pointer_resize_requested != null) count += 1;
         if (window.wm_scheduled.maximize_requested != .no_request) count += 1;
         if (window.wm_scheduled.minimize_requested != .no_request) count += 1;
+        if (window.wm_scheduled.stack_layer_requested != .no_request) count += 1;
         if (window.wm_scheduled.activate_requested) count += 1;
     }
 
@@ -1058,6 +1061,21 @@ pub fn takeClientWindowRequests(_: CompositorApi, allocator: std.mem.Allocator) 
                 index += 1;
             },
         }
+        switch (window.wm_scheduled.stack_layer_requested) {
+            .no_request => {},
+            .above => {
+                requests[index] = .{ .handle = handle, .action = .{ .stack_layer = .above } };
+                index += 1;
+            },
+            .below => {
+                requests[index] = .{ .handle = handle, .action = .{ .stack_layer = .below } };
+                index += 1;
+            },
+            .normal => {
+                requests[index] = .{ .handle = handle, .action = .{ .stack_layer = .normal } };
+                index += 1;
+            },
+        }
         if (window.wm_scheduled.activate_requested) {
             requests[index] = .{ .handle = handle, .action = .activate };
             index += 1;
@@ -1071,6 +1089,7 @@ pub fn takeClientWindowRequests(_: CompositorApi, allocator: std.mem.Allocator) 
         window.wm_scheduled.pointer_resize_requested = null;
         window.wm_scheduled.maximize_requested = .no_request;
         window.wm_scheduled.minimize_requested = .no_request;
+        window.wm_scheduled.stack_layer_requested = .no_request;
         window.wm_scheduled.activate_requested = false;
     }
     return requests;

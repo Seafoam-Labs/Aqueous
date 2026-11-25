@@ -117,6 +117,13 @@ clears `prev_workspace`, so finalizing a swap on one output cannot flash the
 previous workspace on a neighboring output. It uses the opt-in window-state
 diagnostics instead of relying on screencopy timing.
 
+`scripts/test-pip-stacking.sh` covers issue #161 (picture-in-picture). A browser
+video pop-out is a plain `xdg_toplevel` titled `Picture-in-Picture` with no
+protocol hint; the built-in fallback rule floats it, marks it always-above, and
+promotes it into the dedicated PiP scene layer. The test asserts the pop-out
+stays above a focused floating peer and above a fullscreen peer by comparing
+scene order, so neither raise-on-focus nor the fullscreen layer can cover it.
+
 The toolchain is Zig 0.17.0. Bindings use the upstream Zig 0.17 releases of
 zig-wayland (0.7.0), zig-pixman (0.4.0), zig-xkbcommon (0.5.0), and
 translate-c (2.0.2). The portal picker uses the upstream zig-gobject

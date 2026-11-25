@@ -51,6 +51,8 @@ set_hints: wl.Listener(void) = .init(handleSetHints),
 request_maximize: wl.Listener(void) = .init(handleRequestMaximize),
 request_fullscreen: wl.Listener(void) = .init(handleRequestFullscreen),
 request_minimize: wl.Listener(*wlr.XwaylandSurface.event.Minimize) = .init(handleRequestMinimize),
+request_above: wl.Listener(void) = .init(handleRequestAbove),
+request_below: wl.Listener(void) = .init(handleRequestBelow),
 focus_in: wl.Listener(void) = .init(handleFocusIn),
 grab_focus: wl.Listener(void) = .init(handleGrabFocus),
 focused_before_map: bool = false,
@@ -96,6 +98,8 @@ pub fn create(xsurface: *wlr.XwaylandSurface) error{OutOfMemory}!void {
     xsurface.events.request_maximize.add(&xwindow.request_maximize);
     xsurface.events.request_fullscreen.add(&xwindow.request_fullscreen);
     xsurface.events.request_minimize.add(&xwindow.request_minimize);
+    xsurface.events.request_above.add(&xwindow.request_above);
+    xsurface.events.request_below.add(&xwindow.request_below);
     xsurface.events.focus_in.add(&xwindow.focus_in);
     xsurface.events.grab_focus.add(&xwindow.grab_focus);
 
@@ -247,6 +251,8 @@ fn handleDestroy(listener: *wl.Listener(void)) void {
     xwindow.request_maximize.link.remove();
     xwindow.request_fullscreen.link.remove();
     xwindow.request_minimize.link.remove();
+    xwindow.request_above.link.remove();
+    xwindow.request_below.link.remove();
     xwindow.focus_in.link.remove();
     xwindow.grab_focus.link.remove();
 
@@ -335,6 +341,9 @@ pub fn handleMap(listener: *wl.Listener(void)) void {
     if (xwindow.xsurface.maximized_vert or xwindow.xsurface.maximized_horz) {
         window.wm_scheduled.maximize_requested = .maximize;
     }
+    // Seed the EWMH stacking hint so a window mapped already-above (Firefox
+    // picture-in-picture, mini-players) does not wait for a property rewrite.
+    xwindow.scheduleStackLayerHint();
 
     // A surface can become managed after its properties were read while it
     // was override-redirect. Seed cached metadata instead of requiring the
@@ -639,4 +648,31 @@ fn handleRequestMinimize(
     xwindow.xsurface.setMinimized(event.minimize);
     xwindow.window.wm_scheduled.minimize_requested = if (event.minimize) .minimize else .unminimize;
     server.wm.dirtyWindowing();
+}
+
+/// `_NET_WM_STATE_ABOVE` changed. wlroots updates `xsurface.above` before
+/// emitting the signal, so read the current state rather than the delta.
+fn handleRequestAbove(listener: *wl.Listener(void)) void {
+    const xwindow: *XwaylandWindow = @fieldParentPtr("request_above", listener);
+    xwindow.scheduleStackLayerHint();
+    server.wm.dirtyWindowing();
+}
+
+/// `_NET_WM_STATE_BELOW` changed.
+fn handleRequestBelow(listener: *wl.Listener(void)) void {
+    const xwindow: *XwaylandWindow = @fieldParentPtr("request_below", listener);
+    xwindow.scheduleStackLayerHint();
+    server.wm.dirtyWindowing();
+}
+
+/// Translate the EWMH above/below state into a one-shot policy stack-layer
+/// request. Above wins over below when a client advertises both. The policy
+/// treats this as the lowest-priority stacking source (rule/manual claims win).
+fn scheduleStackLayerHint(xwindow: *XwaylandWindow) void {
+    xwindow.window.wm_scheduled.stack_layer_requested = if (xwindow.xsurface.above)
+        .above
+    else if (xwindow.xsurface.below)
+        .below
+    else
+        .normal;
 }

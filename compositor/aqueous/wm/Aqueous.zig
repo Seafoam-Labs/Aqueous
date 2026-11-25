@@ -954,6 +954,9 @@ fn applyClientWindowRequests(
         .activate => {
             snapshot_dirty = aqueous.activateClientWindow(snapshot, request.handle, null) or snapshot_dirty;
         },
+        .stack_layer => |layer| {
+            if (aqueous.window_states.setClientStackLayer(request.handle, layer)) snapshot_dirty = true;
+        },
     };
     return snapshot_dirty;
 }
@@ -3678,6 +3681,7 @@ fn prepareWindowRuleMatch(aqueous: *Aqueous, window: layout_types.Window, output
     state.restoreRuleScrollingFullWidth();
     state.restoreRuleScrollingWidth();
     if (state.rule_stack_layer_owned) state.stack_layer = state.rule_stack_layer_previous;
+    if (state.rule_pip_owned) state.pip = state.rule_pip_previous;
     state.focus_allowed = true;
     state.fixed_position = false;
     state.skip_switcher = false;
@@ -3878,6 +3882,21 @@ fn reconcileWindowRule(
             state.rule_stack_layer_overridden = false;
         }
         state.rule_stack_layer_requested = requested_stack_layer;
+    }
+
+    if (matched.pip != state.rule_pip_requested) {
+        if (matched.pip) |requested| {
+            if (!state.rule_pip_overridden) {
+                if (!state.rule_pip_owned) state.rule_pip_previous = state.pip;
+                state.pip = requested;
+                state.rule_pip_owned = true;
+            }
+        } else if (state.rule_pip_owned) {
+            state.pip = state.rule_pip_previous;
+            state.rule_pip_owned = false;
+            state.rule_pip_overridden = false;
+        }
+        state.rule_pip_requested = matched.pip;
     }
 
     if (matched.fullscreen != state.rule_fullscreen_requested) {

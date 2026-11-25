@@ -86,6 +86,12 @@ gaps_inner = 8             # integer >= 0
 #   scrolling_width finite fraction in (0, 1], e.g. 0.65 for 65% width
 #   ignore_struts   true/false; use the full output instead of panel struts
 #   stack_layer     below | normal | above
+#   pip             true/false; classify the window as picture-in-picture. While
+#                   also stack_layer = "above", a PiP window renders in a
+#                   dedicated scene layer above fullscreen windows and shell
+#                   surfaces, so a video pop-out is never covered. Browser PiP
+#                   pop-outs (titled "Picture-in-Picture" or "Picture in picture")
+#                   are classified automatically; use this for other mini-players.
 #   focus           true/false; false excludes the window from focus actions
 #   fixed_position  true/false; reject pointer and keyboard geometry changes
 #   skip_switcher   true/false; omit from MRU cycling and overview

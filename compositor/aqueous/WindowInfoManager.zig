@@ -302,6 +302,7 @@ fn sceneNodeLabel(node: *wlr.SceneNode, buffer: *[512]u8) [:0]const u8 {
     if (node == &scene.layers.wm.node) return "layer: windows";
     if (node == &scene.layers.top.node) return "layer: top";
     if (node == &scene.layers.fullscreen.node) return "layer: fullscreen";
+    if (node == &scene.layers.pip.node) return "layer: picture-in-picture";
     if (node == &scene.layers.overlay.node) return "layer: overlay";
     if (node == &scene.layers.popups.node) return "layer: popups";
     if (build_options.xwayland and node == &scene.layers.override_redirect.node) {
