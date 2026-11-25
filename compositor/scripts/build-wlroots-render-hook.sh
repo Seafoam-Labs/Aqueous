@@ -53,6 +53,8 @@ patch_files=(
     "$here/patches/wlroots/0044-color-management-extended-target-volume.patch"
     "$here/patches/wlroots/0045-scene-presentation.patch"
     "$here/patches/wlroots/0046-color-pipeline-stable-blobs.patch"
+    "$here/patches/wlroots/0047-xwayland-incoming-selection-focus.patch"
+    "$here/patches/wlroots/0048-xwayland-outgoing-selection-focus.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
@@ -89,6 +91,10 @@ done
 cmp "$source_dir/protocol/aqueous-capture-color-v1.xml" \
     "$here/protocol/aqueous-capture-color-v1.xml" ||
     die "capture color protocol differs between compositor and wlroots patch"
+grep -Fq 'Seafoam-Labs/Aqueous#174' "$source_dir/xwayland/selection/incoming.c" ||
+    die "patched wlroots does not mirror the incoming X11 clipboard without a focus gate"
+grep -Fq 'Seafoam-Labs/Aqueous#174' "$source_dir/xwayland/selection/outgoing.c" ||
+    die "patched wlroots does not serve the outgoing X11 selection without a focus gate"
 grep -Fq '#define WM_BASE_VERSION 7' "$source_dir/types/xdg_shell/wlr_xdg_shell.c" ||
     die "pinned wlroots does not support the required xdg-shell version 7"
 grep -Fq '#define WLR_AQUEOUS_FIFO_VERSION 1' \

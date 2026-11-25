@@ -1,0 +1,26 @@
+--- a/xwayland/selection/incoming.c
++++ b/xwayland/selection/incoming.c
+@@ -466,13 +466,16 @@
+ 			xwm_selection_transfer_destroy(transfer);
+ 		}
+ 	} else if (event->target == xwm->atoms[TARGETS]) {
+-		// No xwayland surface focused, deny access to clipboard
+-		if (xwm->focus_surface == NULL) {
+-			wlr_log(WLR_DEBUG, "denying write access to clipboard: "
+-				"no xwayland surface focused");
+-			return;
+-		}
+-
++		// Aqueous: mirror the X11 selection to Wayland without requiring an
++		// XWayland surface to be focused at this instant. The TARGETS reply is
++		// asynchronous, and clients such as Steam/CEF and Citrix only publish
++		// the selection once they lose focus; by then focus_surface is already
++		// NULL, so the upstream focus gate silently dropped the copy and the
++		// previous clipboard survived (Seafoam-Labs/Aqueous#174). Match Mutter
++		// and KWin and accept the offer unconditionally: the receiving Wayland
++		// client still decides whether to paste it. X11 clients already share
++		// the X11 selection freely among themselves, so this does not grant
++		// them any access they did not already have on the X11 side.
+ 		// This sets the Wayland clipboard (by calling wlr_seat_set_selection)
+ 		xwm_selection_get_targets(selection);
+ 	} else if (transfer) {
