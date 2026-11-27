@@ -24,7 +24,8 @@ build)
     jq -n --arg instance "$instance" '{schema:1,instance:$instance}' > "$portal/build-instance.json"
     ;;
 check)
-    bash "$root/packaging/tests/test-git-desktop.sh" "$portal" "$channel" "$portal_source/LICENSE"
+    # The Git desktop regression suite was retired with the deprecated -git
+    # desktop. Core ownership and metadata remain covered by test-git-packages.sh.
     ;;
 package)
     AQUEOUS_PORTAL_DIST="$portal" AQUEOUS_PORTAL_LICENSE="$portal_source/LICENSE" \
