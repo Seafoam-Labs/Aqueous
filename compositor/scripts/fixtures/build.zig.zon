@@ -1,8 +1,8 @@
 .{
     .name = .aqueous_test_fixtures,
     .fingerprint = 0xe26fa6f37b3bea9a,
-    .version = "1.2.0",
-    .minimum_zig_version = "0.17.0",
+    .version = "1.2.1",
+    .minimum_zig_version = "0.17.1",
     .dependencies = .{
         .translate_c = .{
             .url = "https://codeberg.org/ziglang/translate-c/archive/2.0.2.tar.gz",

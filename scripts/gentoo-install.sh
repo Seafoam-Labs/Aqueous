@@ -12,7 +12,7 @@
 #   AQUEOUS_PREFIX       install/uninstall under this prefix instead of /
 #                        (dry run without root: AQUEOUS_PREFIX=/tmp/aq $0 install)
 #   AQUEOUS_DIST         build output dir (default: <repo>/dist)
-#   AQUEOUS_ZIG_VERSION  zig to fetch when PATH has none >= required (0.17.0)
+#   AQUEOUS_ZIG_VERSION  zig to fetch when PATH has none >= required (0.17.1)
 #
 # /etc config files (wm.toml, outputs.toml, input.toml, layout.toml, uwsm/env-aqueous) are never
 # clobbered: an existing file is kept and the shipped default is dropped
@@ -25,8 +25,8 @@ dist="${AQUEOUS_DIST:-$root/dist}"
 destdir="${AQUEOUS_PREFIX:-}"
 component=desktop
 if [[ ${1:-} == --core-only ]]; then component=core; shift; fi
-zig_required=0.17.0
-zig_fetch_version="${AQUEOUS_ZIG_VERSION:-0.17.0}"
+zig_required=0.17.1
+zig_fetch_version="${AQUEOUS_ZIG_VERSION:-0.17.1}"
 xdpw_version=0.8.4
 xdpw_sha256=3122966d46ab108f505525bcb2498f9121b446ee8438fbfceb73a7a1fa1ad400
 xdpw_url="https://github.com/emersion/xdg-desktop-portal-wlr/archive/refs/tags/v$xdpw_version.tar.gz"

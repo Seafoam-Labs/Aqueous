@@ -32,7 +32,7 @@ if [ -z "${AQUEOUS_PEARL_CMD:-}" ]; then
     [ -f "$PEARL_DIR/build.zig" ] || fail "Pearl sources not found at $PEARL_DIR. Set PEARL_DIR to the Pearl repository."
     PEARL_DIR="$(cd "$PEARL_DIR" && pwd)"
     PEARL_BIN="$PEARL_DIR/zig-out/bin/pearl"
-    command -v zig >/dev/null 2>&1 || fail 'zig not found in PATH. Install zig >= 0.17.0 to build Pearl.'
+    command -v zig >/dev/null 2>&1 || fail 'zig not found in PATH. Install zig >= 0.17.1 to build Pearl.'
 
     needs_build=0
     if [ ! -x "$PEARL_BIN" ]; then

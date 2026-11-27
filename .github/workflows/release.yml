@@ -58,7 +58,7 @@ jobs:
         shell: bash
         run: git config --global --add safe.directory '*'
 
-      - name: Setup Zig 0.17.0
+      - name: Setup Zig 0.17.1
         uses: ./.github/actions/setup-zig
 
       - name: Verify wayland-protocols carries wp_color_manager_v1 v3

@@ -4,7 +4,7 @@ pkgname=(aqueous-core aqueous-session xdg-desktop-portal-aqueous
          aqueous-integration-dms aqueous-integration-noctalia aqueous-integration-pearl
          aqueous-shell-dms aqueous-shell-noctalia aqueous-shell-pearl aqueous)
 pkgbase=aqueous
-pkgver=1.2.0
+pkgver=1.2.1
 pkgrel=1
 # Keep tested binary/library bytes and component manifests stable.
 options=('!strip' '!debug' '!zipman')
@@ -14,7 +14,7 @@ url="https://github.com/Seafoam-Labs/Aqueous"
 license=('GPL-3.0-only' 'MIT')
 makedepends=('jq' 'gtk4' 'freetype2' 'wayland' 'libxkbcommon' 'libinput' 'pixman' 'libpng' 'libdrm' 'libevdev' 'libdecor' 'libinih' 'pipewire' 'mesa' 'systemd-libs' 'seatd' 'libdisplay-info' 'libliftoff' 'lcms2' 'vulkan-icd-loader' 'vulkan-mesa-layers' 'libxcb' 'xcb-util-errors' 'xcb-util-wm' 'xcb-util-renderutil' 'python' 'shaderc' 'clang' 'lld' 'llvm'
              'git' 'curl' 'patch' 'scdoc' 'wayland-protocols>=1.49' 'pkgconf' 'xorg-xwayland'
-             'meson' 'ninja' 'glslang' 'vulkan-headers' 'hwdata' 'zig=0.17.0')
+             'meson' 'ninja' 'glslang' 'vulkan-headers' 'hwdata' 'zig=0.17.1')
 # Helper integration checks exercise org.gnome.desktop.interface via gsettings.
 checkdepends=('libarchive' 'jq' 'python' 'ripgrep' 'qt6-declarative' 'gsettings-desktop-schemas')
 source=(
@@ -37,8 +37,8 @@ build() {
     # Check the compiler before building any component, including helpers.
     local zig_ver
     zig_ver=$(zig version) || return 1
-    if [[ $zig_ver != 0.17.0 ]]; then
-        error "Zig 0.17.0 required, found $zig_ver. Install the pinned zig package."
+    if [[ $zig_ver != 0.17.1 ]]; then
+        error "Zig 0.17.1 required, found $zig_ver. Install the pinned zig package."
         return 1
     fi
     msg2 "Using zig $zig_ver"

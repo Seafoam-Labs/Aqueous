@@ -20,7 +20,7 @@ optimize="${AQUEOUS_OPTIMIZE:-debug}"
 linker_flag="${AQUEOUS_LINKER_FLAG--Dllvm}"
 
 if ! command -v zig >/dev/null 2>&1; then
-    echo "[build-compositor] zig not found in PATH. Install zig >= 0.17.0" >&2
+    echo "[build-compositor] zig not found in PATH. Install zig >= 0.17.1" >&2
     echo "[build-compositor] AQUEOUS_COMPOSITOR_BIN to a prebuilt compositor." >&2
     exit 1
 fi

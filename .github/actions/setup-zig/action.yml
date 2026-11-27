@@ -1,17 +1,17 @@
 name: Set up project Zig
-description: Install upstream Zig 0.17.0
+description: Install upstream Zig 0.17.1
 runs:
   using: composite
   steps:
-    - name: Install Zig 0.17.0
+    - name: Install Zig 0.17.1
       shell: bash
       run: |
-        zig_archive="$RUNNER_TEMP/zig-0.17.0.tar.xz"
+        zig_archive="$RUNNER_TEMP/zig-0.17.1.tar.xz"
         curl --fail --location --retry 3 \
-          https://ziglang.org/download/0.17.0/zig-x86_64-linux-0.17.0.tar.xz \
+          https://ziglang.org/download/0.17.1/zig-x86_64-linux-0.17.1.tar.xz \
           --output "$zig_archive"
-        printf '%s  %s\n' 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026 "$zig_archive" | sha256sum --check --strict
+        printf '%s  %s\n' 3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a "$zig_archive" | sha256sum --check --strict
         tar -xJf "$zig_archive" -C "$RUNNER_TEMP"
-        zig_dir="$RUNNER_TEMP/zig-x86_64-linux-0.17.0"
+        zig_dir="$RUNNER_TEMP/zig-x86_64-linux-0.17.1"
         echo "$zig_dir" >> "$GITHUB_PATH"
-        test "$("$zig_dir/zig" version)" = "0.17.0"
+        test "$("$zig_dir/zig" version)" = "0.17.1"
