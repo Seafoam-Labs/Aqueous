@@ -227,7 +227,6 @@ for symbol in \
     wlr_fifo_manager_v1_output_pending \
     wlr_fifo_manager_v1_prepare \
     wlr_fifo_manager_v1_finish \
-    wlr_fifo_manager_v1_present \
     wlr_scene_output_set_buffer_render_hook \
     wlr_scene_output_set_buffer_needs_composition \
     wlr_scene_output_set_rect_render_hook \

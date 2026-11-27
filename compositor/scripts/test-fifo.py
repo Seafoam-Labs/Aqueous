@@ -110,11 +110,11 @@ def main():
         checked(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-g',
                  *(['-fsanitize=address,undefined'] if args.sanitize else []), f'-I{work}',
                  ROOT / 'scripts/fixtures/wlroots-fifo.c', generated[0], '-o', work / 'unit', *flags])
-        for case in ('normal', 'duplicate', 'dead-set', 'dead-wait', 'bypass', 'no-expiry'):
+        for case in ('normal', 'duplicate', 'dead-set', 'dead-wait', 'bypass', 'no-latch'):
             result = run([work / 'unit', *([] if case == 'normal' else [case])])
             (work / f'unit-{case}.log').write_text(result.stdout)
-            negative = case in ('bypass', 'no-expiry')
-            expected_assertion = 'commits ==' if case == 'bypass' else 'wlr_fifo_manager_v1_output_pending'
+            negative = case in ('bypass', 'no-latch')
+            expected_assertion = 'commits =='
             assert (result.returncode == -signal.SIGABRT and expected_assertion in result.stdout) if negative else (result.returncode == 0), result.stdout
             record(f'wire-cache-{case}', returncode=result.returncode)
         if args.unit_only:

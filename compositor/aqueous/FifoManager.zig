@@ -29,7 +29,3 @@ pub fn prepare(fifo: FifoManager, output: *wlr.Output) void {
 pub fn finish(fifo: FifoManager, output: *wlr.Output, committed: bool) void {
     c.wlr_fifo_manager_v1_finish(fifo.manager, @ptrCast(output), committed);
 }
-
-pub fn present(fifo: FifoManager, output: *wlr.Output, event: *const wlr.Output.event.Present) bool {
-    return c.wlr_fifo_manager_v1_present(fifo.manager, @ptrCast(output), @ptrCast(event));
-}

@@ -1,8 +1,3 @@
-Aqueous FIFO v1 protocol and commit-cache readiness for wlroots 0.20.2.
-
-Local implementation; generated wire definitions come from wayland-protocols.
-Surface addons preserve the public wlr_surface layout used by zig-wlroots.
-
 diff --git a/include/types/wlr_fifo_v1.h b/include/types/wlr_fifo_v1.h
 --- /dev/null
 +++ b/include/types/wlr_fifo_v1.h
@@ -18,7 +13,7 @@ diff --git a/include/types/wlr_fifo_v1.h b/include/types/wlr_fifo_v1.h
 diff --git a/include/wlr/types/wlr_fifo_v1.h b/include/wlr/types/wlr_fifo_v1.h
 --- /dev/null
 +++ b/include/wlr/types/wlr_fifo_v1.h
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,30 @@
 +#ifndef WLR_TYPES_WLR_FIFO_V1_H
 +#define WLR_TYPES_WLR_FIFO_V1_H
 +#ifndef WLR_USE_UNSTABLE
@@ -38,15 +33,14 @@ diff --git a/include/wlr/types/wlr_fifo_v1.h b/include/wlr/types/wlr_fifo_v1.h
 +bool wlr_fifo_manager_v1_output_pending(struct wlr_fifo_manager_v1 *manager,
 +    struct wlr_output *output);
 +/* Call before building a client scene frame, then finish after the commit result.
-+ * Never prepare mirror/capture-only frames. Finish precedes replay of synchronous
-+ * presentation events. A failed build/commit cannot satisfy a barrier. */
++ * Never prepare mirror/capture-only frames. A successful finish latches the barrier
++ * frame and releases the barrier immediately (fifo-v1: cleared after the latching
++ * deadline for non-tearing presentation); a failed build/commit cannot satisfy it.
++ * The compositor must not tear while a barrier is pending. */
 +void wlr_fifo_manager_v1_prepare(struct wlr_fifo_manager_v1 *manager,
 +    struct wlr_output *output);
 +void wlr_fifo_manager_v1_finish(struct wlr_fifo_manager_v1 *manager,
 +    struct wlr_output *output, bool committed);
-+/* Returns true when a rejected submission needs the compositor retry path. */
-+bool wlr_fifo_manager_v1_present(struct wlr_fifo_manager_v1 *manager,
-+    struct wlr_output *output, const struct wlr_output_event_present *event);
 +/* Defer visibility reevaluation, safe inside scene/commit/destruction listeners. */
 +void wlr_fifo_v1_surface_changed(struct wlr_surface *surface);
 +#endif
@@ -170,11 +164,10 @@ diff --git a/types/wlr_compositor.c b/types/wlr_compositor.c
 diff --git a/types/wlr_fifo_v1.c b/types/wlr_fifo_v1.c
 --- /dev/null
 +++ b/types/wlr_fifo_v1.c
-@@ -0,0 +1,299 @@
+@@ -0,0 +1,283 @@
 +/* FIFO state belongs to the surface, not the lifetime of the protocol resource. */
 +#include <assert.h>
 +#include <stdlib.h>
-+#include <wlr/backend/drm.h>
 +#include <wlr/types/wlr_compositor.h>
 +#include <wlr/types/wlr_fifo_v1.h>
 +#include <wlr/types/wlr_subcompositor.h>
@@ -198,8 +191,7 @@ diff --git a/types/wlr_fifo_v1.c b/types/wlr_fifo_v1.c
 +    struct wl_event_source *idle;
 +    struct wlr_output *output;
 +    struct wl_listener output_destroy, output_commit;
-+    uint64_t generation, staged, submitted;
-+    uint32_t submitted_seq;
++    uint64_t generation, staged;
 +    bool barrier;
 +};
 +static const struct wlr_addon_interface addon_impl;
@@ -237,7 +229,7 @@ diff --git a/types/wlr_fifo_v1.c b/types/wlr_fifo_v1.c
 +    wl_list_remove(&fifo->output_destroy.link);
 +    wl_list_remove(&fifo->output_commit.link);
 +    fifo->output = NULL;
-+    fifo->staged = fifo->submitted = 0;
++    fifo->staged = 0;
 +}
 +static void output_destroy(struct wl_listener *listener, void *data) {
 +    struct fifo_surface *fifo = wl_container_of(listener, fifo, output_destroy);
@@ -248,7 +240,7 @@ diff --git a/types/wlr_fifo_v1.c b/types/wlr_fifo_v1.c
 +    struct fifo_surface *fifo = wl_container_of(listener, fifo, output_commit);
 +    struct wlr_output_event_commit *event = data;
 +    if (event->state->committed & (WLR_OUTPUT_STATE_ENABLED | WLR_OUTPUT_STATE_MODE)) {
-+        fifo->submitted = 0;
++        fifo->staged = 0;
 +        schedule(fifo);
 +    }
 +}
@@ -265,7 +257,7 @@ diff --git a/types/wlr_fifo_v1.c b/types/wlr_fifo_v1.c
 +}
 +static void clear_barrier(struct fifo_surface *fifo) {
 +    fifo->barrier = false;
-+    fifo->staged = fifo->submitted = 0;
++    fifo->staged = 0;
 +}
 +static void idle(void *data) {
 +    struct fifo_surface *fifo = data;
@@ -277,7 +269,7 @@ diff --git a/types/wlr_fifo_v1.c b/types/wlr_fifo_v1.c
 +        surface_flush_cached(fifo->synced.surface);
 +        return;
 +    }
-+    if (fifo->barrier && !fifo->submitted) wlr_output_schedule_frame(fifo->output);
++    if (fifo->barrier) wlr_output_schedule_frame(fifo->output);
 +}
 +static void schedule(struct fifo_surface *fifo) {
 +    if (!fifo->idle) {
@@ -309,9 +301,9 @@ diff --git a/types/wlr_fifo_v1.c b/types/wlr_fifo_v1.c
 +    struct fifo_surface *fifo = wl_container_of(synced, fifo, synced);
 +    if (fifo->current.set) {
 +        fifo->barrier = true;
-+        // Zero is reserved for "not submitted"; independent of the u32 surface seq.
++        // Zero is reserved for "not staged"; independent of the u32 surface seq.
 +        if (++fifo->generation == 0) ++fifo->generation;
-+        fifo->staged = fifo->submitted = 0;
++        fifo->staged = 0;
 +        schedule(fifo);
 +    }
 +}
@@ -420,7 +412,7 @@ diff --git a/types/wlr_fifo_v1.c b/types/wlr_fifo_v1.c
 +        struct wlr_output *output) {
 +    struct fifo_surface *fifo;
 +    wl_list_for_each(fifo, &manager->surfaces, link) {
-+        if (fifo->barrier && !fifo->submitted && pacing_output(fifo->synced.surface) == output) return true;
++        if (fifo->barrier && pacing_output(fifo->synced.surface) == output) return true;
 +    }
 +    return false;
 +}
@@ -428,45 +420,31 @@ diff --git a/types/wlr_fifo_v1.c b/types/wlr_fifo_v1.c
 +    struct fifo_surface *fifo;
 +    wl_list_for_each(fifo, &manager->surfaces, link) {
 +        update_output(fifo);
-+        if (fifo->output == output) fifo->staged = fifo->barrier && !fifo->submitted ? fifo->generation : 0;
++        if (fifo->output == output) fifo->staged = fifo->barrier ? fifo->generation : 0;
 +    }
 +}
 +void wlr_fifo_manager_v1_finish(struct wlr_fifo_manager_v1 *manager,
 +        struct wlr_output *output, bool committed) {
-+    struct fifo_surface *fifo;
-+    wl_list_for_each(fifo, &manager->surfaces, link) {
-+        if (fifo->output != output) continue;
-+        if (committed && fifo->staged && fifo->staged == fifo->generation) {
-+            fifo->submitted = fifo->staged;
-+            fifo->submitted_seq = output->commit_seq;
-+        }
-+        fifo->staged = 0;
-+    }
-+}
-+bool wlr_fifo_manager_v1_present(struct wlr_fifo_manager_v1 *manager,
-+        struct wlr_output *output, const struct wlr_output_event_present *event) {
-+    bool retry = false;
-+    // Aqueous submits non-tearing frames while a barrier is active. DRM must
-+    // confirm VSYNC; headless/nested backends may provide synthetic feedback.
-+    bool latched = event->presented &&
-+        (!wlr_output_is_drm(output) || (event->flags & WLR_OUTPUT_PRESENT_VSYNC));
++    // fifo-v1 clears the barrier immediately after the latching deadline for
++    // non-tearing presentation. A successful output commit is that latch: the
++    // barrier frame is submitted and will be active for at least one refresh
++    // cycle. The compositor must not tear while a barrier is pending. Releasing
++    // here, rather than on a matched presentation event, bounds the barrier
++    // lifetime so a superseding commit or rejected flip can never strand it.
 +    for (;;) {
 +        struct fifo_surface *fifo, *ready = NULL;
 +        wl_list_for_each(fifo, &manager->surfaces, link) {
-+            if (fifo->output == output && pacing_output(fifo->synced.surface) == output && fifo->submitted &&
-+                    fifo->submitted == fifo->generation && fifo->submitted_seq == event->commit_seq) {
++            if (fifo->output != output || !fifo->staged) continue;
++            if (committed && fifo->staged == fifo->generation) {
 +                ready = fifo;
 +                break;
 +            }
++            fifo->staged = 0;
 +        }
-+        if (!ready) return retry;
-+        if (!latched) {
-+            ready->submitted = 0;
-+            retry = true;
-+            continue;
-+        }
++        if (!ready) return;
 +        clear_barrier(ready);
-+        // Restart iteration: commit listeners can remove other surfaces as well.
++        // Flushing can invoke compositor code and destroy this addon or others;
++        // restart iteration instead of caching a next pointer.
 +        surface_flush_cached(ready->synced.surface);
 +    }
 +}

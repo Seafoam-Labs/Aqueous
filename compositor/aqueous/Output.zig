@@ -2959,15 +2959,6 @@ fn handlePresent(
 fn processPresent(output: *Output, event: *const wlr.Output.event.Present) void {
     @import("DisplayPreview.zig").presented(output.display_instance, event.commit_seq, event.presented);
     if (!output.current.mirror_of.empty() and event.commit_seq != output.mirror.commit_seq) return;
-    if (output.current.mirror_of.empty() and server.fifo.present(output.wlr_output.?, event) and
-        output.retryEnabled() and !output.retryDisabledForTest())
-    {
-        // Rejected presentation is not a FIFO latch. Preserve the barrier and
-        // retry with the same backoff used for failed scene/output submissions.
-        _ = output.retry.failed(.output_commit, retryNowMs(), output.wlr_output.?.refresh);
-        output.scene_output.?.damage_ring.addWhole();
-        output.armRetryTimer();
-    }
     output.finishRenderMetric();
     if (output.retry.presented(event.commit_seq, event.presented)) {
         log.info("output {s}: recovery presented, sequence={}", .{ output.policyName(), event.commit_seq });

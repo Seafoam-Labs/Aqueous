@@ -196,8 +196,6 @@ static void latch(struct wlr_output *output) {
     wlr_fifo_manager_v1_prepare(fifo_server, output);
     output->commit_seq++;
     wlr_fifo_manager_v1_finish(fifo_server, output, true);
-    struct wlr_output_event_present event = {.commit_seq = output->commit_seq, .presented = true};
-    wlr_fifo_manager_v1_present(fifo_server, output, &event);
     assert(sync_client());
 }
 // Simulate expiry without waiting 25 ms per deterministic assertion. Disarm the
