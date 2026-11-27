@@ -24,16 +24,15 @@ static struct wp_fifo_manager_v1 *manager;
 static struct wlr_fifo_manager_v1 *fifo_manager;
 static struct wlr_surface *surface;
 static unsigned commits;
-static bool bypass, no_expiry;
+static bool bypass, no_latch;
 static struct wl_listener new_surface, committed, destroyed;
 static struct wlr_output *reentrant_output;
-static uint32_t latch(struct wlr_output *output, bool success);
-static void present(struct wlr_output *output, uint32_t seq, bool success);
+static void latch(struct wlr_output *output, bool success);
 static void commit_notify(struct wl_listener *listener, void *data) {
     (void)listener; (void)data; commits++;
     if (reentrant_output) {
         struct wlr_output *output = reentrant_output; reentrant_output = NULL;
-        present(output, latch(output, true), true);
+        latch(output, true);
     }
 }
 static void destroy_notify(struct wl_listener *listener, void *data) {
@@ -88,16 +87,11 @@ static void submit(struct wp_fifo_v1 *fifo, struct wl_surface *s, bool set, bool
     wl_surface_commit(s);
     sync_client();
 }
-static uint32_t latch(struct wlr_output *output, bool success) {
+static void latch(struct wlr_output *output, bool success) {
+    if (no_latch) return;
     wlr_fifo_manager_v1_prepare(fifo_manager, output);
     if (success) output->commit_seq++;
     wlr_fifo_manager_v1_finish(fifo_manager, output, success);
-    return output->commit_seq;
-}
-static void present(struct wlr_output *output, uint32_t seq, bool success) {
-    if (no_expiry) return;
-    struct wlr_output_event_present event = {.commit_seq = seq, .presented = success};
-    wlr_fifo_manager_v1_present(fifo_manager, output, &event);
 }
 int main(int argc, char **argv) {
     server = wl_display_create(); assert(server);
@@ -121,8 +115,8 @@ int main(int argc, char **argv) {
     wlr_surface_send_enter(surface, output);
 
     bypass = argc > 1 && !strcmp(argv[1], "bypass");
-    no_expiry = argc > 1 && !strcmp(argv[1], "no-expiry");
-    if (argc > 1 && !bypass && !no_expiry) {
+    no_latch = argc > 1 && !strcmp(argv[1], "no-latch");
+    if (argc > 1 && !bypass && !no_latch) {
         struct wp_fifo_v1 *duplicate = NULL;
         if (!strcmp(argv[1], "duplicate")) duplicate = wp_fifo_manager_v1_get_fifo(manager, s);
         else {
@@ -147,22 +141,20 @@ int main(int argc, char **argv) {
     submit(fifo, s, true, false); submit(fifo, s, true, true); submit(fifo, s, false, true);
     assert(commits == 0);
     wlr_surface_unlock_cached(surface, lock); assert(commits == 1);
-    uint32_t seq = latch(output, false); present(output, seq, true); assert(commits == 1);
-    seq = latch(output, true); present(output, seq, false); assert(commits == 1);
-    present(output, seq - 1, true); assert(commits == 1);
-    present(output, seq + 1, true); assert(commits == 1);
-    present(output, seq, true); assert(commits == 1); // failed submission stays rejected
+    // A failed commit cannot latch the barrier; it stays pending.
+    latch(output, false); assert(commits == 1);
     assert(wlr_fifo_manager_v1_output_pending(fifo_manager, output));
-    seq = latch(output, true); present(output, seq, true); assert(commits == 2);
-    present(output, seq, true); assert(commits == 2); // old completion vs new barrier
-    seq = latch(output, true); present(output, seq, true); assert(commits == 3);
+    // A successful latch releases the barrier and flushes B, which installs its own.
+    latch(output, true); assert(commits == 2);
+    assert(wlr_fifo_manager_v1_output_pending(fifo_manager, output));
+    latch(output, true); assert(commits == 3);
     assert(!wlr_fifo_manager_v1_output_pending(fifo_manager, output));
 
     // FIFO clear cannot release an independently owned lock.
     submit(fifo, s, true, false); assert(commits == 4);
     lock = wlr_surface_lock_pending(surface);
     submit(fifo, s, false, true); assert(commits == 4);
-    seq = latch(output, true); present(output, seq, true); assert(commits == 4);
+    latch(output, true); assert(commits == 4);
     wlr_surface_unlock_cached(surface, lock); assert(commits == 5);
 
     // Pending requests survive resource destruction; recreation reuses state.
@@ -171,7 +163,7 @@ int main(int argc, char **argv) {
     submit(fifo, s, false, false); assert(commits == 6);
     submit(fifo, s, false, true); assert(commits == 6);
     wp_fifo_v1_destroy(fifo); sync_client();
-    seq = latch(output, true); present(output, seq, true); assert(commits == 7);
+    latch(output, true); assert(commits == 7);
     fifo = wp_fifo_manager_v1_get_fifo(manager, s); sync_client();
     // Requests are one-commit state; unconstrained updates bypass an active barrier.
     wp_fifo_v1_set_barrier(fifo); wp_fifo_v1_set_barrier(fifo);
@@ -182,19 +174,18 @@ int main(int argc, char **argv) {
     wlr_surface_send_leave(surface, output); sync_client(); wait_hidden(10);
     submit(fifo, s, true, true); submit(fifo, s, false, true); wait_hidden(12);
 
-    // Surface and output sequence wrap do not alias the barrier generation.
+    // Surface sequence wrap does not alias the barrier generation.
     wlr_surface_send_enter(surface, output);
     surface->pending.seq = UINT32_MAX; output->commit_seq = UINT32_MAX;
     submit(fifo, s, true, false); submit(fifo, s, false, true); assert(commits == 13);
-    seq = latch(output, true); assert(seq == 0); present(output, seq, true); assert(commits == 14);
+    latch(output, true); assert(commits == 14);
     // Moving between outputs invalidates the earlier submission.
     struct wlr_output *other = wlr_headless_add_output(backend, 100, 100); assert(other);
     other->enabled = true;
     submit(fifo, s, true, false); submit(fifo, s, false, true); assert(commits == 15);
-    seq = latch(output, true);
     wlr_surface_send_leave(surface, output); wlr_surface_send_enter(surface, other); sync_client();
-    present(output, seq, true); assert(commits == 15);
-    seq = latch(other, true); present(other, seq, true); assert(commits == 16);
+    latch(output, true); assert(commits == 15);
+    latch(other, true); assert(commits == 16);
     submit(fifo, s, true, false); submit(fifo, s, false, true); assert(commits == 17);
     wlr_output_destroy(other); sync_client(); wait_hidden(18);
 
@@ -215,7 +206,7 @@ int main(int argc, char **argv) {
     wl_subsurface_set_desync(sub); sync_client();
     submit(fifo, s, true, false); submit(fifo, s, false, true);
     assert(commits == before + 3);
-    seq = latch(output, true); present(output, seq, true); assert(commits == before + 4);
+    latch(output, true); assert(commits == before + 4);
     // Changing to synchronized mode also unblocks already queued FIFO state.
     submit(fifo, s, true, false); submit(fifo, s, false, true);
     assert(commits == before + 5);
@@ -230,14 +221,14 @@ int main(int argc, char **argv) {
     wlr_surface_send_leave(surface, output); sync_client();
     before = commits;
 
-    // A compositor may submit/present synchronously from a commit listener.
-    // Reentrant readiness must not apply/free the same cache head twice.
+    // A compositor may finish synchronously from a commit listener.
+    // Reentrant flush must not apply/free the same cache head twice.
     wlr_surface_send_enter(surface, output);
     lock = wlr_surface_lock_pending(surface);
     submit(fifo, s, true, false); submit(fifo, s, true, true); submit(fifo, s, false, true);
     reentrant_output = output;
     wlr_surface_unlock_cached(surface, lock); assert(commits == before + 2);
-    seq = latch(output, true); present(output, seq, true); assert(commits == before + 3);
+    latch(output, true); assert(commits == before + 3);
     wlr_surface_send_leave(surface, output); sync_client();
     before = commits;
 
