@@ -84,7 +84,6 @@ export XDG_SESSION_TYPE=wayland
 # to the session init command and all compositor-spawned children. Preserve a
 # host DISPLAY here only when it is needed to run Aqueous nested on an X11
 # backend; never guess :0 for the inner session.
-export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-wayland;xcb}"
 export GDK_BACKEND="${GDK_BACKEND:-wayland,x11}"
 export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-wayland,x11}"
 export MOZ_ENABLE_WAYLAND="${MOZ_ENABLE_WAYLAND:-1}"
