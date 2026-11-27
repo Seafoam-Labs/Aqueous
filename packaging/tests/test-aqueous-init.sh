@@ -62,6 +62,19 @@ echo "Aqueous first-launch config seeding tests passed"
 
 echo "Aqueous cursor environment tests passed"
 
+# SteamVR (#167): the session must not export a Qt platform fallback. The
+# "wayland;xcb" list only parses on Qt >= 6.5 and aborts bundled-Qt5 vrmonitor.
+! grep -Eq '^[[:space:]]*export[[:space:]]+QT_QPA_PLATFORM=' \
+    "$repo_root/packaging/aqueous-wm.sh" \
+    "$repo_root/packaging/uwsm/env-aqueous"
+(
+    unset QT_QPA_PLATFORM
+    # shellcheck source=../uwsm/env-aqueous
+    source "$repo_root/packaging/uwsm/env-aqueous"
+    test -z "${QT_QPA_PLATFORM+x}"
+)
+echo "Aqueous Qt platform environment tests passed"
+
 # Capture environment exports without contacting the real service manager.
 for mode in uwsm dbus systemctl nested; do
     for endpoint in /tmp/aqueous-test/ipc.sock ''; do

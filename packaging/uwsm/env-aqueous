@@ -21,9 +21,10 @@ export XDG_CURRENT_DESKTOP=Aqueous
 export XDG_SESSION_TYPE=wayland
 export XDG_SESSION_DESKTOP=Aqueous
 
-# Toolkit backend hints. Apps prefer Wayland and fall back to the XWayland
-# server managed directly by Aqueous when the native Wayland path is unavailable.
-export QT_QPA_PLATFORM="wayland;xcb"
+# Toolkit backend hints. GTK/SDL accept comma fallback lists. Qt is left
+# unset on purpose: Qt 6 auto-selects Wayland and Qt 5 uses xcb through the
+# XWayland server Aqueous manages. A "wayland;xcb" fallback only parses on
+# Qt >= 6.5 and aborts bundled-Qt5 apps such as SteamVR's vrmonitor (#167).
 export GDK_BACKEND="wayland,x11"
 export SDL_VIDEODRIVER="wayland,x11"
 export CLUTTER_BACKEND=wayland
