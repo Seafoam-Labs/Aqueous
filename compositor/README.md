@@ -86,6 +86,12 @@ motion uses the same selection order.
 With `mouse_follows_focus`, the pointer moves into the selected window after
 the stack closes; physical pointer input cancels that pending move.
 
+Cycling away from a fullscreen window suspends it so the selected window is
+surfaced, and cycling back (or otherwise refocusing it) restores its fullscreen.
+This works for native Wayland fullscreen clients that do not grab or inhibit the
+keyboard, as well as clients that do. See
+`scripts/test-fullscreen-escape-restore.py` for the headless regression.
+
 Existing explicit bindings override defaults. To enable both shortcuts in an
 existing configuration, set these entries in `[keybinds]`:
 

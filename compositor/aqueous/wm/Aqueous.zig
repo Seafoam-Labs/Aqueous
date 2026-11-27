@@ -846,6 +846,7 @@ fn applyClientFullscreenRequests(
     for (requests) |request| {
         const state = aqueous.window_states.get(request.handle) orelse continue;
         state.overrideFullscreen();
+        state.escape_fullscreen_restore = false;
 
         switch (request.action) {
             .exit => {
@@ -2729,6 +2730,7 @@ fn toggleFullscreen(aqueous: *Aqueous) void {
     const context = aqueous.api.focusedContext() orelse return;
     const handle: layout_types.Handle = @bitCast(context.window.ref);
     context.window.policy_state.overrideFullscreen();
+    context.window.policy_state.escape_fullscreen_restore = false;
     if (context.window.policySnapshot().fullscreen) {
         aqueous.api.clearFullscreen(handle);
     } else {
@@ -2773,7 +2775,10 @@ fn toggleFloating(aqueous: *Aqueous) void {
 fn toggleMinimize(aqueous: *Aqueous) void {
     const handle = aqueous.api.focusedWindow() orelse return;
     if (!aqueous.window_states.restore(handle)) {
-        if (aqueous.window_states.get(handle)) |state| state.overrideFullscreen();
+        if (aqueous.window_states.get(handle)) |state| {
+            state.overrideFullscreen();
+            state.escape_fullscreen_restore = false;
+        }
         aqueous.api.clearFullscreen(handle);
         _ = aqueous.window_states.minimize(handle) catch return;
     }

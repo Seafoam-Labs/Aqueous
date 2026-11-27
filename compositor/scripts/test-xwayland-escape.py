@@ -170,6 +170,13 @@ enabled = false
         assert 'KEY keycode=23' not in xlog.read_text(), 'Tab was forwarded instead of intercepted'
         print('PASS: Alt+Tab escaped the grab, demoted fullscreen, focused peer', flush=True)
 
+        # Return: cycling back restores the Xwayland window's fullscreen
+        # (escape-and-return); the grab is honored again once it is refocused.
+        send_peer('chord 15 8')
+        wait_for(lambda: 'fullscreen' in xwindow()['states'], 'fullscreen not restored on return')
+        wait_for(lambda: 'focused' in xwindow()['states'], 'Xwayland window not focused after return')
+        print('PASS: cycling back restored fullscreen under Xwayland grab', flush=True)
+
         success = True
         print('PASS: fullscreen escape under Xwayland keyboard grab', flush=True)
     finally:

@@ -926,6 +926,20 @@ pub fn manageFinish(seat: *Seat) void {
     }
     seat.wm_requested.focus = .none;
 
+    // Escape-and-return: a fullscreen owner suspended by an escape cycle is
+    // restored when it regains focus, so cycling away-and-back returns to
+    // fullscreen. Runs after focus commit; clearing the flag first prevents the
+    // re-render scheduled below from restoring a second time.
+    if (seat.focused == .window and seat.focused.window.policy_state.escape_fullscreen_restore) {
+        const window = seat.focused.window;
+        window.policy_state.escape_fullscreen_restore = false;
+        if (window.workspace) |ws| {
+            server.aqueous.api.clearOtherFullscreen(ws.output.policyId(), @bitCast(window.ref));
+            _ = server.aqueous.api.setFullscreen(@bitCast(window.ref), ws.output.policyId());
+            server.wm.dirtyWindowing();
+        }
+    }
+
     switch (seat.wm_requested.op) {
         .none => {},
         .start_pointer,

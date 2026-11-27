@@ -125,6 +125,11 @@ focus_allowed: bool = true,
 fixed_position: bool = false,
 skip_switcher: bool = false,
 skip_taskbar: bool = false,
+/// Fullscreen was suspended by an escape cycle (the window switcher) so the
+/// cycle target could be surfaced. Re-assert fullscreen the next time this
+/// window gains focus, then clear. Cleared early when the user or client
+/// explicitly changes fullscreen or minimizes, so a stale restore never fires.
+escape_fullscreen_restore: bool = false,
 
 pub fn kind(state: *const PolicyState) Kind {
     if (state.visibility == .minimized) return .minimized;

@@ -231,14 +231,13 @@ pub fn step(self: *Self, origin: *Output, seat: *Seat, workspace: u32, reverse: 
     self.warp_allowed = all or server.aqueous.config.wm.input.mouse_follows_focus;
     self.serial +%= 1;
     self.reduced_motion = reduced_motion;
-    // Escape surfacing: while a client has seized the keyboard, cycling to a
-    // non-fullscreen window must actually reveal it. Demote the workspace's
-    // fullscreen owner so the target is not buried under the fullscreen band.
-    // clearOtherFullscreen is workspace-local and spares the target itself.
-    if (seat.xwaylandKeyboardGrabActive() or server.shortcuts.active(seat.wlr_seat)) {
-        if (window.workspace) |target_ws| {
-            server.aqueous.api.clearOtherFullscreen(target_ws.output.policyId(), next);
-        }
+    // Escape surfacing: cycling to a window must reveal it even when a fullscreen
+    // owner sits above it in the fullscreen band — whether or not the client has
+    // seized the keyboard (native Wayland games seize neither). Suspend the
+    // workspace's fullscreen owner, remembering it so it is restored when it
+    // regains focus (escape-and-return). Workspace-local and spares the target.
+    if (window.workspace) |target_ws| {
+        server.aqueous.api.suspendOtherFullscreenForEscape(target_ws.output.policyId(), next);
     }
     self.activating = true;
     defer self.activating = false;

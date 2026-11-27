@@ -570,9 +570,18 @@ but a small set of escape verbs stays reachable so the user is never trapped:
 the workspace window cycle (`cycle_focus` / `cycle_focus_reverse`, bound to
 Alt+Tab and Alt+Shift+Tab by default), the global window switcher
 (`window_switcher_*`), and the pointer-untrap hold. These are matched by verb,
-so the guarantee follows rebindings. Cycling to a non-fullscreen window while
-seized also demotes the workspace's fullscreen owner, surfacing the target
-instead of leaving it buried under the fullscreen layer.
+so the guarantee follows rebindings.
+
+Cycling to a non-fullscreen window suspends the workspace's fullscreen owner so
+the target is surfaced instead of left buried under the fullscreen layer. This
+applies whether or not the client has seized the keyboard: native Wayland
+fullscreen clients (for example Wine's Wayland driver) seize neither, yet must
+still be escapable. The suspension is remembered — when the suspended window
+regains focus, whether by cycling back, clicking, or activation, its fullscreen
+is restored, so escaping is reversible rather than forcing the window to stay
+windowed. An explicit fullscreen toggle, a client fullscreen request, or
+minimizing clears the pending restore so it never fires stale. Suspension stays
+workspace-local: fullscreen owners parked on other workspaces keep their state.
 
 Client-side drag and drop is a temporary exception to focus-follows-mouse.
 wlroots owns both pointer and keyboard grabs for the duration of a pointer

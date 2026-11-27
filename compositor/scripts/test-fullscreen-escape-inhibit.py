@@ -173,6 +173,14 @@ enabled = false
         assert 'KEY keycode=15' not in log_text('game'), 'Tab was forwarded instead of intercepted'
         print('PASS: Alt+Tab escaped inhibition, demoted fullscreen, focused peer', flush=True)
 
+        # Return: cycling back restores the game's fullscreen (escape-and-return).
+        # The inhibitor reactivates once the game is focused again, but the restore
+        # is independent of seizure.
+        key(15, 8)  # Alt+Tab again
+        expect_fullscreen('escape-game', True)
+        wait_for(lambda: 'focused' in window('escape-game')['states'], 'game not focused after return')
+        print('PASS: cycling back restored fullscreen under inhibition', flush=True)
+
         success = True
         print('PASS: fullscreen escape under shortcut inhibition', flush=True)
     finally:

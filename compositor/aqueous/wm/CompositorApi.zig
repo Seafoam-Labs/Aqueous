@@ -1274,6 +1274,30 @@ pub fn clearOtherFullscreen(_: CompositorApi, output_id: u64, except: layout.Han
         if (window == requester or window.wm_requested.fullscreen == null) continue;
         if (window.workspace != scope) continue;
         window.policy_state.overrideFullscreen();
+        window.policy_state.escape_fullscreen_restore = false;
+        window.policyClearFullscreen();
+    }
+}
+
+/// Escape-and-return surfacing: like clearOtherFullscreen, but the demoted
+/// fullscreen owner is remembered (escape_fullscreen_restore) so it is restored
+/// when it next gains focus. Used by the window switcher whether or not the
+/// client has seized the keyboard, so cycling away from a fullscreen window
+/// reveals the target and cycling back returns to fullscreen. Workspace-local
+/// and spares the requester itself.
+pub fn suspendOtherFullscreenForEscape(_: CompositorApi, output_id: u64, except: layout.Handle) void {
+    const ref: Window.Ref = @bitCast(except);
+    const requester = ref.get() orelse return;
+    const scope = requester.workspace orelse blk: {
+        const output = outputById(output_id) orelse return;
+        break :blk output.active_workspace orelse return;
+    };
+    var windows = server.wm.windows.iterator();
+    while (windows.next()) |window| {
+        if (window == requester or window.wm_requested.fullscreen == null) continue;
+        if (window.workspace != scope) continue;
+        window.policy_state.overrideFullscreen();
+        window.policy_state.escape_fullscreen_restore = true;
         window.policyClearFullscreen();
     }
 }
