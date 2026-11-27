@@ -1175,6 +1175,9 @@ pub const RulePlacementResult = enum { unchanged, changed, unavailable };
 /// keeps the admission output; an omitted workspace uses the destination's
 /// active workspace. Explicit output names target only visible, enabled heads
 /// so a rule cannot silently admit a new window onto a powered-off display.
+/// The reserved name "primary" follows the configured primary output with the
+/// same usability checks; an unresolvable primary falls back like a missing
+/// connector name.
 pub fn applyRulePlacement(
     api: CompositorApi,
     handle: layout.Handle,
@@ -1191,6 +1194,9 @@ pub fn applyRulePlacement(
             const box = candidate.policyFullBox();
             if (!candidate.policyTransferTarget() or box.width <= 0 or box.height <= 0) return .unavailable;
             break :blk candidate;
+        }
+        if (std.mem.eql(u8, requested, "primary")) {
+            if (server.aqueous.output_service.primaryRuleTarget()) |candidate| break :blk candidate;
         }
         return .unavailable;
     } else outputById(admission_output_id) orelse return .unavailable;

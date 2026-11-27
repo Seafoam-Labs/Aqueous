@@ -122,6 +122,7 @@ pkgname = aqueous-session-git
 	backup = etc/xdg/aqueous-git/outputs.toml
 	backup = etc/xdg/aqueous-git/input.toml
 	backup = etc/xdg/aqueous-git/layout.toml
+	backup = etc/xdg/aqueous-git/rules.toml
 	backup = etc/xdg/uwsm/env-aqueous-git
 	backup = etc/xdg/menus/aqueous-git-applications.menu
 	backup = etc/xdg/xdg-desktop-portal-aqueous-git/config

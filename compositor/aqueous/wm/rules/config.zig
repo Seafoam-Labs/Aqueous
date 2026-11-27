@@ -432,6 +432,26 @@ test "rules parser preserves order and parses native placement behavior" {
     try std.testing.expect(panel.blur_popups);
 }
 
+test "reserved primary output target parses as a placement string in both scopes" {
+    var engine = Engine.init(std.testing.allocator);
+    defer engine.deinit();
+    try parseAndReload(std.testing.allocator, &engine,
+        \\[[window]]
+        \\app_id = "primary-app"
+        \\output = "primary"
+        \\workspace = 2
+        \\[[window]]
+        \\scope = "override_redirect"
+        \\class = "popup*"
+        \\output = "primary"
+    );
+    const managed = engine.resolve(.{ .app_id = "primary-app" }).?;
+    try std.testing.expectEqualStrings("primary", managed.placement.output.?);
+    try std.testing.expectEqual(@as(u32, 2), managed.placement.workspace);
+    const popup = engine.resolve(.{ .class = "popup-menu", .scope = .override_redirect }).?;
+    try std.testing.expectEqualStrings("primary", popup.placement.output.?);
+}
+
 test "scrolling width rules preserve the current layout and explicit layout choices" {
     var engine = Engine.init(std.testing.allocator);
     defer engine.deinit();

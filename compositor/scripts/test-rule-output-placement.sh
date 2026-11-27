@@ -5,7 +5,8 @@ set -euo pipefail
 #   1. output-only rules use the destination's active workspace;
 #   2. output + workspace rules use that numbered destination workspace;
 #   3. workspace-only rules retain the normal admission output;
-#   4. unavailable output names fall back without disrupting the compositor.
+#   4. unavailable output names fall back without disrupting the compositor;
+#   5. the reserved output name "primary" follows the configured primary head.
 
 unset LD_PRELOAD
 
@@ -31,6 +32,14 @@ COMPOSITOR_LOG="$TEST_ROOT/compositor.log"
 COMPOSITOR_PID=""
 CLIENT_PIDS=()
 
+# Declare a fixed primary head so the reserved "primary" rule target has a
+# deterministic destination. The headless fixture admits windows on the second
+# head, so pinning the first head exercises a real cross-output move.
+PRIMARY=HEADLESS-1
+WM_CONFIG_PRIMARY="$TEST_ROOT/wm-primary.toml"
+cat "$WM_CONFIG" >"$WM_CONFIG_PRIMARY"
+printf '\n[[output]]\nname = "%s"\nprimary = true\n' "$PRIMARY" >>"$WM_CONFIG_PRIMARY"
+
 cleanup() {
     for pid in "${CLIENT_PIDS[@]:-}"; do kill "$pid" 2>/dev/null || true; done
     for pid in "${CLIENT_PIDS[@]:-}"; do wait "$pid" 2>/dev/null || true; done
@@ -50,7 +59,7 @@ WLR_RENDERER=pixman \
 XDG_RUNTIME_DIR="$RUNTIME" \
 XDG_CONFIG_HOME="$RUNTIME/config" \
 HOME="$RUNTIME/home" \
-AQUEOUS_CONFIG="$WM_CONFIG" \
+AQUEOUS_CONFIG="$WM_CONFIG_PRIMARY" \
 AQUEOUS_RULES="$RULES" \
     "$AQUEOUS_COMPOSITOR_BIN" -no-xwayland -policy internal -log-level debug -c true \
     >"$COMPOSITOR_LOG" 2>&1 &
@@ -78,6 +87,8 @@ for _ in $(seq 1 160); do
     sleep 0.05
 done
 [ "$(jq 'length' <<<"$outputs")" -eq 2 ] || die "aqueousctl did not report two outputs"
+jq -e --arg name "$PRIMARY" 'any(.[]; .name == $name)' <<<"$outputs" >/dev/null ||
+    die "headless outputs did not include the declared primary $PRIMARY"
 SOURCE=$(jq -r 'sort_by(.name) | .[0].name' <<<"$outputs")
 DEST=$(jq -r 'sort_by(.name) | .[1].name' <<<"$outputs")
 [ "$SOURCE" != "$DEST" ] || die "headless outputs did not have distinct names"
@@ -139,7 +150,16 @@ printf '%s\n' \
     '' \
     '[[window]]' \
     'title = "aq-rule-missing-output"' \
-    'output = "AQUEOUS-MISSING-OUTPUT"' >"$RULES"
+    'output = "AQUEOUS-MISSING-OUTPUT"' \
+    '' \
+    '[[window]]' \
+    'title = "aq-rule-primary"' \
+    'output = "primary"' \
+    '' \
+    '[[window]]' \
+    'title = "aq-rule-primary-workspace"' \
+    'output = "primary"' \
+    'workspace = 4' >"$RULES"
 
 for _ in $(seq 1 60); do
     grep -q 'configuration hot-reloaded' "$COMPOSITOR_LOG" && break
@@ -168,5 +188,15 @@ missing=$(wait_window aq-rule-missing-output)
 kill -0 "$COMPOSITOR_PID" 2>/dev/null || die "compositor exited after unavailable output rule"
 grep -q "window rule target output 'AQUEOUS-MISSING-OUTPUT'.*is unavailable" "$COMPOSITOR_LOG" ||
     die "unavailable output rule was not diagnosed"
+
+launch_window aq-rule-primary
+primary=$(wait_window aq-rule-primary)
+[ "$(jq -r '.output' <<<"$primary")" = "$PRIMARY" ] || die "primary rule missed the configured primary $PRIMARY"
+[ "$(jq -r '.workspace' <<<"$primary")" = 1 ] || die "primary rule did not use the active workspace"
+
+launch_window aq-rule-primary-workspace
+primary_workspace=$(wait_window aq-rule-primary-workspace)
+[ "$(jq -r '.output' <<<"$primary_workspace")" = "$PRIMARY" ] || die "primary + workspace rule missed $PRIMARY"
+[ "$(jq -r '.workspace' <<<"$primary_workspace")" = 4 ] || die "primary + workspace rule missed workspace 4"
 
 echo "PASS: window rules place on outputs and workspaces with safe fallback"

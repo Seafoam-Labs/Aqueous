@@ -62,6 +62,9 @@ EOF
     for path in "$prefix/share/aqueous/input.toml" "$sysconfdir/xdg/aqueous/input.toml"; do copy "$root/input.toml" "$path"; done
     # Inert layout template, seeded for the same reason as input.toml.
     for path in "$prefix/share/aqueous/layout.toml" "$sysconfdir/xdg/aqueous/layout.toml"; do copy "$root/layout.toml" "$path"; done
+    # Default window rules (Steam games on the primary output), seeded by the
+    # session launcher so user edits persist outside the read-only default.
+    for path in "$prefix/share/aqueous/rules.toml" "$sysconfdir/xdg/aqueous/rules.toml"; do copy "$root/rules.toml" "$path"; done
     # Package defaults only; never parse or edit a user's compositor TOML here.
     awk '
         /^\[actions\]$/ {

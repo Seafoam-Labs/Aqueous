@@ -1,0 +1,18 @@
+# Default window rules for the Aqueous desktop.
+# The session launcher copies this file to ~/.config/aqueous/rules.toml on
+# first login and never overwrites an existing copy. Edit or remove that user
+# copy to change these defaults; see rules.toml.example for the full schema.
+
+# Steam games run through XWayland with the WM class steam_app_<appid>.
+# Open them on the primary monitor: the output marked primary = true in the
+# display configuration (wm.toml / outputs.toml). Without a configured and
+# usable primary, windows fall back to normal admission placement.
+[[window]]
+class = "steam_app_*"
+output = "primary"
+
+# Native Wayland Proton games (PROTON_ENABLE_WAYLAND=1) advertise the same
+# identity through app_id instead of the X11 WM class.
+[[window]]
+app_id = "steam_app_*"
+output = "primary"
