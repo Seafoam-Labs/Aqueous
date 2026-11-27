@@ -30,10 +30,42 @@ pub fn reconfigureOutput(state: *State, before: types.Rect, after: types.Rect, u
 pub fn arrange(allocator: std.mem.Allocator, state: *State, snapshot: *const config.Snapshot, area: types.Rect, windows: []const types.Window, focused: ?types.Handle, game_options: game_mode.Options) ![]types.Placement {
     const id = snapshot.default;
     state.active_layout = id;
-    return if (id == .composable)
-        composable.arrange(allocator, &state.composite, snapshot, area, windows, focused, game_options)
+    // Shell-drawn SSD titlebars extend beyond the content box. Layouts allocate
+    // outer cells (content + decoration extents), so raise the effective client
+    // minima by the extents before arranging; otherwise a split could hand a
+    // decorated window a cell too small for its content once the titlebar is
+    // reserved. The content box is recovered from the outer cell below.
+    const adjusted = try allocator.alloc(types.Window, windows.len);
+    defer allocator.free(adjusted);
+    for (windows, adjusted) |window, *slot| {
+        slot.* = window;
+        slot.min_width += window.decoration.horizontal();
+        slot.min_height += window.decoration.vertical();
+    }
+    const placements = try (if (id == .composable)
+        composable.arrange(allocator, &state.composite, snapshot, area, adjusted, focused, game_options)
     else
-        leaf.arrange(allocator, &state.standalone, id, snapshot, area, windows, focused, game_options);
+        leaf.arrange(allocator, &state.standalone, id, snapshot, area, adjusted, focused, game_options));
+    for (placements) |*placement| {
+        const extents = blk: {
+            for (windows) |window| {
+                if (window.handle == placement.handle) break :blk window.decoration;
+            }
+            break :blk types.Extents{};
+        };
+        // Only pure tiled placements reserve extents here. Floating windows keep
+        // their content geometry (titlebars may overlap like CSD shadows);
+        // maximized windows are inset at their own placement site.
+        if (extents.isEmpty() or placement.tiling != .tiled) continue;
+        placement.geometry = types.insetRect(placement.geometry, extents);
+        // Scrolling clips are window-local; shift the aperture with the content
+        // origin so the visible global region is unchanged.
+        if (placement.clip) |*clip| {
+            clip.x -= extents.left;
+            clip.y -= extents.top;
+        }
+    }
+    return placements;
 }
 
 /// Swap two tiled windows in every initialized layout order. Keeping dormant
@@ -1123,4 +1155,100 @@ test "floating snap area follows the owning composable region" {
     try std.testing.expect(usesFloatingLayout(&state, 1));
     try std.testing.expectEqual(types.Rect{ .x = -1280, .y = 20, .width = 640, .height = 700 }, floatingArea(&state, &snapshot, 1, area));
     try std.testing.expectEqual(area, floatingArea(&state, &snapshot, 99, area));
+}
+
+test "tiling reserves shell titlebar extents inside the tile cell" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .tile;
+    snapshot.options[@backingInt(config.LayoutId.tile)].gaps_outer = 0;
+    snapshot.options[@backingInt(config.LayoutId.tile)].gaps_inner = 0;
+    snapshot.options[@backingInt(config.LayoutId.tile)].master_count = 2;
+    // Two members stacked vertically in the master column; the lower one carries
+    // a 32px shell titlebar drawn above its content box.
+    const windows = [_]types.Window{
+        .{ .handle = 1 },
+        .{ .handle = 2, .decoration = .{ .top = 32 } },
+    };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 200, .height = 400 };
+    const placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 1, .{});
+    defer std.testing.allocator.free(placements);
+    // Upper window: no extents, content fills its cell.
+    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 0, .width = 200, .height = 200 }, placements[0].geometry);
+    // Lower window: content inset by the titlebar; the titlebar (content.y - 32)
+    // lands exactly on the cell top, clear of the upper window's content.
+    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 232, .width = 200, .height = 168 }, placements[1].geometry);
+    try std.testing.expectEqual(@as(i32, 200), placements[1].geometry.y - 32);
+}
+
+test "scrolling shifts the viewport clip with reserved titlebar extents" {
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 100, .height = 80 };
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .scrolling;
+    snapshot.options[@backingInt(config.LayoutId.scrolling)].gaps_outer = 0;
+    snapshot.options[@backingInt(config.LayoutId.scrolling)].gaps_inner = 0;
+
+    var plain_state: State = .{};
+    defer plain_state.deinit(std.testing.allocator);
+    const plain = try arrange(std.testing.allocator, &plain_state, &snapshot, area, &.{.{ .handle = 1 }}, 1, .{});
+    defer std.testing.allocator.free(plain);
+
+    var decorated_state: State = .{};
+    defer decorated_state.deinit(std.testing.allocator);
+    const decorated = try arrange(std.testing.allocator, &decorated_state, &snapshot, area, &.{.{ .handle = 1, .decoration = .{ .top = 32 } }}, 1, .{});
+    defer std.testing.allocator.free(decorated);
+
+    // Scrolling positions/centres members by its own rules; the reservation
+    // must inset the content box by the titlebar height and shift the
+    // window-local aperture up by the same amount, leaving the visible global
+    // region and the horizontal geometry unchanged.
+    try std.testing.expectEqual(plain[0].geometry.x, decorated[0].geometry.x);
+    try std.testing.expectEqual(plain[0].geometry.width, decorated[0].geometry.width);
+    try std.testing.expectEqual(plain[0].geometry.y + 32, decorated[0].geometry.y);
+    try std.testing.expectEqual(plain[0].geometry.height - 32, decorated[0].geometry.height);
+    try std.testing.expectEqual(plain[0].clip.?.x, decorated[0].clip.?.x);
+    try std.testing.expectEqual(plain[0].clip.?.y - 32, decorated[0].clip.?.y);
+    try std.testing.expectEqual(plain[0].clip.?.height, decorated[0].clip.?.height);
+}
+
+test "tiled resize overrides store outer cells including titlebar extents" {
+    var state: State = .{};
+    defer state.deinit(std.testing.allocator);
+    var snapshot: config.Snapshot = .{};
+    snapshot.default = .tile;
+    snapshot.options[@backingInt(config.LayoutId.tile)].gaps_outer = 0;
+    snapshot.options[@backingInt(config.LayoutId.tile)].gaps_inner = 0;
+    snapshot.options[@backingInt(config.LayoutId.tile)].master_count = 2;
+    const windows = [_]types.Window{
+        .{ .handle = 1, .decoration = .{ .top = 32 } },
+        .{ .handle = 2 },
+    };
+    const area: types.Rect = .{ .x = 0, .y = 0, .width = 200, .height = 400 };
+    var placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 1, .{});
+    std.testing.allocator.free(placements);
+    // Pointer resize delivers an outer cell height (content 148 + titlebar 32).
+    try std.testing.expect(try resizeScrolling(std.testing.allocator, &state, 1, .{ .height = 180 }));
+    placements = try arrange(std.testing.allocator, &state, &snapshot, area, &windows, 1, .{});
+    defer std.testing.allocator.free(placements);
+    try std.testing.expectEqual(types.Rect{ .x = 0, .y = 32, .width = 200, .height = 148 }, placements[0].geometry);
+}
+
+test "insetRect reserves titlebar extents within a snap zone rectangle" {
+    // A left-half snap zone of a 1920x1040 usable area (bar already excluded).
+    const zone: types.Rect = .{ .x = 0, .y = 0, .width = 960, .height = 1040 };
+    const decorated: types.Extents = .{ .top = 32 };
+    // The content box is inset so the titlebar (content.y - 32) sits at the zone
+    // top, clear of the bar, and the outer box still fills the zone.
+    try std.testing.expectEqual(
+        types.Rect{ .x = 0, .y = 32, .width = 960, .height = 1008 },
+        types.insetRect(zone, decorated),
+    );
+    // No extents (CSD windows) leaves the zone rectangle untouched.
+    try std.testing.expectEqual(zone, types.insetRect(zone, .{}));
+    // Degenerate outer rectangles clamp to a 1px content box, never zero.
+    try std.testing.expectEqual(
+        types.Rect{ .x = 0, .y = 32, .width = 10, .height = 1 },
+        types.insetRect(.{ .x = 0, .y = 0, .width = 10, .height = 10 }, decorated),
+    );
 }
