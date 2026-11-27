@@ -1,7 +1,7 @@
 # Maintainer: Zoey Bauer <zoey.erin.bauer@gmail.com>
 # Minimal stable compositor for consumers such as pearl-greeter.
 pkgname=aqueous
-pkgver=1.2.0
+pkgver=1.2.1
 pkgrel=1
 pkgdesc='Aqueous Wayland compositor (stable, compositor only)'
 arch=('x86_64' 'aarch64')
@@ -14,7 +14,7 @@ depends=('wayland' 'libxkbcommon' 'libinput' 'pixman' 'libdrm' 'libevdev'
          'brightnessctl' 'playerctl')
 makedepends=('git' 'curl' 'patch' 'scdoc' 'python' 'shaderc' 'clang' 'lld' 'llvm'
              'wayland-protocols>=1.49' 'pkgconf' 'meson' 'ninja' 'glslang'
-             'vulkan-headers' 'hwdata' 'zig=0.17.0')
+             'vulkan-headers' 'hwdata' 'zig=0.17.1')
 provides=("aqueous=$pkgver")
 # These packages own the same unsuffixed binary/private library.
 # The suffixed aqueous-core-git package can coexist.

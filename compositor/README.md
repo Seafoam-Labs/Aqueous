@@ -130,7 +130,7 @@ promotes it into the dedicated PiP scene layer. The test asserts the pop-out
 stays above a focused floating peer and above a fullscreen peer by comparing
 scene order, so neither raise-on-focus nor the fullscreen layer can cover it.
 
-The toolchain is Zig 0.17.0. Bindings use the upstream Zig 0.17 releases of
+The toolchain is Zig 0.17.1. Bindings use the upstream Zig 0.17 releases of
 zig-wayland (0.7.0), zig-pixman (0.4.0), zig-xkbcommon (0.5.0), and
 translate-c (2.0.2). The portal picker uses the upstream zig-gobject
 `0.11.0-zig-0.17.0-2026-10-02-38-1` release.

@@ -3,7 +3,7 @@
 pkgbase=aqueous-desktop-git
 pkgname=(aqueous-core-git aqueous-session-git xdg-desktop-portal-aqueous-git
          aqueous-integration-pearl-git aqueous-shell-pearl-git devario-desktop-git)
-pkgver=1.2.0
+pkgver=1.2.1
 pkgrel=1
 pkgdesc='Devario Pearl desktop with Aqueous Git (replaces stable)'
 arch=('x86_64' 'aarch64')
@@ -12,7 +12,7 @@ license=('GPL-3.0-only' 'MIT')
 options=('!strip' '!debug' '!zipman')
 makedepends=('patchelf' 'git' 'curl' 'patch' 'scdoc' 'jq' 'python' 'shaderc' 'clang' 'lld' 'llvm'
              'wayland-protocols>=1.49' 'pkgconf' 'meson' 'ninja' 'glslang'
-             'vulkan-headers' 'hwdata' 'zig=0.17.0' 'libinih' 'freetype2' 'wayland'
+             'vulkan-headers' 'hwdata' 'zig=0.17.1' 'libinih' 'freetype2' 'wayland'
              'libxkbcommon' 'libinput' 'pixman' 'libpng' 'libdrm' 'libevdev' 'libdecor'
              'xorg-xwayland' 'pipewire' 'glib2' 'fontconfig' 'mesa' 'systemd-libs'
              'seatd' 'libdisplay-info' 'libliftoff' 'lcms2' 'vulkan-icd-loader'
@@ -29,7 +29,7 @@ pkgver() {
     cd "$srcdir/aqueous"
     local version
     version=$(git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g')
-    if [[ -z $version ]]; then version="1.2.0.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"; fi
+    if [[ -z $version ]]; then version="1.2.1.r$(git rev-list --count HEAD).g$(git rev-parse --short HEAD)"; fi
     printf '%s\n' "$version"
 }
 

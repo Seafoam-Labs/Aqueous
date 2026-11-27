@@ -14,7 +14,7 @@ The [T11 additions and remaining work](docs/T11.md) are unchanged by GUI retirem
 
 ## Build and package
 
-From this directory in a full Aqueous checkout, using Zig 0.17.0:
+From this directory in a full Aqueous checkout, using Zig 0.17.1:
 
 ```sh
 zig build -Doptimize=safe

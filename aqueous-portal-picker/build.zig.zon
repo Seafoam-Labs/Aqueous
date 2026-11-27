@@ -1,8 +1,8 @@
 .{
     .name = .aqueous_portal_picker,
-    .version = "1.2.0",
+    .version = "1.2.1",
     .fingerprint = 0xd04e1d50116315c4,
-    .minimum_zig_version = "0.17.0",
+    .minimum_zig_version = "0.17.1",
     .dependencies = .{
         .gobject = .{
             .url = "https://github.com/ghostty-org/zig-gobject/releases/download/0.11.0-zig-0.17.0-2026-10-02-38-1/ghostty-gobject-0.11.0-zig-0.17.0-2026-10-02-38-1.tar.gz",
