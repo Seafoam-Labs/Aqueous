@@ -156,6 +156,8 @@ let
       "${src}/compositor/patches/wlroots/0044-color-management-extended-target-volume.patch"
       "${src}/compositor/patches/wlroots/0045-scene-presentation.patch"
       "${src}/compositor/patches/wlroots/0046-color-pipeline-stable-blobs.patch"
+      "${src}/compositor/patches/wlroots/0047-xwayland-incoming-selection-focus.patch"
+      "${src}/compositor/patches/wlroots/0048-xwayland-outgoing-selection-focus.patch"
     ];
 
     # These match compositor/scripts/build-wlroots-render-hook.sh. Appending
