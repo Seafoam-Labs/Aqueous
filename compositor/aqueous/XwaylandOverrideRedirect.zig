@@ -597,6 +597,13 @@ fn applyPlacement(popup: *XwaylandOverrideRedirect) ?xwayland_projection.Project
                     found = target != null;
                     break;
                 }
+                // The reserved name "primary" follows the configured primary output.
+                if (!found and std.mem.eql(u8, name, "primary")) {
+                    if (server.aqueous.output_service.primaryRuleTarget()) |primary| {
+                        target = server.om.xwaylandProjectionForOutput(primary.wlr_output.?);
+                        found = target != null;
+                    }
+                }
                 if (!found) {
                     target = original;
                     break :placement;

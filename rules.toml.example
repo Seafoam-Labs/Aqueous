@@ -76,8 +76,12 @@ gaps_inner = 8             # integer >= 0
 #                   game-mode | game_mode | composable
 #                   omitted: preserve the workspace layout; Game Mode requires
 #                   an explicit layout = "game-mode"
-#   output          exact enabled connector name from `aqueousctl outputs`;
-#                   without workspace, uses that output's active workspace
+#   output          exact enabled connector name from `aqueousctl outputs`, or
+#                   the reserved name "primary" to follow the output marked
+#                   primary = true in the display configuration; without
+#                   workspace, uses that output's active workspace. An
+#                   unconfigured or unusable primary falls back to normal
+#                   admission placement like a missing connector name
 #   workspace       1-based workspace number; without output, uses the normal
 #                   admission output
 #   floating        true/false; enables floating placement independently of

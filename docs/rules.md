@@ -7,6 +7,15 @@ feature.
 
 See `rules.toml.example` at the repo root for a copy-pasteable template.
 
+The desktop packages (`aqueous-desktop`, `devario-desktop` and their Git
+variants) ship a default `rules.toml` that opens Steam games on the primary
+output (`output = "primary"`), matching `class = "steam_app_*"` for XWayland
+and `app_id = "steam_app_*"` for native Wayland Proton. The
+session launcher seeds it to `~/.config/aqueous/rules.toml` on first login
+only when that file is missing (the packaged `wm.toml` already points
+`[rules].path` at that user file), and skips seeding when `$AQUEOUS_RULES`
+redirects rules elsewhere. User edits and removals survive package upgrades.
+
 ## Discovery order
 
 The first hit wins:
@@ -74,7 +83,7 @@ matters.
 | `skip_switcher` | bool | no | Exclude from MRU cycling and overview. |
 | `skip_taskbar` | bool | no | Export a taskbar-suppression hint through the window-info state. |
 | `matching` | string | no (default `"always"`) | When the rule may match: `always` matches every window; `once` binds the rule to the first window which claims it so later matching windows fall through to subsequent rules; `startup` applies only to windows admitted during the compositor startup settle window (the first 10 seconds after startup, so autostart clients still match). Accepted aliases: `match-once`/`match_once` and `at-startup`/`at_startup`. A claimed once budget survives hot reloads until the rule's matcher is edited, and the claiming window keeps its rule for its whole lifetime. Override-redirect rules are always-on; any other timing rejects the reload. |
-| `output` | string | no | Open the window on the enabled output with this exact connector name, as reported by `aqueousctl outputs`. When `workspace` is omitted, the output's active workspace is used. |
+| `output` | string | no | Open the window on the enabled output with this exact connector name, as reported by `aqueousctl outputs`, or the reserved name `"primary"` to follow the output configured `primary = true` in the display configuration. When `workspace` is omitted, the output's active workspace is used. |
 | `workspace` | integer | no | Open the window on this 1-based workspace number. Without `output`, the window's normal admission output is used. |
 | `width`, `height` | integer | no | Floating placement dimensions. |
 | `x`, `y` | integer | no | Floating placement coordinates. |
@@ -104,6 +113,15 @@ not activate an inactive workspace. A missing or disabled output falls back to
 normal admission placement and does not move the established window if the
 output appears later. Manual workspace and output moves override the placement
 rule until a different matcher becomes active.
+
+The reserved output name `"primary"` resolves to the output marked
+`primary = true` in `wm.toml` / `outputs.toml` (including the active display
+profile), so the rule follows the primary across dock/undock and replug
+changes instead of pinning a connector. An exact connector name always wins
+over the reserved word. When no primary is configured, or the configured
+primary is currently disabled, hidden or has no active workspace, the rule
+falls back to normal admission placement exactly like a missing connector
+name; it does not chase the cursor or pick an arbitrary output.
 
 While a rule owns placement, client fullscreen output hints preserve that
 output and workspace, including inactive workspaces. Fullscreen entry and exit

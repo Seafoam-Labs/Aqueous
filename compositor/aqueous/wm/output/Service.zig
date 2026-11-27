@@ -128,6 +128,17 @@ pub fn primaryRecoveryOutput(service: *Service) ?*Output {
     return service.resolvePrimaryOutput(true);
 }
 
+/// The configured primary output when it can receive a window-rule placement
+/// (the reserved `output = "primary"` target). Applies the same usability
+/// checks as an explicit connector name so a powered-off or hidden primary
+/// falls back to normal admission instead of admitting windows onto it.
+pub fn primaryRuleTarget(service: *Service) ?*Output {
+    const primary = service.primaryOutput() orelse return null;
+    const box = primary.policyFullBox();
+    if (!primary.policyTransferTarget() or box.width <= 0 or box.height <= 0) return null;
+    return primary;
+}
+
 fn resolvePrimaryOutput(service: *Service, recovery: bool) ?*Output {
     const sources = service.primarySpecs();
     if (sources.base.len == 0 and sources.preferred.len == 0) return null;

@@ -466,7 +466,6 @@ Regression commands:
 ```sh
 (cd compositor && zig build test-gpu-pin)
 bash packaging/tests/test-aqueous-init.sh
-bash packaging/tests/test-git-desktop.sh
 bash compositor/scripts/test-gpu-observer.sh
 # In the Pearl checkout, using the matching built Aqueous binary:
 zig build test-gpu-report -- --aqueous /absolute/path/to/aqueous

@@ -131,17 +131,12 @@ session manager. Standalone nested core experiments remain a separate workflow.
 ## Verification
 
 ```sh
-python3 packaging/tests/test-arch-git-split.py
 bash packaging/tests/test-git-packages.sh
-bash packaging/tests/test-git-desktop.sh
-bash packaging/tests/test-git-desktop.sh PORTAL_DIST git PORTAL_LICENSE
 ```
 
-The tests compare component ownership with stable and Git, check
-meta dependencies and desktop identities, exercise shell selection, and verify
-that Welcome and the standalone picker are absent from package output, and
-that unsupported chooser requests produce no capture source. Real artifact
-checks verify the compiled portal identity and exercise session startup with mocked
-compositor/service commands. No host packages or services are changed by these
-tests. Real display-manager login, hardware capture and third-party shell
-acceptance remain separate release checks.
+The test compares Git core component ownership with stable, checks package
+metadata, and exercises relocatable private tools and endpoint isolation
+without installing anything or touching host services. The desktop staging and
+makepkg-based split suites were retired with the deprecated -git desktop. Real
+display-manager login, hardware capture and third-party shell acceptance remain
+separate release checks.

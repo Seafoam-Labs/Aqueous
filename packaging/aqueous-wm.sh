@@ -113,6 +113,19 @@ if $layout_seed && [ ! -f "$layout_cfg" ] && [ -f /etc/xdg/aqueous/layout.toml ]
     install -Dm644 /etc/xdg/aqueous/layout.toml "$layout_cfg" 2>/dev/null || true
 fi
 
+# Seed the default window rules (Steam games on the primary output). The
+# packaged wm.toml's [rules].path points at this same user file, so seeding
+# it is what activates the defaults. Skip only when $AQUEOUS_RULES redirects
+# rules elsewhere; an existing user copy is never overwritten.
+rules_seed=true
+if [ -n "${AQUEOUS_RULES:-}" ]; then
+    rules_seed=false
+fi
+rules_cfg="${XDG_CONFIG_HOME:-$HOME/.config}/aqueous/rules.toml"
+if $rules_seed && [ ! -f "$rules_cfg" ] && [ -f /etc/xdg/aqueous/rules.toml ]; then
+    install -Dm644 /etc/xdg/aqueous/rules.toml "$rules_cfg" 2>/dev/null || true
+fi
+
 # Aqueous runs the compositor, window-management policy, input, and output
 # configuration in one process. aqueous-init is its short-lived `-c` child and
 # exports the live session environment.
