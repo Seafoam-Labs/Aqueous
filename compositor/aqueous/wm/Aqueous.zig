@@ -536,9 +536,13 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
             if (state.kind() == .maximized) {
                 const max_area = if (aqueous.config.wm.maximize_full_output) output.area else usable_area;
                 const max_z: i32 = if (aqueous.layoutIsFloating(layout_key)) stacking.floating_band else stacking.maximized_band;
+                // Reserve shell-drawn titlebar extents so a maximized decorated
+                // window's titlebar stays inside the maximized area (and clear
+                // of the bar) rather than drawing above the content box.
+                const max_geometry = layout_types.insetRect(max_area, window.decoration);
                 requested.appendAssumeCapacity(.{
                     .handle = window.handle,
-                    .geometry = max_area,
+                    .geometry = max_geometry,
                     .z_order = max_z,
                     .stack_order = 0,
                     .visible = true,
@@ -753,6 +757,13 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                     }
                 }
                 if (state.snap_state != .none) placement.tiling = .snapped;
+                // Reserve shell titlebar extents so the snapped window's outer
+                // box fills the zone and its titlebar stays clear of the bar.
+                // Skip while dragging so the window follows the pointer without
+                // a jump mid-preview; the inset applies once the snap settles.
+                if (placement.tiling == .snapped and placement.visible and !dragging) {
+                    placement.geometry = layout_types.insetRect(placement.geometry, window.decoration);
+                }
             }
             placement.z_order = stacking.layeredZ(
                 placement.z_order,
@@ -1835,9 +1846,18 @@ pub fn updateInteractiveDrag(aqueous: *Aqueous, drag: *Drag, x: f64, y: f64) voi
         }
         const resize_edges = pointer_drag.edgesForAxis(drag.resize_edges, axis);
         const resized_rect = pointer_drag.resizeConstrained(drag.start, dx, dy, resize_edges, drag.constraints);
+        // drag.start and the constraints are content-box relative, but tiled
+        // layouts store outer cells (content + shell-decoration extents). Add
+        // the extents back so the stored override matches the cell the layout
+        // will allocate; engine.arrange insets it back to the content box.
+        const resize_extents = blk: {
+            const ref: Window.Ref = @bitCast(drag.handle);
+            const comp = ref.get() orelse break :blk layout_types.Extents{};
+            break :blk comp.shellDecorationInsets();
+        };
         const update: layout_types.ResizeUpdate = switch (axis) {
-            .horizontal => .{ .width = resized_rect.width },
-            .vertical => .{ .height = resized_rect.height },
+            .horizontal => .{ .width = resized_rect.width + resize_extents.horizontal() },
+            .vertical => .{ .height = resized_rect.height + resize_extents.vertical() },
         };
         const resized = layout_engine.resizeScrolling(
             util.gpa,

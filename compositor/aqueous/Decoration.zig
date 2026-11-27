@@ -55,7 +55,7 @@ pub fn create(
 ) !*Decoration {
     const decoration_v1 = try aqueous.DecorationV1.create(client, version, id);
 
-    if (!surface.setRole(&role, @ptrCast(decoration_v1), @intFromEnum(aqueous.WindowManagerV1.Error.role))) {
+    if (!surface.setRole(&role, @ptrCast(decoration_v1), @backingInt(aqueous.WindowManagerV1.Error.role))) {
         return error.AlreadyHasRole;
     }
     surface.setRoleObject(@ptrCast(decoration_v1));
@@ -94,7 +94,7 @@ pub fn createShell(
 ) !*Decoration {
     const decoration_v1 = try aqueous.ShellDecorationV1.create(client, version, id);
 
-    if (!surface.setRole(&role, @ptrCast(decoration_v1), @intFromEnum(aqueous.WindowManagerV1.Error.role))) {
+    if (!surface.setRole(&role, @ptrCast(decoration_v1), @backingInt(aqueous.WindowManagerV1.Error.role))) {
         return error.AlreadyHasRole;
     }
     surface.setRoleObject(@ptrCast(decoration_v1));
@@ -209,9 +209,16 @@ fn handleShellRequest(
     switch (request) {
         .destroy => decoration_v1.destroy(),
         .set_offset => |args| {
+            const changed = decoration.rendering_requested.offset_x != args.x or
+                decoration.rendering_requested.offset_y != args.y;
             decoration.rendering_requested.offset_x = args.x;
             decoration.rendering_requested.offset_y = args.y;
             server.wm.dirtyRendering();
+            // The offset defines the titlebar's outward extent, which tiling
+            // reserves inside the tile cell. A change while mapped must re-run
+            // windowing so the content box is re-inset (first map and unmap
+            // already dirty windowing in the surface role hooks).
+            if (changed and decoration.surface.mapped) server.wm.dirtyWindowing();
         },
         .sync_next_commit => {
             decoration.rendering_requested.sync_next_commit = true;

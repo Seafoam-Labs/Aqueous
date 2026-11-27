@@ -12,6 +12,33 @@ pub const StackLayer = enum { below, normal, above };
 /// adjacent to the anchor and overrides portrait stacking.
 pub const NewWindowPosition = enum { append, right, left, above, below };
 
+/// Outward extent of a window's shell-drawn server-side decorations, in
+/// logical pixels beyond the content box on each edge. Tiling layouts reserve
+/// these inside the tile cell so a titlebar drawn above the content (negative
+/// offset) stays within the cell instead of overlapping the bar or the window
+/// above. Only `above`-placement decorations contribute; invisible resize
+/// grips/shadows may spill into gaps like compositor borders do.
+pub const Extents = struct {
+    top: i32 = 0,
+    left: i32 = 0,
+    right: i32 = 0,
+    bottom: i32 = 0,
+
+    pub const empty: Extents = .{};
+
+    pub fn horizontal(e: Extents) i32 {
+        return e.left + e.right;
+    }
+
+    pub fn vertical(e: Extents) i32 {
+        return e.top + e.bottom;
+    }
+
+    pub fn isEmpty(e: Extents) bool {
+        return e.top == 0 and e.left == 0 and e.right == 0 and e.bottom == 0;
+    }
+};
+
 pub const Rect = struct {
     x: i32,
     y: i32,
@@ -28,6 +55,20 @@ pub const Rect = struct {
         return rect.y + rect.height;
     }
 };
+
+/// Recover the content box from an outer rectangle (tile cell, snap zone,
+/// maximized area) by reserving the shell-decoration extents on each edge. The
+/// titlebar drawn above the content then fits inside the outer rectangle
+/// instead of overlapping the bar or a neighbouring window. Dimensions clamp
+/// to 1 so a degenerate outer rectangle never yields a zero/negative configure.
+pub fn insetRect(rect: Rect, extents: Extents) Rect {
+    return .{
+        .x = rect.x + extents.left,
+        .y = rect.y + extents.top,
+        .width = @max(1, rect.width - extents.horizontal()),
+        .height = @max(1, rect.height - extents.vertical()),
+    };
+}
 
 /// A pointer-driven tiled resize changes at most one dimension per
 /// interaction. Null dimensions retain the layout's existing override state.
@@ -68,6 +109,10 @@ pub const Window = struct {
     fullscreen: bool = false,
     scrolling_full_width: bool = false,
     scrolling_width: ?f64 = null,
+    /// Shell-drawn SSD extents beyond the content box. Layouts allocate cells
+    /// large enough for content + extents, then emit the content box inset by
+    /// these amounts (see engine.arrange).
+    decoration: Extents = .{},
 };
 
 pub const FloatingPlacement = enum {

@@ -777,6 +777,26 @@ pub fn hasShellDecoration(window: *Window) bool {
     return false;
 }
 
+/// Outward extent of mapped shell-drawn above-placement decorations (Pearl
+/// titlebars) beyond the content box, in logical pixels. The integrated policy
+/// reserves these inside tiling cells so a titlebar drawn above the content
+/// (negative offset) fits within the tile instead of overlapping the bar or
+/// the window above. Only above-placement surfaces contribute; the
+/// below-placement frame's invisible grips/shadow may spill into gaps like
+/// compositor borders do.
+pub fn shellDecorationInsets(window: *Window) @import("wm/layout/types.zig").Extents {
+    const Extents = @import("wm/layout/types.zig").Extents;
+    var insets: Extents = .{};
+    var it = window.decorations_above.iterator(.forward);
+    while (it.next()) |decoration| {
+        if (!decoration.shell or !decoration.surface.mapped) continue;
+        const offset = decoration.rendering_requested;
+        insets.top = @max(insets.top, @max(0, -offset.offset_y));
+        insets.left = @max(insets.left, @max(0, -offset.offset_x));
+    }
+    return insets;
+}
+
 pub const DecorationSnapshot = struct {
     capability: []const u8,
     requested: []const u8,
