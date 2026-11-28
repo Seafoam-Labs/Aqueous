@@ -191,6 +191,9 @@ logical input gates, visual occlusion/clipping, old/new damage, output membershi
 and node lifetime without a GPU. `test-live-slide.py` exercises callback-paced
 client commits during actual slides; `test-fullscreen-workspace-transition.py`
 checks adjacent-output pixels and transition interruption.
+`test-workspace-empty-scrolling.py` (`zig build test-workspace-empty-scrolling`)
+guards issue #135: swapping to an empty workspace must slide the visible
+scrolling strip as a rigid unit without revealing off-screen columns mid-slide.
 
 Patch 0042 and render-hook API 12 make sampleable backdrops a per-pass
 requirement determined from visible scene nodes before choosing the framebuffer.

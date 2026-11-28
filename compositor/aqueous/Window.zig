@@ -2174,14 +2174,17 @@ fn syncBackdropBlur(
         .height = window.box.height,
     };
     var visible = full;
+    const offset = window.slideOffset();
     var effective_clip = clip.*;
     if (window.anim_active and !effective_clip.empty()) {
         // Layout clips describe a fixed viewport at the settled target. Convert
-        // that viewport back into the moving window's local coordinates.
+        // that viewport back into the moving window's local coordinates. During
+        // a workspace swap the viewport travels with the strip (offset), which
+        // cancels the motion and keeps the resting window-local clip.
         const origin_x: i32 = @intFromFloat(@round(window.anim_x));
         const origin_y: i32 = @intFromFloat(@round(window.anim_y));
-        effective_clip.x += requested.x - origin_x;
-        effective_clip.y += requested.y - origin_y;
+        effective_clip.x += requested.x - origin_x + offset.x;
+        effective_clip.y += requested.y - origin_y + offset.y;
     }
     if (!effective_clip.empty() and !visible.intersection(&visible, &effective_clip)) {
         window.disableBackdropBlur(blur);
@@ -2192,8 +2195,8 @@ fn syncBackdropBlur(
             const origin_x: i32 = @intFromFloat(@round(window.anim_x));
             const origin_y: i32 = @intFromFloat(@round(window.anim_y));
             const local_viewport: wlr.Box = .{
-                .x = viewport.x - origin_x,
-                .y = viewport.y - origin_y,
+                .x = viewport.x - origin_x + offset.x,
+                .y = viewport.y - origin_y + offset.y,
                 .width = viewport.width,
                 .height = viewport.height,
             };
@@ -2310,6 +2313,17 @@ pub fn stepAnimation(window: *Window, dt_s: f64) bool {
     return true;
 }
 
+/// Presentation offset relative to the settled layout position while a
+/// workspace-swap slide is in flight. Ordinary moves (anim_viewport null)
+/// report zero so their viewport stays fixed and the strip scrolls behind it.
+fn slideOffset(window: *const Window) struct { x: i32, y: i32 } {
+    if (window.anim_viewport == null) return .{ .x = 0, .y = 0 };
+    return .{
+        .x = @as(i32, @intFromFloat(@round(window.anim_x))) - window.rendering_requested.x,
+        .y = @as(i32, @intFromFloat(@round(window.anim_y))) - window.rendering_requested.y,
+    };
+}
+
 fn updatePresentation(window: *Window) void {
     const requested = &window.rendering_requested;
     const grid = scaling.PhysicalGrid.init(requested.output_scale);
@@ -2323,7 +2337,18 @@ fn updatePresentation(window: *Window) void {
     layout_clip.x += requested.x;
     layout_clip.y += requested.y;
     const clip = if (window.wm_requested.fullscreen == null and !requested.clip.empty()) &layout_clip else null;
-    var window_clip = window.anim_viewport;
+    // A workspace swap must slide the whole visible strip as a rigid unit:
+    // travel the output aperture with the presentation offset so columns that
+    // were hidden off-screen never move into view. Intersecting the travelled
+    // output box with the settled usable area also exposes background on the
+    // trailing edge as the strip leaves. Ordinary moves keep offset zero.
+    const offset = window.slideOffset();
+    var moved_viewport = window.anim_viewport;
+    if (moved_viewport) |*viewport| {
+        viewport.x += offset.x;
+        viewport.y += offset.y;
+    }
+    var window_clip = moved_viewport;
     if (clip) |layout| {
         if (window_clip) |*viewport| {
             _ = viewport.intersection(viewport, layout);
@@ -2342,7 +2367,7 @@ fn updatePresentation(window: *Window) void {
             if (tree == window.tree)
                 (if (window_clip) |*aperture| aperture else null)
             else
-                (if (window.anim_viewport) |*aperture| aperture else null),
+                (if (moved_viewport) |*aperture| aperture else null),
             input_enabled,
             null,
         );
@@ -2478,11 +2503,16 @@ fn drawBorders(window: *Window) void {
 
 fn animationBorderClip(window: *const Window) BorderClip {
     const requested = &window.rendering_requested;
+    const offset = window.slideOffset();
     var viewport = window.anim_viewport;
+    if (viewport) |*travelled| {
+        travelled.x += offset.x;
+        travelled.y += offset.y;
+    }
     if (!requested.clip.empty()) {
         const layout_viewport: wlr.Box = .{
-            .x = requested.x + requested.clip.x,
-            .y = requested.y + requested.clip.y,
+            .x = requested.x + requested.clip.x + offset.x,
+            .y = requested.y + requested.clip.y + offset.y,
             .width = requested.clip.width,
             .height = requested.clip.height,
         };
