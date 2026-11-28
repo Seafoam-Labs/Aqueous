@@ -300,6 +300,14 @@ pub fn build(b: *Build) !void {
     }
 
     {
+        const step = b.step("test-workspace-empty-scrolling", "Headless empty-workspace scrolling swap regression, issue #135 (requires grim, wlrctl, Pillow)");
+        const command = b.addSystemCommand(&.{"python3"});
+        command.addFileArg(b.path("scripts/test-workspace-empty-scrolling.py"));
+        command.step.dependOn(b.getInstallStep());
+        step.dependOn(&command.step);
+    }
+
+    {
         const river = b.addExecutable(.{
             .name = "aqueous",
             .root_module = b.createModule(.{
