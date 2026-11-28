@@ -77,8 +77,10 @@ Use `--renderer vulkan` with the normal build, or a compositor built with
 Super+Tab and Alt+Tab animate through eligible windows on the initiating seat's
 current workspace; Shift reverses the order. `cycle_focus` and
 `cycle_focus_reverse` share a stable workspace ring that survives focus changes
-and dismissal. New or restored windows append; closed, moved, minimized, and
-`skip_switcher` windows leave the ring. Modal parents are skipped in favor of
+and dismissal. New or restored windows append; closed, moved, and
+`skip_switcher` windows leave the ring. Minimized windows stay in the ring and
+are restored when cycled onto, so a window that minimized itself on focus loss
+is still reachable. Modal parents are skipped in favor of
 their active dialog. The stack displays three cards, but every eligible window
 is reachable. Releasing the initiating modifier, Escape, or 1.5 seconds of
 inactivity dismisses the stack and keeps the selected window focused. Reduced
@@ -91,6 +93,14 @@ surfaced, and cycling back (or otherwise refocusing it) restores its fullscreen.
 This works for native Wayland fullscreen clients that do not grab or inhibit the
 keyboard, as well as clients that do. See
 `scripts/test-fullscreen-escape-restore.py` for the headless regression.
+
+X11 games running under Wine/Proton often minimize themselves when they lose
+focus: they enter iconic state and unmap their window. Such a window is kept
+managed as minimized across the unmap (rather than dropped from the desktop), so
+it stays in the taskbar and the switcher ring; cycling back onto it asks the
+client to leave iconic state, re-maps it, and restores its fullscreen. See
+`scripts/test-xwayland-iconic-restore.py` (`zig build test-xwayland-iconic`) for
+the headless regression (issue #179).
 
 Existing explicit bindings override defaults. To enable both shortcuts in an
 existing configuration, set these entries in `[keybinds]`:

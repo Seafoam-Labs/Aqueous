@@ -58,6 +58,10 @@ grab_focus: wl.Listener(void) = .init(handleGrabFocus),
 focused_before_map: bool = false,
 grab_focused_before_map: bool = false,
 projection_scale: f64 = 1,
+/// The client asked to enter iconic state (WM_CHANGE_STATE / _NET_WM_STATE_HIDDEN).
+/// Recorded here so handleUnmap can keep the window managed even if the unmap
+/// notify is processed before xsurface.minimized settles (issue #179).
+iconic_pending: bool = false,
 
 // Active while the xsurface is associated with a wlr_surface
 map: wl.Listener(void) = .init(handleMap),
@@ -269,8 +273,15 @@ fn handleDestroy(listener: *wl.Listener(void)) void {
             window.state = .closing;
             server.wm.dirtyWindowing();
         },
-        // A mapped Xwayland surface must emit unmap before destroy.
-        .mapped => unreachable,
+        // A mapped Xwayland surface must emit unmap before destroy — except a
+        // window kept managed across an iconic unmap (issue #179), whose surface
+        // is already gone; release its workspace like a pre-map destroy.
+        .mapped => {
+            if (!window.policy_state.iconic_unmapped) unreachable;
+            window.clearWorkspace();
+            window.state = .closing;
+            server.wm.dirtyWindowing();
+        },
     }
     window.impl = .destroying;
 }
@@ -352,6 +363,28 @@ pub fn handleMap(listener: *wl.Listener(void)) void {
     handleSetDecorations(&xwindow.set_decorations);
     xwindow.updateFocusHint();
 
+    // Issue #179: this is the re-map of a window kept managed across an iconic
+    // unmap. The surface tree was re-attached above; clear the minimized/iconic
+    // state and resume presentation without re-admitting the window to a
+    // workspace or cancelling an active switcher deck.
+    if (window.policy_state.iconic_unmapped) {
+        window.policy_state.iconic_unmapped = false;
+        xwindow.iconic_pending = false;
+        _ = server.aqueous.window_states.restore(@bitCast(window.ref));
+        window.applySurfaceVisualState();
+        server.wm.dirtyWindowing();
+        server.wm.dirtyRendering();
+        if (xwindow.focused_before_map) {
+            xwindow.focused_before_map = false;
+            server.input_manager.defaultSeat().focusFromClient(.{ .window = window });
+        }
+        if (xwindow.grab_focused_before_map) {
+            xwindow.grab_focused_before_map = false;
+            server.input_manager.defaultSeat().focusXwaylandGrabSurface(surface);
+        }
+        return;
+    }
+
     window.state = .initialized;
     server.aqueous.noteWindowAdmission(@bitCast(window.ref));
     window.map() catch {
@@ -418,13 +451,35 @@ fn handleGrabFocus(listener: *wl.Listener(void)) void {
 
 fn handleUnmap(listener: *wl.Listener(void)) void {
     const xwindow: *XwaylandWindow = @fieldParentPtr("unmap", listener);
+    const window = xwindow.window;
 
     server.input_manager.xwayland_keyboard_grabs.releaseSurface(xwindow.xsurface.surface.?);
     xwindow.commit.link.remove();
 
     xwindow.xsurface.surface.?.data = null;
 
-    xwindow.window.unmap();
+    // Issue #179: a client that iconifies itself (e.g. a fullscreen game that
+    // minimizes on focus loss) unmaps its surface. Keep the window managed as
+    // minimized — retaining its workspace and foreign-toplevel handle — so it
+    // stays in the taskbar and window switcher and can be restored, rather than
+    // dropping it from the tree entirely. A non-iconic unmap (withdrawn or
+    // destroyed window) still takes the normal removal path below.
+    if ((xwindow.iconic_pending or xwindow.xsurface.minimized) and window.state == .mapped) {
+        window.surfaces.save();
+        xwindow.surface_tree.?.node.destroy();
+        xwindow.surface_tree = null;
+        xwindow.iconic_pending = false;
+        window.policy_state.iconic_unmapped = true;
+        // The unmap notify marked the surface withdrawn; keep WM_STATE at Iconic
+        // (minimized) rather than Withdrawn so a later restore reads NormalState.
+        xwindow.xsurface.setWithdrawn(false);
+        _ = server.aqueous.window_states.minimize(@bitCast(window.ref)) catch {};
+        server.wm.dirtyWindowing();
+        server.wm.dirtyRendering();
+        return;
+    }
+
+    window.unmap();
 
     // Don't destroy the surface tree until after Window.unmap() has a chance
     // to save buffers for frame perfection.
@@ -629,22 +684,17 @@ fn handleRequestFullscreen(listener: *wl.Listener(void)) void {
     server.wm.dirtyWindowing();
 }
 
-/// Some X11 clients enter their iconic state before compositor policy
-/// responds. Validate synchronously so rejected requests can be reverted before
-/// the client gets stuck minimized outside the integrated state machine.
+/// X11 clients enter their iconic state and unmap themselves; the compositor
+/// cannot veto that unmap (a WM_CHANGE_STATE reply is only advisory). Accept the
+/// transition so the window is tracked as a managed minimized window — kept
+/// across the unmap in handleUnmap() — and can be restored from the taskbar or
+/// window switcher instead of vanishing from the desktop (issue #179).
 fn handleRequestMinimize(
     listener: *wl.Listener(*wlr.XwaylandSurface.event.Minimize),
     event: *wlr.XwaylandSurface.event.Minimize,
 ) void {
     const xwindow: *XwaylandWindow = @fieldParentPtr("request_minimize", listener);
-    const handle: @import("wm/layout/types.zig").Handle = @bitCast(xwindow.window.ref);
-    if (!server.aqueous.clientMinimizeAllowed(handle, event.minimize)) {
-        // X11 clients may update their iconic state before policy responds.
-        // Explicitly reject it so a tiled window cannot disappear outside the
-        // integrated layout's state machine.
-        xwindow.xsurface.setMinimized(false);
-        return;
-    }
+    xwindow.iconic_pending = event.minimize;
     xwindow.xsurface.setMinimized(event.minimize);
     xwindow.window.wm_scheduled.minimize_requested = if (event.minimize) .minimize else .unminimize;
     server.wm.dirtyWindowing();

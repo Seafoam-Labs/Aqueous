@@ -2685,8 +2685,11 @@ pub fn sendFrameDone(window: Window) void {
     assert(window.state == .mapped);
     assert(window.impl != .destroying);
 
+    // A window kept managed across an X11 iconic unmap (issue #179) has no
+    // surface until the client re-maps; there is nothing to pace.
+    const surface = window.rootSurface() orelse return;
     var now = util.timestamp();
-    window.rootSurface().?.sendFrameDone(&now);
+    surface.sendFrameDone(&now);
 }
 
 /// True when the keep-render timer must pace this window because the scene is

@@ -130,6 +130,12 @@ skip_taskbar: bool = false,
 /// window gains focus, then clear. Cleared early when the user or client
 /// explicitly changes fullscreen or minimizes, so a stale restore never fires.
 escape_fullscreen_restore: bool = false,
+/// An X11 client entered its iconic state and unmapped its surface, but the
+/// window is kept managed (visibility = .minimized) so it stays in the taskbar
+/// and window switcher and can be restored (issue #179). Cleared when the
+/// client re-maps. While set, the window is hidden regardless of visibility so
+/// a restore does not present an empty tile before the surface returns.
+iconic_unmapped: bool = false,
 
 pub fn kind(state: *const PolicyState) Kind {
     if (state.visibility == .minimized) return .minimized;

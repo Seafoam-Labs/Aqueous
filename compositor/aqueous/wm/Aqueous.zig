@@ -516,7 +516,7 @@ pub fn applyManageCycle(aqueous: *Aqueous) !void {
                 };
                 fullscreen_owner = window.handle;
             }
-            if (state.kind() == .minimized) {
+            if (state.kind() == .minimized or state.iconic_unmapped) {
                 requested.appendAssumeCapacity(.{ .handle = window.handle, .geometry = .empty, .z_order = -1, .visible = false, .border = .none, .tiling = .untiled });
                 continue;
             }
@@ -993,6 +993,23 @@ fn activateClientWindow(
 
     aqueous.finishInteractiveDragFor(handle);
     _ = aqueous.window_states.restore(handle);
+
+    // Issue #179: a window kept managed across an X11 iconic unmap has no
+    // surface until the client re-maps. Tell the client to leave iconic state
+    // now (WM_STATE -> NormalState); a well-behaved client re-maps, and
+    // handleMap() resumes presentation. The activated-state delta alone is not
+    // reliable here because a minimized window may skip configure cycles.
+    const ref: Window.Ref = @bitCast(handle);
+    if (ref.get()) |window| {
+        if (window.impl == .xwayland and window.policy_state.iconic_unmapped) {
+            // The unmap marked the surface withdrawn; clear that so WM_STATE
+            // reads NormalState (not Withdrawn) and the client re-maps.
+            window.impl.xwayland.xsurface.setWithdrawn(false);
+            window.impl.xwayland.xsurface.setMinimized(false);
+            // Focus cannot land until the surface returns; apply it on re-map.
+            window.impl.xwayland.focused_before_map = true;
+        }
+    }
 
     if (findPolicyOutput(snapshot, workspace.output_id)) |output| {
         if (output.workspace_number != workspace.workspace_number) {
