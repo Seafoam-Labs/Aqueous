@@ -149,7 +149,10 @@ pub fn confirmed(self: *const Self) bool {
     return self.selected != null and seat.policyFocusedHandle() == self.selected;
 }
 pub fn eligible(window: *Window, ws: *Workspace) bool {
-    return ws.output.policyTransferTarget() and window.state == .mapped and window.workspace == ws and window.wm_scheduled.accepts_focus and window.policy_state.focus_allowed and !window.policy_state.skip_switcher and window.policy_state.kind() != .minimized and Window.resolveModalHandle(@bitCast(window.ref)) == @as(u64, @bitCast(window.ref));
+    // Minimized windows stay in the ring so a window that minimized itself on
+    // focus loss (e.g. a fullscreen game, issue #179) can be cycled back into;
+    // activating it restores it (see activateClientWindow -> store.restore).
+    return ws.output.policyTransferTarget() and window.state == .mapped and window.workspace == ws and window.wm_scheduled.accepts_focus and window.policy_state.focus_allowed and !window.policy_state.skip_switcher and Window.resolveModalHandle(@bitCast(window.ref)) == @as(u64, @bitCast(window.ref));
 }
 fn reconcile(self: *Self, ws: *Workspace) !*model.Ring {
     var ids: std.ArrayListUnmanaged(u64) = .empty;

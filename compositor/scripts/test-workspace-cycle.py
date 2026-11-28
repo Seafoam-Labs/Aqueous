@@ -255,14 +255,11 @@ def main():
         ctl('window', 'state', '--id', ids[2], '--minimized', 'true')
         wait(lambda: window(2)['minimized'], 'minimized')
         focus(0)
-        survivors = [wid for wid in order if wid != ids[2]]
-        at = survivors.index(ids[0]); visit(survivors[at+1:] + survivors[:at+1])
-        dismiss()
-        ctl('window', 'state', '--id', ids[2], '--minimized', 'false')
-        wait(lambda: not window(2)['minimized'], 'restored')
-        focus(0); order = survivors + [ids[2]]
+        # Issue #179: a minimized window stays in the cycle ring and is restored
+        # when cycled onto, rather than leaving the ring and appending on restore.
         at = order.index(ids[0]); visit(order[at+1:] + order[:at+1])
         dismiss()
+        wait(lambda: not window(2)['minimized'], 'cycling onto minimized window restores it')
         appended = create(6); move(6, first); focus(0)
         order.append(appended)
         at = order.index(ids[0]); visit(order[at+1:] + order[:at+1])

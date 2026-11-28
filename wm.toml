@@ -309,8 +309,10 @@ spawn_terminal        = "Super+Return"     # default
 screenshot            = "Print"            # default; select a region and copy it
 close_focused         = "Super+Q"          # default
 toggle_overview       = "Super+W"          # default; active-workspace window overview
-cycle_focus           = ["Super+Tab", "Alt+Tab"] # animated cycling within this workspace
-cycle_focus_reverse   = ["Super+Shift+Tab", "Alt+Shift+Tab"]
+cycle_focus           = []                 # workspace cycling unbound; global switcher below
+cycle_focus_reverse   = []
+window_switcher_next     = ["Super+Tab", "Alt+Tab"] # global: every workspace/output
+window_switcher_previous = ["Super+Shift+Tab", "Alt+Shift+Tab"]
 lock_screen           = "Super+Ctrl+L"     # default; runs [actions].lock_screen
 
 # --- Directional focus (scrolling: left/right columns, up/down column members) ---

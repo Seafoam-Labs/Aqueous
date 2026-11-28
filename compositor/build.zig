@@ -292,6 +292,14 @@ pub fn build(b: *Build) !void {
     };
 
     {
+        const step = b.step("test-xwayland-iconic", "Headless self-minimizing Xwayland game switcher regression, issue #179 (requires -Dxwayland -Dvulkan-effects=false)");
+        const command = b.addSystemCommand(&.{"python3"});
+        command.addFileArg(b.path("scripts/test-xwayland-iconic-restore.py"));
+        command.step.dependOn(b.getInstallStep());
+        step.dependOn(&command.step);
+    }
+
+    {
         const river = b.addExecutable(.{
             .name = "aqueous",
             .root_module = b.createModule(.{
