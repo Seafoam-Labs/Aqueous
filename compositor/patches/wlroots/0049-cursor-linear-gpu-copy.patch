@@ -1,0 +1,369 @@
+cursor, vulkan: hardware cursor via GPU copy onto LINEAR-only planes
+
+nvidia cursor planes scan out ARGB8888+LINEAR only, and the Vulkan device
+reports no color-attachment features for LINEAR, so the cursor format
+picker's render/display modifier intersection is empty and every output
+falls back to a software cursor.
+
+The cursor picker falls back to the display format when the renderer is
+Vulkan and the intersection is empty. The render pass serves such
+non-renderable dmabuf targets with a GPU copy variant of the existing
+copy_target machinery: it renders into an internal tiled image (the color
+transform stays in the render pass) and copies into the imported LINEAR
+dmabuf with vkCmdCopyImage in the same submission. No host memory or CPU
+conversion is involved; finish waits for pass completion so the cursor
+buffer is ready before the atomic commit. vulkan_import_dmabuf takes an
+explicit image usage so the destination can be imported TRANSFER_DST-only.
+
+The CPU presentation-copy path is unchanged. Any allocation or import
+failure keeps the existing software-cursor fallback.
+
+Cursor-only split of the WIP color-pipeline work: no color-pipeline
+programming, no recovery unbind commits, and no commit-failure backoff, so
+it cannot trigger the nvidia modeset DMA wedge.
+--- a/types/output/cursor.c
++++ b/types/output/cursor.c
+@@ -1,6 +1,7 @@
+ #include <assert.h>
+ #include <drm_fourcc.h>
+ #include <stdlib.h>
++#include <wlr/config.h>
+ #include <wlr/interfaces/wlr_output.h>
+ #include <wlr/render/allocator.h>
+ #include <wlr/render/swapchain.h>
+@@ -10,7 +11,11 @@
+ #include <wlr/util/log.h>
+ #include <wlr/util/region.h>
+ #include <wlr/util/transform.h>
++#if WLR_HAS_VULKAN_RENDERER
++#include <wlr/render/vulkan.h>
++#endif
+ #include "render/color.h"
++#include "render/drm_format_set.h"
+ #include "types/wlr_buffer.h"
+ #include "types/wlr_output.h"
+ 
+@@ -179,7 +184,28 @@
+ 		}
+ 	}
+ 
+-	return output_pick_format(output, display_formats, format, DRM_FORMAT_ARGB8888);
++	if (output_pick_format(output, display_formats, format, DRM_FORMAT_ARGB8888)) {
++		return true;
++	}
++#if WLR_HAS_VULKAN_RENDERER
++	/* nvidia cursor planes scan out LINEAR only, which the Vulkan device
++	 * cannot render to. Fall back to the display format: the render pass
++	 * renders the cursor (with its GPU color transform) into an internal
++	 * tiled image and copies into the LINEAR buffer on the GPU. The failed
++	 * pick above finished `format` without zeroing it; reset before copying
++	 * so the copy does not finish the dangling modifiers a second time. */
++	if (display_formats != NULL && wlr_renderer_is_vk(output->renderer)) {
++		const struct wlr_drm_format *display =
++			wlr_drm_format_set_get(display_formats, DRM_FORMAT_ARGB8888);
++		if (display != NULL) {
++			*format = (struct wlr_drm_format){0};
++			if (wlr_drm_format_copy(format, display)) {
++				return true;
++			}
++		}
++	}
++#endif
++	return false;
+ }
+ 
+ static struct wlr_buffer *render_cursor_buffer(struct wlr_output_cursor *cursor) {
+--- a/render/vulkan/renderer.c
++++ b/render/vulkan/renderer.c
+@@ -20,6 +20,7 @@
+ #include <xf86drm.h>
+ 
+ #include "render/dmabuf.h"
++#include "render/drm_format_set.h"
+ #include "render/pixel_format.h"
+ #include "render/vulkan.h"
+ #include "render/vulkan/shaders/common.vert.h"
+@@ -855,6 +856,12 @@
+ 	if (buffer->copy_mapping) vkUnmapMemory(dev, buffer->copy_memory);
+ 	vkDestroyBuffer(dev, buffer->copy_staging, NULL);
+ 	vkFreeMemory(dev, buffer->copy_memory, NULL);
++	if (buffer->gpu_copy) {
++		vkDestroyImage(dev, buffer->copy_dst_image, NULL);
++		for (uint32_t i = 0u; i < buffer->copy_dst_mem_count; ++i) {
++			vkFreeMemory(dev, buffer->copy_dst_memories[i], NULL);
++		}
++	}
+ 	vkDestroyImage(dev, buffer->image, NULL);
+ 	for (size_t i = 0u; i < buffer->mem_count; ++i) {
+ 		vkFreeMemory(dev, buffer->memories[i], NULL);
+@@ -1150,12 +1157,32 @@
+ 
+ 	buffer->format = dmabuf.format;
+ 	bool using_mutable_srgb = false;
++	bool gpu_copy = false;
++	if (!copy) {
++		/* A dmabuf the device cannot render to (nvidia cursor planes scan
++		 * out LINEAR only, which lacks color-attachment features) is served
++		 * by rendering into an internal tiled image and copying on the GPU.
++		 * The color transform stays in the render pass; no CPU conversion. */
++		const struct wlr_drm_format *render_fmt =
++			wlr_drm_format_set_get(&renderer->dev->dmabuf_render_formats, dmabuf.format);
++		gpu_copy = render_fmt == NULL || !wlr_drm_format_has(render_fmt, dmabuf.modifier);
++	}
+ 	if (copy) {
+ 		if (!vulkan_copy_buffer_init(buffer, &dmabuf)) goto error;
+ 		using_mutable_srgb = true;
++	} else if (gpu_copy) {
++		if (!vulkan_gpu_copy_buffer_init(buffer, &dmabuf)) goto error;
++		/* ARGB8888 has no sRGB VkFormat variant (premultiplied-alpha
++		 * convention); leave the framebuffer to the pass's lazy linear /
++		 * two-pass setup instead of asserting on the missing variant. */
++		const struct wlr_vk_format_props *copy_fmt =
++			vulkan_format_props_from_drm(renderer->dev, dmabuf.format);
++		using_mutable_srgb = copy_fmt != NULL &&
++			copy_fmt->format.vk_srgb != VK_FORMAT_UNDEFINED;
+ 	} else {
+ 		buffer->image = vulkan_import_dmabuf(renderer, &dmabuf,
+-			buffer->memories, &buffer->mem_count, true, &using_mutable_srgb);
++			buffer->memories, &buffer->mem_count, true, vulkan_render_usage,
++			&using_mutable_srgb);
+ 	}
+ 	if (!buffer->image) {
+ 		goto error;
+--- a/render/vulkan/texture.c
++++ b/render/vulkan/texture.c
+@@ -505,7 +505,7 @@
+ VkImage vulkan_import_dmabuf(struct wlr_vk_renderer *renderer,
+ 		const struct wlr_dmabuf_attributes *attribs,
+ 		VkDeviceMemory mems[static WLR_DMABUF_MAX_PLANES], uint32_t *n_mems,
+-		bool for_render, bool *using_mutable_srgb) {
++		bool for_render, VkImageUsageFlags usage, bool *using_mutable_srgb) {
+ 	VkResult res;
+ 	VkDevice dev = renderer->dev->dev;
+ 	*n_mems = 0u;
+@@ -569,7 +569,7 @@
+ 		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+ 		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+ 		.extent = (VkExtent3D) { attribs->width, attribs->height, 1 },
+-		.usage = for_render ? vulkan_render_usage : vulkan_dma_tex_usage,
++		.usage = usage,
+ 	};
+ 	if (disjoint) {
+ 		img_info.flags = VK_IMAGE_CREATE_DISJOINT_BIT;
+@@ -753,7 +753,8 @@
+ 
+ 	bool using_mutable_srgb = false;
+ 	texture->image = vulkan_import_dmabuf(renderer, attribs,
+-		texture->memories, &texture->mem_count, false, &using_mutable_srgb);
++		texture->memories, &texture->mem_count, false, vulkan_dma_tex_usage,
++		&using_mutable_srgb);
+ 	if (!texture->image) {
+ 		goto error;
+ 	}
+--- a/render/vulkan/copy.c
++++ b/render/vulkan/copy.c
+@@ -1,12 +1,15 @@
+ // SPDX-License-Identifier: MIT
+ // Experimental bounded synchronous readback. Automatic deployment is gated.
++// The GPU copy variant serves dmabuf targets the device cannot render to
++// (nvidia cursor planes scan out LINEAR only): the pass renders into an
++// internal tiled image and copies on the GPU, never through host memory.
+ #include <string.h>
+ #include <drm_fourcc.h>
+ #include <wlr/interfaces/wlr_buffer.h>
+ #include <wlr/util/log.h>
+ #include "render/vulkan.h"
+ 
+-bool vulkan_copy_buffer_init(struct wlr_vk_render_buffer *buffer,
++static bool copy_render_image_init(struct wlr_vk_render_buffer *buffer,
+         const struct wlr_dmabuf_attributes *dmabuf) {
+     if (dmabuf->width <= 0 || dmabuf->height <= 0 ||
+         (uint64_t)dmabuf->width * dmabuf->height > SIZE_MAX / 4) return false;
+@@ -50,7 +53,18 @@
+     buffer->mem_count = 1;
+     res = vkBindImageMemory(dev, buffer->image, buffer->memories[0], 0);
+     if (res != VK_SUCCESS) goto error;
++    return true;
++error:
++    wlr_vk_error("Vulkan presentation copy allocation", res);
++    return false;
++}
+ 
++bool vulkan_copy_buffer_init(struct wlr_vk_render_buffer *buffer,
++        const struct wlr_dmabuf_attributes *dmabuf) {
++    if (!copy_render_image_init(buffer, dmabuf)) return false;
++    struct wlr_vk_renderer *renderer = buffer->renderer;
++    VkDevice dev = renderer->dev->dev;
++    VkResult res;
+     VkBufferCreateInfo staging = {
+         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+         .size = (VkDeviceSize)dmabuf->width * dmabuf->height * 4,
+@@ -59,17 +73,23 @@
+     };
+     res = vkCreateBuffer(dev, &staging, NULL, &buffer->copy_staging);
+     if (res != VK_SUCCESS) goto error;
++    VkMemoryRequirements req;
+     vkGetBufferMemoryRequirements(dev, buffer->copy_staging, &req);
+-    type = vulkan_find_mem_type(renderer->dev,
++    int type = vulkan_find_mem_type(renderer->dev,
+         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
+         req.memoryTypeBits);
+     if (type < 0) type = vulkan_find_mem_type(renderer->dev,
+         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, req.memoryTypeBits);
+     if (type < 0) return false;
+-    dedicated.image = VK_NULL_HANDLE;
+-    dedicated.buffer = buffer->copy_staging;
+-    alloc.allocationSize = req.size;
+-    alloc.memoryTypeIndex = type;
++    VkMemoryDedicatedAllocateInfo dedicated = {
++        .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
++        .buffer = buffer->copy_staging,
++    };
++    VkMemoryAllocateInfo alloc = {
++        .pNext = &dedicated,
++        .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
++        .allocationSize = req.size, .memoryTypeIndex = type,
++    };
+     res = vkAllocateMemory(dev, &alloc, NULL, &buffer->copy_memory);
+     if (res != VK_SUCCESS) goto error;
+     res = vkBindBufferMemory(dev, buffer->copy_staging, buffer->copy_memory, 0);
+@@ -83,6 +103,20 @@
+     return false;
+ }
+ 
++bool vulkan_gpu_copy_buffer_init(struct wlr_vk_render_buffer *buffer,
++        const struct wlr_dmabuf_attributes *dmabuf) {
++    if (dmabuf->n_planes != 1) return false;
++    if (!copy_render_image_init(buffer, dmabuf)) return false;
++    buffer->gpu_copy = true;
++    bool using_mutable_srgb = false;
++    buffer->copy_dst_image = vulkan_import_dmabuf(buffer->renderer, dmabuf,
++        buffer->copy_dst_memories, &buffer->copy_dst_mem_count, false,
++        VK_IMAGE_USAGE_TRANSFER_DST_BIT, &using_mutable_srgb);
++    if (!buffer->copy_dst_image || buffer->copy_dst_mem_count != 1) return false;
++    wlr_log(WLR_INFO, "Vulkan GPU copy target allocated: %dx%d", dmabuf->width, dmabuf->height);
++    return true;
++}
++
+ void vulkan_copy_buffer_record(struct wlr_vk_render_buffer *buffer, VkCommandBuffer cb) {
+     VkImageMemoryBarrier image = {
+         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+@@ -97,22 +131,56 @@
+     };
+     vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+         VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &image);
+-    VkBufferImageCopy region = {
+-        .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+-        .imageExtent = {buffer->wlr_buffer->width, buffer->wlr_buffer->height, 1},
+-    };
+-    vkCmdCopyImageToBuffer(cb, buffer->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+-        buffer->copy_staging, 1, &region);
+-    VkBufferMemoryBarrier host = {
+-        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+-        .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+-        .dstAccessMask = VK_ACCESS_HOST_READ_BIT,
+-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+-        .buffer = buffer->copy_staging, .size = VK_WHOLE_SIZE,
+-    };
+-    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
+-        VK_PIPELINE_STAGE_HOST_BIT, 0, 0, NULL, 1, &host, 0, NULL);
++    if (buffer->gpu_copy) {
++        // The swapchain never hands out a buffer still scanned out, so the
++        // destination contents may be discarded; KMS ordering is covered by
++        // the dma-buf fence the submit attaches and the synchronous finish.
++        VkImageMemoryBarrier dst = {
++            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
++            .srcAccessMask = 0,
++            .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
++            .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
++            .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
++            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
++            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
++            .image = buffer->copy_dst_image,
++            .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
++        };
++        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
++            VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &dst);
++        VkImageCopy region = {
++            .srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
++            .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
++            .extent = {buffer->wlr_buffer->width, buffer->wlr_buffer->height, 1},
++        };
++        vkCmdCopyImage(cb, buffer->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++            buffer->copy_dst_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
++        dst.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
++        dst.dstAccessMask = 0;
++        dst.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
++        dst.newLayout = VK_IMAGE_LAYOUT_GENERAL;
++        dst.srcQueueFamilyIndex = buffer->renderer->dev->queue_family;
++        dst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_FOREIGN_EXT;
++        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
++            VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 0, NULL, 1, &dst);
++    } else {
++        VkBufferImageCopy region = {
++            .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
++            .imageExtent = {buffer->wlr_buffer->width, buffer->wlr_buffer->height, 1},
++        };
++        vkCmdCopyImageToBuffer(cb, buffer->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++            buffer->copy_staging, 1, &region);
++        VkBufferMemoryBarrier host = {
++            .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
++            .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
++            .dstAccessMask = VK_ACCESS_HOST_READ_BIT,
++            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
++            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
++            .buffer = buffer->copy_staging, .size = VK_WHOLE_SIZE,
++        };
++        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
++            VK_PIPELINE_STAGE_HOST_BIT, 0, 0, NULL, 1, &host, 0, NULL);
++    }
+     image.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+     image.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+     image.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+@@ -128,6 +196,11 @@
+     if (!vulkan_wait_render_pass(pass) || pass->renderer->sync_failed) {
+         return false;
+     }
++    if (buffer->gpu_copy) {
++        // The copy completed on the GPU; the cursor buffer is ready for the
++        // atomic commit without any host involvement.
++        return true;
++    }
+     VkMappedMemoryRange range = {
+         .sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE,
+         .memory = buffer->copy_memory, .offset = 0, .size = VK_WHOLE_SIZE,
+--- a/include/render/vulkan.h
++++ b/include/render/vulkan.h
+@@ -243,6 +243,14 @@
+ 	VkDeviceMemory copy_memory;
+ 	void *copy_mapping;
+ 
++	// GPU copy target: the buffer's dmabuf cannot be rendered to (e.g. nvidia
++	// cursor planes scan out LINEAR only), so the pass renders into `image`
++	// and copies into this imported dmabuf image. No host memory is involved.
++	bool gpu_copy;
++	VkImage copy_dst_image;
++	VkDeviceMemory copy_dst_memories[WLR_DMABUF_MAX_PLANES];
++	uint32_t copy_dst_mem_count;
++
+ 	// Framebuffer and image view for rendering directly onto the buffer image,
+ 	// without any color transform.
+ 	struct {
+@@ -538,6 +546,7 @@
+ 	int sync_file_fds[static WLR_DMABUF_MAX_PLANES]);
+ 
+ bool vulkan_copy_buffer_init(struct wlr_vk_render_buffer *buffer, const struct wlr_dmabuf_attributes *attribs);
++bool vulkan_gpu_copy_buffer_init(struct wlr_vk_render_buffer *buffer, const struct wlr_dmabuf_attributes *attribs);
+ void vulkan_copy_buffer_record(struct wlr_vk_render_buffer *buffer, VkCommandBuffer cb);
+ bool vulkan_copy_buffer_finish(struct wlr_vk_render_pass *pass);
+ bool vulkan_is_copy_buffer(struct wlr_buffer *buffer);
+@@ -577,7 +586,7 @@
+ VkImage vulkan_import_dmabuf(struct wlr_vk_renderer *renderer,
+ 	const struct wlr_dmabuf_attributes *attribs,
+ 	VkDeviceMemory mems[static WLR_DMABUF_MAX_PLANES], uint32_t *n_mems,
+-	bool for_render, bool *using_mutable_srgb);
++	bool for_render, VkImageUsageFlags usage, bool *using_mutable_srgb);
+ struct wlr_texture *vulkan_texture_from_buffer(
+ 	struct wlr_renderer *wlr_renderer, struct wlr_buffer *buffer);
+ void vulkan_texture_destroy(struct wlr_vk_texture *texture);

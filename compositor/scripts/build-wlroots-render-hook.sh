@@ -55,6 +55,7 @@ patch_files=(
     "$here/patches/wlroots/0046-color-pipeline-stable-blobs.patch"
     "$here/patches/wlroots/0047-xwayland-incoming-selection-focus.patch"
     "$here/patches/wlroots/0048-xwayland-outgoing-selection-focus.patch"
+    "$here/patches/wlroots/0049-cursor-linear-gpu-copy.patch"
 )
 prefix=${1:-"$here/.deps/wlroots-render-hook"}
 cache_dir=${AQUEOUS_WLROOTS_CACHE_DIR:-"$here/.deps/downloads"}
